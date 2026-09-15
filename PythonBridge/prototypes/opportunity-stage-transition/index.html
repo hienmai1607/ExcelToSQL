@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PROTOTYPE — Opportunity stage transition</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: #162033;
+      background: #f5f7fb;
+      --blue: #0f6cbd;
+      --blue-dark: #0b4f88;
+      --green: #107c10;
+      --amber: #8a5d00;
+      --border: #d8deea;
+      --muted: #5e6a7d;
+      --shadow: 0 14px 36px rgba(22, 32, 51, .12);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; }
+    button, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 28px; color: white; background: #17365d;
+    }
+    .brand { font-size: 18px; font-weight: 700; }
+    .prototype-mark { font-size: 12px; font-weight: 700; letter-spacing: .08em; color: #ffe7a3; }
+    main { max-width: 1180px; margin: 28px auto 110px; padding: 0 24px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 4px; font-size: 26px; }
+    .subtitle { color: var(--muted); margin-bottom: 22px; }
+    .surface { background: white; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 3px 12px rgba(22,32,51,.05); }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .spacer { flex: 1; }
+    .button { border: 1px solid #aeb8c8; background: white; color: #18243a; border-radius: 6px; padding: 9px 15px; font-weight: 600; }
+    .button:hover { background: #f1f5fa; }
+    .button.primary { color: white; background: var(--blue); border-color: var(--blue); }
+    .button.primary:hover { background: var(--blue-dark); }
+    .button.ghost { border-color: transparent; background: transparent; }
+    .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 10px; font-size: 13px; font-weight: 700; }
+    .badge.draft { color: #654800; background: #fff3cd; }
+    .badge.progress { color: #075a07; background: #dff6dd; }
+    .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    .value { font-weight: 650; margin-top: 4px; }
+    .grid { display: grid; gap: 18px; }
+    .detail-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .detail-cell { padding: 12px 0; border-bottom: 1px solid #edf0f5; }
+    .items { width: 100%; border-collapse: collapse; }
+    .items th, .items td { text-align: left; padding: 11px 12px; border-bottom: 1px solid #e7ebf1; }
+    .items th { color: #40506a; background: #f5f7fa; font-size: 12px; text-transform: uppercase; }
+    .state-box { margin-top: 20px; padding: 14px 16px; border: 1px dashed #9ba9bc; border-radius: 9px; background: #f8fafc; }
+    .state-box pre { margin: 8px 0 0; white-space: pre-wrap; font-size: 12px; color: #344158; }
+    .variant-a .head { padding: 20px 22px; border-bottom: 1px solid var(--border); }
+    .variant-a .content { padding: 20px 22px; }
+    .variant-a .title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .variant-b { display: grid; grid-template-columns: 220px 1fr; min-height: 610px; overflow: hidden; }
+    .variant-b nav { padding: 22px; color: white; background: #25354d; }
+    .variant-b nav button { width: 100%; margin: 5px 0; padding: 10px; text-align: left; color: white; border: 0; border-radius: 6px; background: transparent; }
+    .variant-b nav button.active { background: rgba(255,255,255,.15); }
+    .variant-b .workspace { padding: 24px; }
+    .stage-rail { display: flex; align-items: center; margin: 24px 0; }
+    .stage-node { min-width: 128px; text-align: center; padding: 12px; border: 2px solid #b8c2d1; border-radius: 8px; background: white; font-weight: 700; }
+    .stage-node.current { border-color: var(--blue); color: var(--blue-dark); background: #edf6ff; }
+    .stage-node.future { color: #7b8491; background: #f7f8fa; }
+    .stage-line { width: 52px; height: 2px; background: #bdc6d4; }
+    .command-panel { max-width: 660px; padding: 20px; border-left: 5px solid var(--blue); }
+    .variant-c { display: grid; grid-template-columns: 1fr 360px; gap: 22px; }
+    .variant-c .document { padding: 22px; }
+    .variant-c aside { padding: 22px; align-self: start; position: sticky; top: 16px; }
+    .check { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid #e7ebf1; }
+    .check-icon { display: grid; place-items: center; flex: 0 0 24px; height: 24px; color: white; background: var(--green); border-radius: 50%; font-size: 13px; font-weight: 800; }
+    .callout { margin: 14px 0; padding: 12px; color: #604600; background: #fff8dd; border: 1px solid #f0d879; border-radius: 7px; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 30; display: none; place-items: center; padding: 24px; background: rgba(8,16,29,.55); }
+    .modal-backdrop.open { display: grid; }
+    .modal { width: min(560px, 100%); padding: 24px; background: white; border-radius: 13px; box-shadow: var(--shadow); }
+    .transition { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 20px 0; font-size: 18px; }
+    textarea { width: 100%; min-height: 82px; resize: vertical; margin: 6px 0 16px; padding: 9px; border: 1px solid #aeb8c8; border-radius: 6px; }
+    .payload { max-height: 150px; overflow: auto; padding: 12px; color: #dce8ff; background: #162033; border-radius: 7px; font: 12px Consolas, monospace; white-space: pre-wrap; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+    .toast { position: fixed; right: 24px; top: 72px; z-index: 35; display: none; padding: 14px 18px; color: white; background: var(--green); border-radius: 8px; box-shadow: var(--shadow); }
+    .toast.show { display: block; }
+    .switcher { position: fixed; left: 50%; bottom: 22px; z-index: 40; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 8px 11px; color: white; background: #111827; border-radius: 999px; box-shadow: var(--shadow); }
+    .switcher button { width: 34px; height: 34px; color: white; border: 0; border-radius: 50%; background: #344158; font-size: 20px; }
+    .switch-label { min-width: 230px; text-align: center; font-size: 13px; }
+    @media (max-width: 800px) {
+      .detail-grid { grid-template-columns: 1fr 1fr; }
+      .variant-b { grid-template-columns: 1fr; }
+      .variant-b nav { display: none; }
+      .variant-c { grid-template-columns: 1fr; }
+      .variant-c aside { position: static; }
+      .stage-node { min-width: 0; flex: 1; font-size: 12px; }
+      .switch-label { min-width: 160px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Three variants of the Opportunity Draft-to-In Progress action, switchable via ?variant=A|B|C. -->
+  <header class="topbar">
+    <div class="brand">Sales Operations</div>
+    <div class="prototype-mark">THROWAWAY PROTOTYPE · NO DATA IS SAVED</div>
+  </header>
+  <main>
+    <h1>Opportunity OPP-2026-00042</h1>
+    <p class="subtitle">FY27 Retail Nut Program · 8avenue</p>
+    <div id="variant-root"></div>
+    <div class="state-box">
+      <strong>Prototype state</strong>
+      <pre id="state-output"></pre>
+    </div>
+  </main>
+
+  <div id="confirm-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <section class="modal">
+      <h2 id="dialog-title">Start this Opportunity?</h2>
+      <p>Business data becomes read-only in Excel after this transition. Future changes follow the workflow application.</p>
+      <div class="transition">
+        <span class="badge draft">Draft</span><span aria-hidden="true">→</span><span class="badge progress">In Progress</span>
+      </div>
+      <label for="reason"><strong>Reason</strong> <span style="color:#667085">(optional)</span></label>
+      <textarea id="reason" maxlength="500" placeholder="Add a short audit note"></textarea>
+      <div class="label">Request sent to the existing transition endpoint</div>
+      <pre id="payload-preview" class="payload"></pre>
+      <div class="modal-actions">
+        <button class="button" id="cancel-transition">Cancel</button>
+        <button class="button primary" id="confirm-transition">Confirm and start</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" role="status">Opportunity moved to In Progress.</div>
+
+  <div class="switcher" aria-label="Prototype variants">
+    <button id="previous-variant" aria-label="Previous variant">‹</button>
+    <div id="variant-label" class="switch-label"></div>
+    <button id="next-variant" aria-label="Next variant">›</button>
+  </div>
+
+  <script>
+    const variants = [
+      { key: "A", name: "Inline primary action" },
+      { key: "B", name: "Stage command rail" },
+      { key: "C", name: "Readiness review panel" }
+    ];
+    const initialState = {
+      id: 42,
+      number: "OPP-2026-00042",
+      customer: "8avenue",
+      description: "FY27 Retail Nut Program",
+      bidOpen: "2026-10-01",
+      bidClose: "2026-10-31",
+      stage: "Draft",
+      rowVersion: "AAAAAAAAA9E=",
+      items: 2,
+      user: "alex.chan",
+      scopes: ["Opportunity"],
+      requestId: null,
+      lastResult: null
+    };
+    let state = structuredClone(initialState);
+
+    const root = document.getElementById("variant-root");
+    const stateOutput = document.getElementById("state-output");
+    const dialog = document.getElementById("confirm-dialog");
+    const reason = document.getElementById("reason");
+    const payloadPreview = document.getElementById("payload-preview");
+    const toast = document.getElementById("toast");
+
+    function currentVariant() {
+      const requested = new URLSearchParams(location.search).get("variant")?.toUpperCase();
+      return variants.find(v => v.key === requested) ?? variants[0];
+    }
+
+    function stageBadge() {
+      const cls = state.stage === "Draft" ? "draft" : "progress";
+      const label = state.stage === "In progress" ? "In Progress" : state.stage;
+      return `<span class="badge ${cls}">${label}</span>`;
+    }
+
+    function detailGrid() {
+      return `<div class="grid detail-grid">
+        <div class="detail-cell"><div class="label">Customer</div><div class="value">${state.customer}</div></div>
+        <div class="detail-cell"><div class="label">Bid open</div><div class="value">1 Oct 2026</div></div>
+        <div class="detail-cell"><div class="label">Bid close</div><div class="value">31 Oct 2026</div></div>
+        <div class="detail-cell"><div class="label">Items</div><div class="value">${state.items}</div></div>
+      </div>`;
+    }
+
+    function itemsTable() {
+      return `<table class="items"><thead><tr><th>Product</th><th>Description</th><th>Annual units</th><th>Item stage</th></tr></thead>
+        <tbody><tr><td>Product 1</td><td>Retail pouch</td><td>1,000</td><td>Draft</td></tr>
+        <tr><td>Product 2</td><td>Display carton</td><td>500</td><td>Draft</td></tr></tbody></table>`;
+    }
+
+    function startButton(label = "Start Opportunity") {
+      const disabled = state.stage !== "Draft" ? "disabled" : "";
+      return `<button class="button primary start-transition" ${disabled}>${state.stage === "Draft" ? label : "Already In Progress"}</button>`;
+    }
+
+    function variantA() {
+      return `<section class="surface variant-a">
+        <div class="head">
+          <div class="title-row"><h2 style="margin:0">${state.description}</h2>${stageBadge()}</div>
+          <div class="toolbar"><button class="button">Edit Draft</button><button class="button">Refresh</button><div class="spacer"></div>${startButton("Start Opportunity")}</div>
+        </div>
+        <div class="content">${detailGrid()}<h3 style="margin-top:22px">Items</h3>${itemsTable()}</div>
+      </section>`;
+    }
+
+    function variantB() {
+      return `<section class="surface variant-b">
+        <nav><h3>Opportunity</h3><button>Overview</button><button class="active">Workflow</button><button>Items</button><button>History</button></nav>
+        <div class="workspace">
+          <div class="toolbar"><div><div class="label">Current stage</div><div style="margin-top:6px">${stageBadge()}</div></div><div class="spacer"></div><button class="button">View history</button></div>
+          <div class="stage-rail"><div class="stage-node current">Draft</div><div class="stage-line"></div><div class="stage-node ${state.stage === "In progress" ? "current" : "future"}">In Progress</div><div class="stage-line"></div><div class="stage-node future">Closed</div></div>
+          <div class="surface command-panel"><div class="label">Available action</div><h2>Begin active work</h2><p>Move the header to In Progress. Item stages remain unchanged and can follow their own workflow.</p>${startButton("Move to In Progress")}</div>
+          <div style="margin-top:24px">${detailGrid()}</div>
+        </div>
+      </section>`;
+    }
+
+    function variantC() {
+      return `<section class="variant-c">
+        <div class="surface document"><div class="toolbar"><h2 style="margin:0">Opportunity review</h2><div class="spacer"></div>${stageBadge()}</div>
+          <p style="margin-top:10px;color:var(--muted)">Review the transaction before starting workflow.</p>${detailGrid()}<h3 style="margin-top:22px">Items</h3>${itemsTable()}</div>
+        <aside class="surface"><div class="label">Readiness review</div><h2>Ready to start</h2>
+          <div class="check"><span class="check-icon">✓</span><div><strong>Required header data</strong><br><small>Customer and bid dates are complete</small></div></div>
+          <div class="check"><span class="check-icon">✓</span><div><strong>Items available</strong><br><small>2 Draft items are attached</small></div></div>
+          <div class="check"><span class="check-icon">✓</span><div><strong>Access confirmed</strong><br><small>Opportunity role</small></div></div>
+          <div class="callout">After starting, Excel cannot modify this Opportunity's business data.</div>
+          ${startButton("Confirm and Start")}
+        </aside>
+      </section>`;
+    }
+
+    function render() {
+      const variant = currentVariant();
+      root.innerHTML = variant.key === "A" ? variantA() : variant.key === "B" ? variantB() : variantC();
+      document.getElementById("variant-label").textContent = `${variant.key} · ${variant.name}`;
+      stateOutput.textContent = JSON.stringify(state, null, 2);
+      document.querySelectorAll(".start-transition").forEach(button => button.addEventListener("click", openDialog));
+    }
+
+    function transitionPayload() {
+      return {
+        TargetStage: "In progress",
+        ExpectedRowVersion: state.rowVersion,
+        RequestID: state.requestId,
+        Reason: reason.value.trim() || null
+      };
+    }
+
+    function openDialog() {
+      if (state.stage !== "Draft") return;
+      state.requestId = crypto.randomUUID();
+      reason.value = "";
+      payloadPreview.textContent = `POST /api/opportunity/${state.id}/stage-transition\n\n${JSON.stringify(transitionPayload(), null, 2)}`;
+      dialog.classList.add("open");
+      reason.focus();
+      renderStateOnly();
+    }
+
+    function renderStateOnly() {
+      stateOutput.textContent = JSON.stringify(state, null, 2);
+      payloadPreview.textContent = `POST /api/opportunity/${state.id}/stage-transition\n\n${JSON.stringify(transitionPayload(), null, 2)}`;
+    }
+
+    reason.addEventListener("input", renderStateOnly);
+    document.getElementById("cancel-transition").addEventListener("click", () => {
+      dialog.classList.remove("open");
+      state.requestId = null;
+      render();
+    });
+    document.getElementById("confirm-transition").addEventListener("click", () => {
+      const request = transitionPayload();
+      state.stage = "In progress";
+      state.rowVersion = "AAAAAAAAB9I=";
+      state.lastResult = { Status: "OK", Message: "Stage updated", Stage: "In progress", NewRowVersion: state.rowVersion, RequestID: request.RequestID };
+      dialog.classList.remove("open");
+      render();
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2500);
+    });
+    dialog.addEventListener("click", event => { if (event.target === dialog) document.getElementById("cancel-transition").click(); });
+
+    function changeVariant(offset) {
+      const current = currentVariant();
+      const index = variants.findIndex(v => v.key === current.key);
+      const next = variants[(index + offset + variants.length) % variants.length];
+      const url = new URL(location.href);
+      url.searchParams.set("variant", next.key);
+      history.replaceState({}, "", url);
+      render();
+    }
+    document.getElementById("previous-variant").addEventListener("click", () => changeVariant(-1));
+    document.getElementById("next-variant").addEventListener("click", () => changeVariant(1));
+    document.addEventListener("keydown", event => {
+      const tag = document.activeElement?.tagName;
+      if (["INPUT", "TEXTAREA"].includes(tag) || document.activeElement?.isContentEditable) return;
+      if (event.key === "ArrowLeft") changeVariant(-1);
+      if (event.key === "ArrowRight") changeVariant(1);
+      if (event.key === "Escape" && dialog.classList.contains("open")) document.getElementById("cancel-transition").click();
+    });
+
+    render();
+  </script>
+</body>
+</html>

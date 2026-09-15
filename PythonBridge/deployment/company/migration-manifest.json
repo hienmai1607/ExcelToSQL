@@ -1,0 +1,14 @@
+{
+  "release": "2",
+  "databaseMode": "fresh-empty-database-only",
+  "scripts": [
+    { "id": "000_empty_database_baseline", "path": "sql/deploy/000_empty_database_baseline.sql", "stripDevelopmentUse": false },
+    { "id": "020_legacy_procedure_base", "path": "sql/02_procedures.sql", "stripDevelopmentUse": true },
+    { "id": "050_opportunity_grid", "path": "sql/05_opportunity_grid.sql", "stripDevelopmentUse": true },
+    { "id": "060_opportunity_number_sequence", "path": "sql/06_opportunity_number_sequence.sql", "stripDevelopmentUse": true },
+    { "id": "080_admin_master_rowversion", "path": "sql/08_admin_master_rowversion.sql", "stripDevelopmentUse": true },
+    { "id": "090_users_useraccess_admin_master", "path": "sql/09_users_useraccess_admin_master.sql", "stripDevelopmentUse": true },
+    { "id": "110_user_master_customer_product", "path": "sql/11_user_master_customer_product.sql", "stripDevelopmentUse": true },
+    { "id": "120_opportunity_transaction_model", "path": "sql/12_opportunity_transaction_model.sql", "stripDevelopmentUse": true }
+  ]
+}
