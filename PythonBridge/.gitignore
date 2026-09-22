@@ -10,7 +10,6 @@ deployment/private/
 *.bak
 backups/
 webapp/node_modules/
-webapp/dist/
 webapp/test-results/
 webapp/playwright-report/
 *.before_*.xlsm
