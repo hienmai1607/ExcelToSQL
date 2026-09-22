@@ -4,13 +4,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'workbook_backup.ps1')
 $workbookFile = (Resolve-Path -LiteralPath $WorkbookPath).Path
 $moduleFile = (Resolve-Path -LiteralPath $ModulePath).Path
 $workspace = Split-Path $workbookFile -Parent
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$backupFile = Join-Path $workspace ("Sales_Template.before_customer_lookup_fix_$stamp.xlsm")
-Copy-Item -LiteralPath $workbookFile -Destination $backupFile
+$backupFile=New-WorkbookBackup -WorkbookPath $workbookFile
 
 $excel = $null
 $workbook = $null

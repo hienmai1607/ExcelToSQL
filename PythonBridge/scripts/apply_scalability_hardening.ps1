@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'workbook_backup.ps1')
 $root=Split-Path $PSScriptRoot -Parent
 $adminPath=(Resolve-Path -LiteralPath $AdminWorkbookPath).Path
 $productPath=(Resolve-Path -LiteralPath $ProductWorkbookPath).Path
@@ -17,16 +18,13 @@ $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'
 foreach($name in @('Admin_Master.xlsm','Product_Template.xlsm','Sales_Template.xlsm')) {
     if(Test-Path -LiteralPath (Join-Path $root ('~$'+$name))){throw "$name is open. Close it before migration."}
 }
-$backups=@{
-    Admin=Join-Path $root "Admin_Master.before_scalability_$stamp.xlsm"
-    Product=Join-Path $root "Product_Template.before_scalability_$stamp.xlsm"
-    Sales=Join-Path $root "Sales_Template.before_scalability_$stamp.xlsm"
-}
-Copy-Item -LiteralPath $adminPath -Destination $backups.Admin
-Copy-Item -LiteralPath $productPath -Destination $backups.Product
-Copy-Item -LiteralPath $salesPath -Destination $backups.Sales
+$backups=@{}
+$backups.Admin=New-WorkbookBackup -WorkbookPath $adminPath
+$backups.Product=New-WorkbookBackup -WorkbookPath $productPath
+$backups.Sales=New-WorkbookBackup -WorkbookPath $salesPath
 
 function Install-Module($Workbook,[string]$Name,[string]$Path) {
+    if($Name -eq 'modHttpJson'){Install-SharedPagination $Workbook}
     $existing=$null
     try{$existing=$Workbook.VBProject.VBComponents.Item($Name)}catch{}
     if($null -ne $existing){$Workbook.VBProject.VBComponents.Remove($existing)}

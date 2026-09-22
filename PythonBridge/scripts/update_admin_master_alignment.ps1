@@ -4,11 +4,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'workbook_backup.ps1')
 $workbookFile = (Resolve-Path -LiteralPath $WorkbookPath).Path
 $moduleFile = (Resolve-Path -LiteralPath $ModulePath).Path
 $workspace = Split-Path $workbookFile -Parent
-$backupFile = Join-Path $workspace ("Admin_Master.before_alignment_$(Get-Date -Format 'yyyyMMdd-HHmmss').xlsm")
-Copy-Item -LiteralPath $workbookFile -Destination $backupFile
+$backupFile=New-WorkbookBackup -WorkbookPath $workbookFile
 
 $excel = $null
 $workbook = $null
@@ -48,7 +48,12 @@ try {
         }
         if ($null -ne $existing) { $workbook.VBProject.VBComponents.Remove($existing) }
     }
+    Install-SharedPagination $workbook
     [void]$workbook.VBProject.VBComponents.Import($moduleFile)
+    $shared=$null
+    try {$shared=$workbook.VBProject.VBComponents.Item('modSaveConfirmation')}catch{}
+    if($null -ne $shared){$workbook.VBProject.VBComponents.Remove($shared)}
+    [void]$workbook.VBProject.VBComponents.Import((Join-Path $workspace 'modSaveConfirmation.bas'))
 
     # Remove the obsolete generic confirmation implementation. The aligned
     # engine owns confirmation semantics because Users uses deactivation.

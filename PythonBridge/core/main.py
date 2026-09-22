@@ -7,6 +7,14 @@ Run with: uvicorn main:app --host 0.0.0.0 --port 8000
 import logging
 import time
 import uuid
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from workbench_api import router as workbench_router
+from packaging_master_api import router as packaging_master_router
+from customer_sort import parse_sort
+from opportunity_views import sorted_grid
+from preferences_api import router as preferences_router
+from attachments_api import router as attachments_router
 
 from fastapi import FastAPI, Depends, Query, HTTPException, Request
 
@@ -17,6 +25,7 @@ from db import (
     safe_weight_value, check_database,
 )
 from cache import cached, invalidate
+from packaging_api import router as packaging_router
 from schemas import (
     ProductBatchRequest,
     OpportunityBatchRequest,
@@ -29,6 +38,14 @@ from schemas import (
 )
 
 app = FastAPI(title="Opportunity/Product Bridge API")
+app.include_router(packaging_router)
+app.include_router(workbench_router)
+app.include_router(packaging_master_router)
+app.include_router(preferences_router)
+app.include_router(attachments_router)
+_web_dist = Path(__file__).resolve().parents[1] / "webapp" / "dist"
+if _web_dist.is_dir():
+    app.mount("/workbench", StaticFiles(directory=str(_web_dist), html=True), name="workbench")
 logger = logging.getLogger("python_bridge")
 BRIDGE_CONTRACT_VERSION = "2"
 
@@ -427,6 +444,9 @@ def product_read(
 
 @app.get("/api/customer")
 def customer_read(
+    sort: str | None = Query(None, max_length=2000),
+    currency_id: int | None = Query(None, ge=1),
+    created_by: int | None = Query(None, ge=1),
     customer_name: str | None = Query(None),
     market_id: int | None = Query(None),
     status: str | None = Query(None),
@@ -440,7 +460,7 @@ def customer_read(
     _require_scope(is_admin, scopes, "Customer", "Opportunity")
     rows = run_read_query(
         "dbo.usp_Customer_Read",
-        [username, int(is_admin), customer_name, market_id, status, page, page_size],
+        [username, int(is_admin), customer_name, market_id, status, page, page_size, currency_id, created_by, parse_sort(sort)],
     )
     return _paged_response(rows, page, page_size)
 
@@ -479,8 +499,9 @@ def customer_lookups_read(
         markets = run_read_query("dbo.usp_CustomerMarketLookup_Read", [username])
         currencies = run_read_query("dbo.usp_CustomerCurrencyLookup_Read", [username])
         return {
-            "markets": [{"ID": row["ID"], "MarketCode": row["MarketCode"]} for row in markets],
-            "currencies": [{"ID": row["ID"], "CurrencyCode": row["CurrencyCode"]} for row in currencies],
+            "markets": [{"ID": row["ID"], "MarketCode": row["MarketCode"], "MarketName": row.get("MarketName")} for row in markets],
+            "currencies": [{"ID": row["ID"], "CurrencyCode": row["CurrencyCode"], "CurrencyName": row.get("CurrencyName")} for row in currencies],
+            "creators": run_read_query("dbo.usp_CustomerCreatorLookup_Read", [username]),
         }
     return cached("customer_master_lookups", ttl_seconds=60, loader=load_lookups)
 
@@ -506,6 +527,7 @@ def opportunity_lookups_read(
 
 @app.get("/api/opportunity/grid")
 def opportunity_grid_read(
+    sort: str | None = Query(None, max_length=2000),
     page: int = Query(1, ge=1),
     page_size: int = Query(200, ge=1, le=500),
     opportunity_number: str | None = Query(None),
@@ -518,6 +540,9 @@ def opportunity_grid_read(
     scopes: frozenset[str] = Depends(get_user_scopes),
 ):
     _require_scope(is_admin, scopes, "Opportunity")
+    if sort is not None:
+        return sorted_grid(username, page, page_size, sort, opportunity_number,
+                           customer_name, stage, bid_open_from, bid_open_to)
     rows = run_read_query(
         "dbo.usp_Opportunity_Grid_Read",
         [username, int(is_admin), page, page_size, opportunity_number,

@@ -36,8 +36,11 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000 --workers 4
 Set `PYTHON_BRIDGE_URL` for Excel clients to the HTTPS proxy URL. WinHTTP sends
 the logged-in Windows credentials for integrated authentication.
 
-`development_header` exists only for automated/local testing. It explicitly
-accepts `X-User-Name` and must never be enabled on a network-accessible server.
+`development_header` exists only for controlled testing. Excel supplies the
+logged-in workstation username in `X-User-Name`; the API accepts it only in
+this mode. The client does not need `PYTHON_BRIDGE_AUTH_MODE` because
+authentication mode is server configuration. Never enable this mode on a
+public or otherwise untrusted network.
 
 ## Capacity and release controls
 

@@ -20,9 +20,11 @@ Private Function NewHttpRequest(ByVal method As String, ByVal endpoint As String
     http.SetAutoLogonPolicy 0
     http.Open method, ApiBaseUrl() & endpoint, False
     http.SetRequestHeader "X-Request-ID", NewRequestID()
-    If LCase$(Trim$(Environ$("PYTHON_BRIDGE_AUTH_MODE"))) = "development_header" Then
-        http.SetRequestHeader "X-User-Name", Environ$("Username")
-    End If
+    ' The API server owns AUTH_MODE. Sending the workstation username on every
+    ' request lets development_header identify the Excel user without requiring
+    ' duplicate configuration on every laptop. Other modes ignore this header.
+    Dim windowsUser As String: windowsUser = Trim$(Environ$("Username"))
+    If Len(windowsUser) > 0 Then http.SetRequestHeader "X-User-Name", windowsUser
     Set NewHttpRequest = http
 End Function
 
@@ -87,10 +89,20 @@ Public Function UrlEncode(ByVal value As String) As String
 End Function
 
 Public Function DateToIsoString(ByVal value As Variant) As Variant
+    Dim serial As Double
     If IsNull(value) Or IsEmpty(value) Or Len(Trim$(CStr(value & ""))) = 0 Then
         DateToIsoString = Null
     ElseIf IsDate(value) Then
         DateToIsoString = Format$(CDate(value), "yyyy-mm-dd")
+    ElseIf IsNumeric(value) Then
+        ' Range.Value2 returns an Excel date as a Double. VBA IsDate may reject
+        ' that numeric subtype, so convert valid 1900-date-system serials explicitly.
+        serial = CDbl(value)
+        If serial >= 1 And serial < 2958466# Then
+            DateToIsoString = Format$(DateSerial(1899, 12, 30) + serial, "yyyy-mm-dd")
+        Else
+            DateToIsoString = CStr(value)
+        End If
     Else
         DateToIsoString = CStr(value)
     End If

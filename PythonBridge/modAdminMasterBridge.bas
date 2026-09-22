@@ -15,8 +15,17 @@ Public Sub SaveUserAccessSheet(): SaveAdminSheet "User Access": End Sub
 Public Sub RefreshUserAccessSheet(): RefreshAdminSheet "User Access": End Sub
 Public Sub ConfigureUserAccessSheet(): ConfigureAdminSheet "User Access": End Sub
 
+Public Sub PreviousAdminPage()
+    RefreshAdminSheet ActiveSheet.Name, -1
+End Sub
+
+Public Sub NextAdminPage()
+    RefreshAdminSheet ActiveSheet.Name, 1
+End Sub
+
 Public Sub ConfigureAdminSheet(ByVal entityName As String)
     Dim ws As Worksheet: Set ws = AdminWorksheet(entityName)
+    ConfigurePagination ws
     ws.Range("A1:" & AdminLastColumn(entityName) & "1").Value = AdminHeaders(entityName)
     ws.Columns("A:E").Hidden = False
     ws.Columns("F:" & AdminLastColumn(entityName)).Hidden = True
@@ -29,21 +38,27 @@ Public Sub ConfigureAdminSheet(ByVal entityName As String)
     End If
 End Sub
 
-Public Sub RefreshAdminSheet(ByVal entityName As String)
+Public Sub RefreshAdminSheet(ByVal entityName As String, Optional ByVal direction As Long = 0)
     Dim ws As Worksheet: Set ws = AdminWorksheet(entityName)
     ConfigureAdminSheet entityName
     If Not CanReplaceAdminRows(ws) Then Exit Sub
     On Error GoTo Failed
 
+    Dim page As Long: page = RequestedPage(ws, direction)
+    Dim size As Long: size = RowsPerPage(ws)
     Dim response As Object: Set response = GetJson(AdminReadEndpoint(entityName))
+    page = Application.Min(page, Application.Max(1, -Int(-response("rows").Count / size)))
     Dim lastRow As Long: lastRow = LastAdminRow(ws)
     If lastRow >= 2 Then ws.Range("A2:" & AdminLastColumn(entityName) & lastRow).ClearContents
 
     Dim item As Variant, r As Long: r = 2
-    For Each item In response("rows")
+    Dim index As Long
+    For index = (page - 1) * size + 1 To Application.Min(page * size, response("rows").Count)
+        Set item = response("rows")(index)
         WriteAdminReadRow entityName, ws, r, item
         r = r + 1
-    Next item
+    Next index
+    CommitPage ws, page, r - 2, response("rows").Count
     ws.Columns("F:" & AdminLastColumn(entityName)).Hidden = True
     Exit Sub
 Failed:
@@ -77,33 +92,14 @@ End Sub
 
 ' Pure message builder used by the confirmation dialog and regression tests.
 Public Function AdminConfirmationMessage(ByVal ws As Worksheet, ByVal entityName As String) As String
-    Dim r As Long, cmd As String, createCount As Long, updateCount As Long, deleteCount As Long
-    For r = 2 To LastAdminRow(ws)
-        cmd = UCase$(Trim$(CStr(ws.Cells(r, "A").Value & "")))
-        Select Case cmd
-            Case "C": createCount = createCount + 1
-            Case "U": updateCount = updateCount + 1
-            Case "D": deleteCount = deleteCount + 1
-            Case "", "N"
-            Case Else
-                Err.Raise vbObjectError + 2601, , "Row " & r & ": Command must be C, U, D, or N."
-        End Select
-    Next r
-    If createCount + updateCount + deleteCount = 0 Then Exit Function
-
     Dim deleteLabel As String: deleteLabel = IIf(entityName = "Users", "Deactivate", "Delete")
-    AdminConfirmationMessage = "Confirm " & entityName & " changes:" & vbCrLf & vbCrLf & _
-        "Create: " & createCount & vbCrLf & "Update: " & updateCount & vbCrLf & _
-        deleteLabel & ": " & deleteCount
-    If deleteCount > 0 And entityName <> "Users" Then _
-        AdminConfirmationMessage = AdminConfirmationMessage & vbCrLf & vbCrLf & "Delete is permanent."
+    AdminConfirmationMessage = CommandConfirmationMessage(ws, entityName, 1, 2, LastAdminRow(ws), deleteLabel)
 End Function
 
 Private Function ConfirmAdminMasterSaveAligned(ByVal ws As Worksheet, ByVal entityName As String) As Boolean
     On Error GoTo InvalidCommand
     Dim message As String: message = AdminConfirmationMessage(ws, entityName)
-    If Len(message) = 0 Then MsgBox "No changed rows to save.", vbInformation: Exit Function
-    ConfirmAdminMasterSaveAligned = (MsgBox(message, vbYesNo + vbQuestion, "Confirm Save") = vbYes)
+    ConfirmAdminMasterSaveAligned = ConfirmSaveMessage(message)
     Exit Function
 InvalidCommand:
     MsgBox Err.Description, vbExclamation
@@ -224,7 +220,7 @@ Private Function CanReplaceAdminRows(ByVal ws As Worksheet) As Boolean
     For r = 2 To LastAdminRow(ws)
         cmd = UCase$(Trim$(CStr(ws.Cells(r, "A").Value & "")))
         If cmd <> "" And cmd <> "N" Then
-            CanReplaceAdminRows = (MsgBox("Unsaved changes will be discarded. Continue?", vbYesNo + vbExclamation) = vbYes)
+            CanReplaceAdminRows = ConfirmDiscardChanges(ws.Name)
             Exit Function
         End If
     Next r

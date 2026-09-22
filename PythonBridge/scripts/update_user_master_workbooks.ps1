@@ -5,21 +5,25 @@ param(
 )
 
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'workbook_backup.ps1')
 $productPath=(Resolve-Path -LiteralPath $ProductWorkbookPath).Path
 $salesPath=(Resolve-Path -LiteralPath $SalesWorkbookPath).Path
 $modulePath=(Resolve-Path -LiteralPath $ModulePath).Path
 $workspace=Split-Path $productPath -Parent
 $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'
-$productBackup=Join-Path $workspace "Product_Template.before_user_master_$stamp.xlsm"
-$salesBackup=Join-Path $workspace "Sales_Template.before_user_master_$stamp.xlsm"
 
 foreach($lock in @('~$Product_Template.xlsm','~$Sales_Template.xlsm')) {
     if(Test-Path -LiteralPath (Join-Path $workspace $lock)){throw "$lock exists. Close both workbooks first."}
 }
-Copy-Item -LiteralPath $productPath -Destination $productBackup
-Copy-Item -LiteralPath $salesPath -Destination $salesBackup
+$productBackup=New-WorkbookBackup -WorkbookPath $productPath
+$salesBackup=New-WorkbookBackup -WorkbookPath $salesPath
 
 function Install-UserMasterModule($Workbook,[string[]]$ObsoleteModules,[string]$EntityName) {
+    Install-SharedPagination $Workbook
+    $shared=$null
+    try {$shared=$Workbook.VBProject.VBComponents.Item('modSaveConfirmation')}catch{}
+    if($null -ne $shared){$Workbook.VBProject.VBComponents.Remove($shared)}
+    [void]$Workbook.VBProject.VBComponents.Import((Join-Path $workspace 'modSaveConfirmation.bas'))
     foreach($moduleName in @($ObsoleteModules)+@('modUserMasterBridge')) {
         $existing=$null
         try{$existing=$Workbook.VBProject.VBComponents.Item($moduleName)}catch{}

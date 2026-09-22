@@ -1,8 +1,6 @@
 Attribute VB_Name = "modUnifiedOpportunityBridge"
 Option Explicit
 
-Private Const OPPORTUNITY_PAGE_SIZE As Long = 200
-
 ' Unified grid: A Header Command, B Opportunity Number, C Customer Name,
 ' D Description, E Bid Open, F Bid Close, G Header Stage, H Item Command,
 ' I Product Code, J Item Description, K Annual Unit, L Award %, M Shelf
@@ -11,6 +9,7 @@ Private Const OPPORTUNITY_PAGE_SIZE As Long = 200
 Public Sub ConfigureUnifiedOpportunity()
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("Opportunity")
     On Error Resume Next: ws.Unprotect: On Error GoTo 0
+    ConfigurePagination ws
     ws.Range("A1:V1").Value = Array("Header Command", "Opportunity Number", "Customer Name", "Opportunity Desc", "Bid Open", "Bid Close", "Header Stage", "Item Command", "Product Code", "Item Description", "Annual Unit", "Estimated % Awarded", "Shelf Price", "Item Stage", "Status", "Message", "Header ID", "Header RowVersion", "Item ID", "Item RowVersion", "Customer ID", "Product ID")
     ws.Columns("A:P").Hidden = False: ws.Columns("Q:V").Hidden = True
     SetList ws.Range("A2:A1000"), "C,U,D,N"
@@ -31,21 +30,25 @@ Private Sub SetList(ByVal target As Range, ByVal values As String)
     target.Validation.Add Type:=xlValidateList, Formula1:=values
 End Sub
 
-Public Sub RefreshUnifiedOpportunity()
+Public Sub RefreshUnifiedOpportunity(Optional ByVal direction As Long = 0)
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("Opportunity")
     ConfigureUnifiedOpportunity
     If Not CanDiscardUnified(ws) Then Exit Sub
     On Error GoTo Failed
     RefreshOpportunityLookups
     Dim endpoint As String, page As Long
-    page = OpportunityPage(ws)
-    endpoint = "/api/opportunity/grid?page=" & page & "&page_size=" & OPPORTUNITY_PAGE_SIZE
+    endpoint = "/api/opportunity/grid?page_size=" & RowsPerPage(ws)
     If Len(Trim$(ws.Range("X8").Value & "")) > 0 Then endpoint = endpoint & "&opportunity_number=" & UrlEncode(CStr(ws.Range("X8").Value))
     If Len(Trim$(ws.Range("X9").Value & "")) > 0 Then endpoint = endpoint & "&customer_name=" & UrlEncode(CStr(ws.Range("X9").Value))
     If Len(Trim$(ws.Range("X10").Value & "")) > 0 Then endpoint = endpoint & "&stage=" & UrlEncode(CStr(ws.Range("X10").Value))
     If Len(Trim$(ws.Range("X11").Value & "")) > 0 Then endpoint = endpoint & "&bid_open_from=" & Format$(CDate(ws.Range("X11").Value), "yyyy-mm-dd")
     If Len(Trim$(ws.Range("X12").Value & "")) > 0 Then endpoint = endpoint & "&bid_open_to=" & Format$(CDate(ws.Range("X12").Value), "yyyy-mm-dd")
-    Dim data As Object: Set data = GetJson(endpoint)
+    page = RequestedPage(ws, direction, endpoint)
+    Dim data As Object: Set data = GetJson(endpoint & "&page=" & page)
+    If data("rows").Count = 0 And page > 1 Then
+        page = Application.Max(1, -Int(-CLng(data("total")) / RowsPerPage(ws)))
+        Set data = GetJson(endpoint & "&page=" & page)
+    End If
     Dim lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
     If lastRow >= 2 Then ws.Range("A2:V" & lastRow).ClearContents
     Dim x As Variant, r As Long: r = 2
@@ -57,25 +60,17 @@ Public Sub RefreshUnifiedOpportunity()
         ws.Cells(r, "Q").Value = x("OpportunityID"): ws.Cells(r, "R").Value = x("HeaderRowVersion"): ws.Cells(r, "S").Value = x("ItemID"): ws.Cells(r, "T").Value = x("ItemRowVersion"): ws.Cells(r, "U").Value = x("CustomerID"): ws.Cells(r, "V").Value = x("ProductID")
         r = r + 1
     Next x
-    ws.Range("X4").Value = page
-    ws.Range("X5").Value = data("rows").Count
-    ws.Range("X6").Value = data("total")
+    CommitPage ws, page, data("rows").Count, CLng(data("total")), endpoint
     Exit Sub
 Failed: MsgBox "Refresh failed: " & Err.Description, vbCritical
 End Sub
 
 Public Sub PreviousOpportunityPage()
-    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("Opportunity")
-    ws.Range("X4").Value = Application.Max(1, OpportunityPage(ws) - 1)
-    RefreshUnifiedOpportunity
+    RefreshUnifiedOpportunity -1
 End Sub
 
 Public Sub NextOpportunityPage()
-    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets("Opportunity")
-    If OpportunityPage(ws) * OPPORTUNITY_PAGE_SIZE < Val(ws.Range("X6").Value) Then
-        ws.Range("X4").Value = OpportunityPage(ws) + 1
-        RefreshUnifiedOpportunity
-    End If
+    RefreshUnifiedOpportunity 1
 End Sub
 
 Private Function OpportunityPage(ByVal ws As Worksheet) As Long
@@ -91,12 +86,35 @@ Public Sub SaveUnifiedOpportunity()
     Dim headerJson As String, itemJson As String, hc As Long, ic As Long
     headerJson = UnifiedHeaders(ws, hc): itemJson = UnifiedItems(ws, ic)
     If hc = 0 And ic = 0 Then MsgBox "No changed rows to save.", vbInformation: Exit Sub
+    If Not ConfirmSaveMessage(OpportunityConfirmationMessage(ParseJson("[" & headerJson & "]"), ParseJson("[" & itemJson & "]"))) Then Exit Sub
     Dim response As Object: Set response = PostJson("/api/opportunity/batch", "{""header_rows"":[" & headerJson & "],""item_rows"":[" & itemJson & "]}")
     ApplyUnifiedResults ws, response("header_results"), True
     ApplyUnifiedResults ws, response("item_results"), False
     Exit Sub
 Failed: MsgBox "Save failed: " & Err.Description, vbCritical
 End Sub
+
+Public Function OpportunityConfirmationMessage(ByVal headers As Object, ByVal items As Object) As String
+    Dim hc As Long, hu As Long, hd As Long, ic As Long, iu As Long, id As Long, row As Variant
+    For Each row In headers
+        Select Case UCase$(CStr(row("Command")))
+            Case "C": hc = hc + 1
+            Case "U": hu = hu + 1
+            Case "D": hd = hd + 1
+        End Select
+    Next row
+    For Each row In items
+        Select Case UCase$(CStr(row("Command")))
+            Case "C": ic = ic + 1
+            Case "U": iu = iu + 1
+            Case "D": id = id + 1
+        End Select
+    Next row
+    Dim details As String
+    details = "Headers - Create: " & hc & ", Update: " & hu & ", Delete: " & hd & vbCrLf & _
+              "Items - Create: " & ic & ", Update: " & iu & ", Delete: " & id
+    OpportunityConfirmationMessage = BuildSaveConfirmation("Opportunity", hc + ic, hu + iu, hd + id, "Delete", details)
+End Function
 
 Private Function UnifiedHeaders(ws As Worksheet, ByRef count As Long) As String
     Dim seen As Object: Set seen = CreateObject("Scripting.Dictionary")
@@ -158,10 +176,12 @@ Private Sub ApplyUnifiedResults(ws As Worksheet, results As Object, isHeader As 
 End Sub
 
 Private Function CanDiscardUnified(ws As Worksheet) As Boolean
-    Dim r As Long, lastRow As Long: lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    Dim r As Long, lastRow As Long
+    lastRow = Application.Max(ws.Cells(ws.Rows.Count, "A").End(xlUp).Row, ws.Cells(ws.Rows.Count, "H").End(xlUp).Row)
     For r = 2 To lastRow
-        If UCase$(ws.Cells(r, "A").Value & "") <> "N" And ws.Cells(r, "A").Value <> "" Then CanDiscardUnified = MsgBox("Unsaved changes will be discarded. Continue?", vbYesNo) = vbYes: Exit Function
-        If UCase$(ws.Cells(r, "H").Value & "") <> "N" And ws.Cells(r, "H").Value <> "" Then CanDiscardUnified = MsgBox("Unsaved changes will be discarded. Continue?", vbYesNo) = vbYes: Exit Function
+        If Not ShouldSkipRow(ws.Cells(r, "A").Value) Or Not ShouldSkipRow(ws.Cells(r, "H").Value) Then
+            CanDiscardUnified = ConfirmDiscardChanges(ws.Name): Exit Function
+        End If
     Next r
     CanDiscardUnified = True
 End Function

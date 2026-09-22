@@ -3,10 +3,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'workbook_backup.ps1')
 $resolvedWorkbook = (Resolve-Path -LiteralPath $WorkbookPath).Path
 $workspaceRoot = Split-Path $resolvedWorkbook -Parent
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$backupPath = Join-Path $workspaceRoot "Sales_Template.before_admin_vba_cleanup_$timestamp.xlsm"
 $obsoleteModules = @('modMarketBridge', 'modCurrencyBridge')
 $requiredModules = @(
     'JsonConverter',
@@ -20,7 +20,7 @@ if (Test-Path -LiteralPath (Join-Path $workspaceRoot '~$Sales_Template.xlsm')) {
     throw 'Sales_Template.xlsm is open. Close Excel before running this cleanup.'
 }
 
-Copy-Item -LiteralPath $resolvedWorkbook -Destination $backupPath
+$backupPath=New-WorkbookBackup -WorkbookPath $resolvedWorkbook
 
 $excel = $null
 $workbook = $null

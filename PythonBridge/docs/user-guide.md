@@ -7,6 +7,7 @@ This guide covers the entities currently available through the Excel workbooks:
 - Admin Master: Market, Currency, Users, and User Access
 - User Master: Product and Customer
 - Transaction: Opportunity header and Opportunity items
+- Packaging: Material, Price, request responses, approved reference and Manual Request
 
 ## 1. Workbooks and access
 
@@ -16,6 +17,9 @@ This guide covers the entities currently available through the Excel workbooks:
 | `Product_Template.xlsm` | Product | Active users with `Product` or `Admin` access |
 | `Sales_Template.xlsm` | Customer | Active users with `Customer` or `Admin` access |
 | `Sales_Template.xlsm` | Opportunity header and items | Active users with `Opportunity` or `Admin` access |
+| `Packaging_Template.xlsm` | Packaging Material and Price | Active users with `Packaging` access |
+| `Packaging_Template.xlsm` | Packaging request responses | Assigned PIC with `Packaging` access |
+| `Packaging_Template.xlsm` | Manual Request creation | Active users with `Opportunity` or `Admin` access |
 
 An Opportunity user may read Customer and Product reference data for dropdowns, but this does not grant permission to maintain those masters.
 
@@ -61,7 +65,7 @@ The effect of `D` is entity-specific:
 2. Enter `C` in its Command column.
 3. Complete all required fields.
 4. Click **Save**.
-5. For a master-data sheet, review the confirmation and choose **Yes**.
+5. Review the shared Save confirmation and choose **Yes**. **No** is the default.
 6. Check Result Status and Message.
 7. Click **Refresh** to verify the saved database values.
 
@@ -308,3 +312,99 @@ When reporting a problem, provide:
 - a screenshot with confidential data removed where necessary.
 
 Technical owners can also refer to [Bridge authentication and deployment](authentication-and-deployment.md) and [Transaction model](transaction-model.md).
+
+## 13. Packaging workbook
+
+### Pagination in all workbooks
+
+Enter a whole number from 1 to 500 in the highlighted page-size cell; the
+default is 200. Click Refresh to load page 1 with the selected size.
+
+| Sheet | Page-size cell | Unit |
+| --- | --- | --- |
+| Market, Currency, Users, User Access | N8 | Rows |
+| Product | N8 | Rows |
+| Customer | M9 | Rows |
+| Opportunity | X7 | Headers, including all their items |
+| All Packaging data sheets | BB4 | Rows |
+
+Previous/Next uses the selected size. Changing the size or filters starts at
+page 1; after reopening Excel, Refresh establishes the current paging state.
+Canceling discard confirmation or a failed API read leaves the displayed page
+and unsaved rows intact. Opportunity may display more rows than its header limit.
+Admin Master slices the full authorized list returned by its existing API;
+Customer, Product, Opportunity and Packaging request pages from the server.
+
+Open Packaging_Template.xlsm after updating/restarting the API. Each data table
+starts at row 1. The Save, Refresh, Previous and Next buttons sit beside the table
+at BA1:BD1; intervening unused columns are hidden.
+
+| Cell | Meaning |
+| --- | --- |
+| BB4 | Rows per page: enter a whole number from 1 to 500; default 200 |
+| BB5 | Page number |
+| BB6 | Total matching records |
+| BB7 | Number of loaded records |
+| BB8 | Optional prefix filter: Material code/name or Opportunity number |
+
+Click Refresh after changing the page size or filter; this starts at page 1.
+Previous/Next navigate additional records. Sorting and table-header filtering
+apply to the loaded page. Save includes changed rows hidden by filters and asks
+for confirmation. Save or explicitly discard pending commands before refreshing.
+All worksheets remain unprotected; hidden IDs and RowVersions must not be edited.
+
+Packaging Material and Packaging Price follow C/U/D/N commands. D blocks rather
+than deletes. Use existing Material and Currency codes for Price. Price requires
+a basis, quantity-from, unit price and effective-from date. Blank upper quantity
+or effective-to means no upper limit. Overlapping active price bands are rejected.
+Packaging or Admin scope is required for maintenance.
+
+Packaging Request saves U commands on responses assigned to the current PIC.
+Admin can also save responses assigned to another PIC, subject to the same
+editable-stage and RowVersion checks.
+Enter Material Code, dimensions in mm, Cost, Currency, Cost Basis and response
+notes as needed. Blank numbers remain blank in SQL; zero is a real value.
+Pending Review, Approved and Canceled responses cannot be edited. PIC assignment,
+submission and manager decisions remain API/app actions. Typing a different PIC
+or stage in Excel does not change them.
+
+Packaging History displays approved current records for reference. It uses the
+same request tables, not a separate history table. Save on that sheet does not
+change data.
+
+### Manual Request for testing
+
+1. Create the Draft Opportunity and its items in Sales_Template first.
+2. Open Manual Request and click Refresh. Optionally enter an Opportunity number
+   prefix in BB8 to find it.
+3. Set Command to C on the source items to include.
+4. Enter Response Due on every selected row. Rows from one Opportunity must have
+   the same Response Due and Request Notes; Packaging Requirement is per item.
+5. Click Save and confirm. One request is created per selected Opportunity.
+6. Check Created Request Number, Result Status and Message, then refresh Packaging
+   Request to see the new request.
+
+This sheet selects existing Opportunity information; it does not create or edit
+Opportunity headers/items. Source items with an open Packaging request are
+excluded from Refresh. Save the current page before selecting items on another
+page; each save creates a separate request for its selection.
+
+If a network error makes creation uncertain, retry Save with the same selection
+and values. The workbook persists hidden retry keys before posting, so a retry
+can recover the original request without creating a duplicate. Do not clear keys
+or change the pending payload until the result is reconciled.
+
+Before entering responses, a Packaging Manager must assign the PIC using
+`POST /api/packaging/items/{item_id}/assign` (Swagger can be used during testing).
+The payload contains PICUserID and the current ExpectedRowVersion. The assigned
+user needs Packaging or Admin access; the manager needs PackagingManager or Admin access.
+
+### Common confirmation dialogs
+
+All four workbooks use the same Save and discard-changes confirmation style,
+with **No** selected by default. Save summarizes Create, Update and the actual
+removal action: Delete, Block or Deactivate. Counts include rows hidden by filters.
+Opportunity includes separate header/item totals; Manual Request includes the
+number of requests and selected items. Review the counts before choosing Yes.
+
+Technical details: [Packaging model and deployment](packaging-model.md).

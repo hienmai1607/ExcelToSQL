@@ -1,0 +1,9 @@
+.attachment-picker {min-width:230px;max-width:330px}
+.attachment-picker input[type=file] {font-size:11px;padding:6px}
+.file-name {display:flex;align-items:center;justify-content:space-between;gap:12px;margin:7px 0;overflow-wrap:anywhere;font-size:12px}
+.file-name button {padding:3px 8px;font-size:12px}
+.file-name span {min-width:0}
+.item-attachments {min-width:160px;max-width:340px}
+.item-attachments summary {cursor:pointer;font-weight:600;color:#38684c}
+.item-attachments[open] .attachment-picker {margin:12px 0}
+.attachment-picker [role=alert],.item-attachments [role=alert] {color:#943f2d}

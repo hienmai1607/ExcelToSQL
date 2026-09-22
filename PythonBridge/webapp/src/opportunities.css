@@ -1,0 +1,10 @@
+.opportunity-drawer{width:min(850px,100%)}
+.opportunity-numbers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.opportunity-drawer fieldset{border:0;padding:0;min-width:0}
+.opportunity-drawer .customer-entry label{margin-bottom:14px}
+.opportunity-page .opportunity-link{padding:0;text-align:left;font-weight:600}
+.opportunity-page .view-toolbar{display:flex;gap:8px}
+.opportunity-request-box{margin-top:18px}
+.active-packaging-request{display:block;min-width:135px;max-width:210px;margin-top:6px;font-size:11px;white-space:normal}
+.opportunity-page .customer-actions{width:90px;min-width:90px;white-space:nowrap}
+@media(max-width:700px){.opportunity-numbers{grid-template-columns:1fr}}

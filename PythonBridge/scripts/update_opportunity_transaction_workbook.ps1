@@ -3,17 +3,17 @@ param(
 )
 
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'workbook_backup.ps1')
 $root=Split-Path $PSScriptRoot -Parent
 $salesPath=(Resolve-Path -LiteralPath $SalesWorkbookPath).Path
 $opportunityModule=(Resolve-Path -LiteralPath (Join-Path $root 'modUnifiedOpportunityBridge.bas')).Path
 $userModule=(Resolve-Path -LiteralPath (Join-Path $root 'modUserMasterBridge.bas')).Path
 $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'
-$backup=Join-Path $root "Sales_Template.before_transaction_model_$stamp.xlsm"
 
 if(Test-Path -LiteralPath (Join-Path $root '~$Sales_Template.xlsm')) {
     throw 'Sales_Template.xlsm is open. Close it before migration.'
 }
-Copy-Item -LiteralPath $salesPath -Destination $backup
+$backup=New-WorkbookBackup -WorkbookPath $salesPath
 
 function Install-Module($Workbook,[string]$Name,[string]$Path) {
     $existing=$null
@@ -42,7 +42,9 @@ try {
     $workbook=$excel.Workbooks.Open($salesPath,0,$false)
     if($workbook.ReadOnly) {throw 'Sales_Template.xlsm opened read-only.'}
 
+    Install-SharedPagination $workbook
     Install-Module $workbook 'modUserMasterBridge' $userModule
+    Install-Module $workbook 'modSaveConfirmation' (Join-Path $root 'modSaveConfirmation.bas')
     Install-Module $workbook 'modUnifiedOpportunityBridge' $opportunityModule
     $excel.Run("'$($workbook.Name)'!ConfigureUserMasterSheet",'Customer')
     $excel.Run("'$($workbook.Name)'!ConfigureUnifiedOpportunity")

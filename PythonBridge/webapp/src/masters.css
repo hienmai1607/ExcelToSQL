@@ -1,0 +1,2 @@
+.master-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.master-fields label{min-width:0}.master-fields input,.master-fields select{min-width:0}.master-fields label:first-child{grid-column:1/-1}@media(max-width:700px){.master-fields{grid-template-columns:1fr}.customers-page h1{overflow-wrap:anywhere;font-size:24px}}
+

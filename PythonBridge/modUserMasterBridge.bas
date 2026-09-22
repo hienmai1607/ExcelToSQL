@@ -16,6 +16,7 @@ Public Sub NextCustomerPage(): ChangeUserMasterPage "Customer", 1: End Sub
 
 Public Sub ConfigureUserMasterSheet(ByVal entityName As String)
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(entityName)
+    ConfigurePagination ws
     ws.Range("A1:" & UserMasterLastColumn(entityName) & "1").Value = UserMasterHeaders(entityName)
     ws.Columns("A:" & UserMasterLastVisibleColumn(entityName)).Hidden = False
     ws.Columns(UserMasterIDColumn(entityName) & ":" & UserMasterLastColumn(entityName)).Hidden = True
@@ -31,14 +32,20 @@ Public Sub ConfigureUserMasterSheet(ByVal entityName As String)
     End If
 End Sub
 
-Public Sub RefreshUserMasterSheet(ByVal entityName As String)
+Public Sub RefreshUserMasterSheet(ByVal entityName As String, Optional ByVal direction As Long = 0)
     On Error GoTo Failed
     Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(entityName)
     ConfigureUserMasterSheet entityName
     If Not CanReplaceUserMasterRows(ws) Then Exit Sub
     If entityName = "Customer" Then RefreshCustomerLookups
 
-    Dim response As Object: Set response = GetJson(UserMasterReadUrl(entityName, ws))
+    Dim filters As String: filters = UserMasterReadUrl(entityName, ws)
+    Dim page As Long: page = RequestedPage(ws, direction, filters)
+    Dim response As Object: Set response = GetJson(filters & "&page=" & page)
+    If response("rows").Count = 0 And page > 1 Then
+        page = Application.Max(1, -Int(-CLng(response("total")) / RowsPerPage(ws)))
+        Set response = GetJson(filters & "&page=" & page)
+    End If
     Dim lastRow As Long: lastRow = LastUserMasterRow(ws)
     If lastRow >= 2 Then ws.Range("A2:" & UserMasterLastColumn(entityName) & lastRow).ClearContents
 
@@ -48,13 +55,7 @@ Public Sub RefreshUserMasterSheet(ByVal entityName As String)
         r = r + 1
     Next item
     ws.Columns(UserMasterIDColumn(entityName) & ":" & UserMasterLastColumn(entityName)).Hidden = True
-    If entityName = "Product" Then
-        ws.Range("N5").Value = (r - 2) & " of " & CLng(response("total")) & " record(s); page " & CLng(response("page"))
-        ws.Range("N6").Value = CLng(response("total"))
-    Else
-        ws.Range("M6").Value = (r - 2) & " of " & CLng(response("total")) & " record(s); page " & CLng(response("page"))
-        ws.Range("M7").Value = CLng(response("total"))
-    End If
+    CommitPage ws, page, r - 2, CLng(response("total")), filters
     Exit Sub
 Failed:
     MsgBox "Refresh failed: " & Err.Description, vbCritical
@@ -88,26 +89,12 @@ End Sub
 
 ' Pure message builder used by the confirmation dialog and workbook tests.
 Public Function UserMasterConfirmationMessage(ByVal ws As Worksheet, ByVal entityName As String) As String
-    Dim r As Long, cmd As String, creates As Long, updates As Long, deletes As Long
-    For r = 2 To LastUserMasterRow(ws)
-        cmd = UCase$(Trim$(CStr(ws.Cells(r, "A").Value & "")))
-        Select Case cmd
-            Case "C": creates = creates + 1
-            Case "U": updates = updates + 1
-            Case "D": deletes = deletes + 1
-            Case "", "N"
-            Case Else: Err.Raise vbObjectError + 2701, , "Row " & r & ": Command must be C, U, D, or N."
-        End Select
-    Next r
-    If creates + updates + deletes = 0 Then Exit Function
-    UserMasterConfirmationMessage = "Confirm " & entityName & " changes:" & vbCrLf & vbCrLf & _
-        "Create: " & creates & vbCrLf & "Update: " & updates & vbCrLf & "Block: " & deletes
+    UserMasterConfirmationMessage = CommandConfirmationMessage(ws, entityName, 1, 2, LastUserMasterRow(ws), "Block")
 End Function
 
 Private Function ConfirmUserMasterSave(ByVal ws As Worksheet, ByVal entityName As String) As Boolean
     Dim message As String: message = UserMasterConfirmationMessage(ws, entityName)
-    If Len(message) = 0 Then MsgBox "No changed rows to save.", vbInformation: Exit Function
-    ConfirmUserMasterSave = (MsgBox(message, vbYesNo + vbQuestion, "Confirm Save") = vbYes)
+    ConfirmUserMasterSave = ConfirmSaveMessage(message)
 End Function
 
 Private Function BuildUserMasterRow(ByVal entityName As String, ByVal ws As Worksheet, ByVal r As Long, ByVal cmd As String) As Object
@@ -255,11 +242,11 @@ End Function
 Private Function UserMasterReadUrl(ByVal entityName As String, ByVal ws As Worksheet) As String
     Dim url As String
     If entityName = "Product" Then
-        url = "/api/product?page=" & UserMasterPage(ws, entityName) & "&page_size=200"
+        url = "/api/product?page_size=" & RowsPerPage(ws)
         If Len(Trim$(CStr(ws.Range("N2").Value & ""))) > 0 Then url = url & "&product_code=" & UrlEncode(Trim$(CStr(ws.Range("N2").Value)))
         If Len(Trim$(CStr(ws.Range("N3").Value & ""))) > 0 Then url = url & "&product_name=" & UrlEncode(Trim$(CStr(ws.Range("N3").Value)))
     Else
-        url = "/api/customer?page=" & UserMasterPage(ws, entityName) & "&page_size=200"
+        url = "/api/customer?page_size=" & RowsPerPage(ws)
         If Len(Trim$(CStr(ws.Range("M2").Value & ""))) > 0 Then url = url & "&customer_name=" & UrlEncode(Trim$(CStr(ws.Range("M2").Value)))
         If Len(Trim$(CStr(ws.Range("M3").Value & ""))) > 0 Then
             Dim marketID As Variant: marketID = CustomerLookupID("Market", ws.Range("M3").Value)
@@ -278,17 +265,7 @@ Private Function UserMasterPage(ByVal ws As Worksheet, ByVal entityName As Strin
 End Function
 
 Private Sub ChangeUserMasterPage(ByVal entityName As String, ByVal direction As Long)
-    Dim ws As Worksheet: Set ws = ThisWorkbook.Worksheets(entityName)
-    Dim pageCell As String: pageCell = IIf(entityName = "Product", "N4", "M5")
-    Dim totalCell As String: totalCell = IIf(entityName = "Product", "N6", "M7")
-    Dim currentPage As Long: currentPage = UserMasterPage(ws, entityName)
-    Dim nextPage As Long: nextPage = currentPage + direction
-    If nextPage < 1 Then nextPage = 1
-    If direction > 0 And IsNumeric(ws.Range(totalCell).Value) Then
-        If currentPage * 200 >= CLng(ws.Range(totalCell).Value) Then MsgBox "Already on the last page.", vbInformation: Exit Sub
-    End If
-    ws.Range(pageCell).Value = nextPage
-    RefreshUserMasterSheet entityName
+    RefreshUserMasterSheet entityName, direction
 End Sub
 
 Private Function LastUserMasterRow(ByVal ws As Worksheet) As Long
@@ -300,7 +277,7 @@ Private Function CanReplaceUserMasterRows(ByVal ws As Worksheet) As Boolean
     For r = 2 To LastUserMasterRow(ws)
         cmd = UCase$(Trim$(CStr(ws.Cells(r, "A").Value & "")))
         If cmd <> "" And cmd <> "N" Then
-            CanReplaceUserMasterRows = (MsgBox("Unsaved changes will be discarded. Continue?", vbYesNo + vbExclamation) = vbYes)
+            CanReplaceUserMasterRows = ConfirmDiscardChanges(ws.Name)
             Exit Function
         End If
     Next r

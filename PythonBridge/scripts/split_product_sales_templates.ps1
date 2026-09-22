@@ -4,12 +4,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'workbook_backup.ps1')
 $productPath = (Resolve-Path -LiteralPath $ProductWorkbookPath).Path
 $salesPath = (Resolve-Path -LiteralPath $SalesWorkbookPath).Path
 $workspaceRoot = Split-Path $salesPath -Parent
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$productBackup = Join-Path $workspaceRoot "Product_Template.before_split_$timestamp.xlsm"
-$salesBackup = Join-Path $workspaceRoot "Sales_Template.before_product_split_$timestamp.xlsm"
 
 foreach ($lockName in @('~$Product_Template.xlsm', '~$Sales_Template.xlsm')) {
     if (Test-Path -LiteralPath (Join-Path $workspaceRoot $lockName)) {
@@ -17,8 +16,8 @@ foreach ($lockName in @('~$Product_Template.xlsm', '~$Sales_Template.xlsm')) {
     }
 }
 
-Copy-Item -LiteralPath $productPath -Destination $productBackup
-Copy-Item -LiteralPath $salesPath -Destination $salesBackup
+$productBackup=New-WorkbookBackup -WorkbookPath $productPath
+$salesBackup=New-WorkbookBackup -WorkbookPath $salesPath
 
 function Remove-WorksheetIfPresent {
     param($Workbook, [string]$Name)
