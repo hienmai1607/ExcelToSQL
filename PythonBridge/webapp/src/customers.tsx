@@ -1,3 +1,4 @@
+import {timestamp} from './datetime';
 import {useEffect,useRef,useState} from 'react';
 import {api,ApiError,date,text,type Row,type Page} from './api';
 import {Badge,ErrorNote,Modal,Pager} from './ui';
@@ -22,7 +23,7 @@ export function Customers(){
  useEffect(()=>{if(!ready)return;const s=profile.settings;setSort(s.sort||defaultSort);setColumns([...new Set(s.columns)]);setVisibleFilters([...new Set(s.filters)]);setSearch(s.customer_name);setMarket(s.market_id);setStatus(s.status);setCurrency(s.currency_id||'');setCreator(s.created_by||'');setFilters({customer_name:s.customer_name,market_id:s.market_id,status:s.status,currency_id:s.currency_id||'',created_by:s.created_by||''});setSize(s.page_size);setPage(1)},[ready,savedView]);
  function toggleFilter(key:Filter){setVisibleFilters(x=>x.includes(key)?x.filter(k=>k!==key):[...x,key]);if(visibleFilters.includes(key)){if(key==='customer_name')setSearch('');if(key==='market_id')setMarket('');if(key==='status')setStatus('');if(key==='currency_id')setCurrency('');if(key==='created_by')setCreator('');setFilters(x=>({...x,[key]:''}));setPage(1)}}
  async function persist(){setActionError('');try{await saveProfile({...profile.settings,sort,columns,filters:visibleFilters,customer_name:visibleFilters.includes('customer_name')?search.trim():'',market_id:visibleFilters.includes('market_id')?market:'',status:visibleFilters.includes('status')?status:'',currency_id:visibleFilters.includes('currency_id')?currency:'',created_by:visibleFilters.includes('created_by')?creator:'',page_size:size});setNotice('Layout and filters saved to your profile.')}catch(e){setNotice('');setActionError(e instanceof Error?e.message:'Profile save failed.')}}
- const value=(row:Row,key:Column)=>(key==='UpdatedAt'||key==='CreatedAt')?(row[key]?String(row[key]).replace('T',' ').replace(/\.\d+Z?$/,'').replace(/Z$/,'')+' UTC':null):row[key]===null||row[key]===undefined?null:String(row[key]);
+ const value=(row:Row,key:Column)=>(key==='UpdatedAt'||key==='CreatedAt')?timestamp(row[key]):row[key]===null||row[key]===undefined?null:String(row[key]);
  async function exportView(){setExporting(true);setActionError('');try{await exportCustomerView(columns,data.rows.map(r=>columns.map(c=>value(r,c))));setNotice('Excel export downloaded: current page and visible columns.')}catch(e){setActionError(e instanceof Error?e.message:'Export failed.')}finally{setExporting(false)}}
  const [data,setData]=useState<Page>({rows:[],total:0,page:1}),[lookups,setLookups]=useState<Lookups>({markets:[],currencies:[]});
  const [page,setPage]=useState(1),[size,setSize]=useState(25),[revision,setRevision]=useState(0),[busy,setBusy]=useState(true),[error,setError]=useState(''),[lookupError,setLookupError]=useState('');

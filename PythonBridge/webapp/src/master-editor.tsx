@@ -6,7 +6,7 @@ import {masterConfig,lookupLabel,type MasterEntity,type Lookups,type Field} from
 type Entry={key:number;values:Record<string,string>;errors:Record<string,string>;message:string;saved:boolean};
 function scaled(v:string){const [a,b='']=v.split('.');return BigInt(a)*10000n+BigInt(b.padEnd(4,'0'))}
 export function MasterEditor({entity,row,lookups,onClose,onSaved}:{entity:MasterEntity;row:Row|null;lookups:Lookups;onClose:()=>void;onSaved:(count:number)=>void}){
- const config=masterConfig[entity],fields:Field[]=[...config.fields,...(row?[{key:'Status',label:'Status',kind:'status' as const}]:[])];
+ const config=masterConfig[entity],fields:Field[]=[...config.fields.map(f=>({...f,required:f.key==='Category'?!row:f.required})),...(row?[{key:'Status',label:'Status',kind:'status' as const}]:[])];
  const productWeight=(f:Field)=>f.key==='WeightValue'?(Number(row?.WeightGrams)>999999.9999?(Number(row?.WeightGrams)/28.3495231).toFixed(4):String(row?.WeightGrams??'')):f.key==='WeightUnit'?(Number(row?.WeightGrams)>999999.9999?'oz':'g'):undefined;
  const create=(key:number):Entry=>({key,values:Object.fromEntries(fields.map(f=>[f.key,entity==='products'&&row&&productWeight(f)!==undefined?productWeight(f)!:row?.[f.key]!=null?(f.kind==='date'?String(row[f.key]).slice(0,10):String(row[f.key])):f.initial||''])),errors:{},message:'',saved:false});
  const [entries,setEntries]=useState<Entry[]>(()=>[create(1)]),[confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[uncertain,setUncertain]=useState(false);
@@ -25,6 +25,7 @@ export function MasterEditor({entity,row,lookups,onClose,onSaved}:{entity:Master
    }
    if(entity==='products'){
     const v=e.values;
+    if(v.MixRatioPct&&(!/^\d{1,3}(\.\d{1,2})?$/.test(v.MixRatioPct)||Number(v.MixRatioPct)>100))errors.MixRatioPct='Use a percentage from 0 to 100 with up to two decimals.';
     if(!/^\d{1,6}(\.\d{1,4})?$/.test(v.WeightValue)||Number(v.WeightValue)<=0)errors.WeightValue='Use a positive weight with up to 6 whole digits and 4 decimals.';
     else if(Number(v.WeightValue)*(v.WeightUnit==='oz'?28.3495231:1)<0.005)errors.WeightValue='Weight must round to at least 0.01 g.';
     if(!['g','oz'].includes(v.WeightUnit))errors.WeightUnit='Choose g or oz.';

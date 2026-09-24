@@ -14,7 +14,9 @@ INSERT @Required(ObjectType, ObjectName) VALUES
 ('P','usp_Customer_Batch'),('P','usp_Customer_Read'),
 ('P','usp_Opportunity_HeaderDetail_Batch'),('P','usp_Opportunity_Grid_Read'),
 ('P','usp_Opportunity_HeaderStage_Transition'),
-('P','usp_Opportunity_ItemStage_Transition');
+('P','usp_Opportunity_ItemStage_Transition'),
+('U','OpportunityChangeLog'),('P','usp_OpportunityChangeLog_Read'),
+('TR','tr_Opportunity_ChangeLog'),('TR','tr_OpportunityItem_ChangeLog');
 
 IF EXISTS (
     SELECT 1 FROM @Required

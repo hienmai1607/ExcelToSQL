@@ -9,6 +9,13 @@ This guide covers the entities currently available through the Excel workbooks:
 - Transaction: Opportunity header and Opportunity items
 - Packaging: Material, Price, request responses, approved reference and Manual Request
 
+Opportunity changes made through Excel or the web app can be viewed in Presales
+PL3.0: open the Opportunity and select the history icon beside its item controls.
+The log shows header/item, field, old/new value, user, source and UTC+7 time (AM/PM). Use
+the level/source/field filters and page-size control to narrow the list.
+Logging starts when migration 21 is installed; earlier field edits are not
+reconstructed. See [Opportunity change log](opportunity-change-log.md).
+
 ## 1. Workbooks and access
 
 | Workbook | Entities | Who can maintain data |
@@ -408,3 +415,11 @@ Opportunity includes separate header/item totals; Manual Request includes the
 number of requests and selected items. Review the counts before choosing Yes.
 
 Technical details: [Packaging model and deployment](packaging-model.md).
+
+## Packaging Request change history
+
+Open a request and click the history icon beside Close/Refresh to see header and item changes. Filter by level, source or field and adjust rows per page. Times use UTC+7 and AM/PM. Logging starts when enabled; it does not reconstruct older edits. See [Packaging Request changes log](packaging-request-change-log.md) for coverage and access rules.
+
+## Packaging Request saved specifications
+
+Each new request saves its Product information, Opportunity item requirements, and source currency/exchange rate. Later source changes do not alter the request. Specifications are read-only; cancel and recreate an affected item when requirements change. PICs continue editing response fields normally. Existing requests show a migration-time snapshot notice for fields added later. See [snapshot rules](packaging-request-snapshots.md).

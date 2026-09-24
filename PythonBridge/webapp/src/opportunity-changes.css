@@ -1,0 +1,4 @@
+.change-log{width:min(1400px,96vw);max-width:96vw;max-height:90dvh;overflow:auto}
+.change-log-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.change-log-heading h2{margin:0;overflow-wrap:anywhere}
+.change-log .change-value{min-width:140px;max-width:320px;white-space:pre-wrap;overflow-wrap:anywhere}

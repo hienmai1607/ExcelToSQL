@@ -4,18 +4,22 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 Entity=Literal["materials","prices","products"]
 AUDIT={"CreatedAt":"Created at","CreatedByName":"Created by","UpdatedAt":"Updated at","UpdatedByName":"Updated by"}
 COLUMNS={
- "products":{"ProductCode":"Product code","ProductName":"Product name","WeightGrams":"Weight (g)","WeightOz":"Weight (oz)","Status":"Status",**AUDIT},
+ "products":{"Category":"Category","Grade":"Grade","MixRatioPct":"Mix ratio %","ProductCode":"Product code","ProductName":"Product name","WeightGrams":"Weight (g)","WeightOz":"Weight (oz)","Status":"Status",**AUDIT},
  "materials":{"MaterialCode":"Material code","MaterialName":"Material name","Description":"Description","UnitOfMeasure":"Unit of measure","Status":"Status",**AUDIT},
  "prices":{"MaterialCode":"Material","MaterialName":"Material name","CurrencyCode":"Currency","PriceBasis":"Price basis","QuantityFrom":"Quantity from","QuantityTo":"Quantity to","UnitPrice":"Unit price","EffectiveFrom":"Effective from","EffectiveTo":"Effective to","Status":"Status",**AUDIT},
 }
 FILTERS={"products":{"search","status","created_by"},"materials":{"search","status","created_by"},"prices":{"search","status","material_id","currency_id","as_of","created_by"}}
+PRODUCT_REQUIRED_COLUMNS=("ProductCode","ProductName","Category","WeightGrams")
+MASTER_REQUIRED_COLUMNS={"products":PRODUCT_REQUIRED_COLUMNS,
+ "materials":("MaterialCode","MaterialName","UnitOfMeasure"),
+ "prices":("MaterialCode","CurrencyCode","PriceBasis","QuantityFrom","UnitPrice","EffectiveFrom")}
 class MasterSort(BaseModel):
  model_config=ConfigDict(extra="forbid")
  column:str=Field(max_length=40)
  direction:Literal["asc","desc"]="asc"
 class MasterLayout(BaseModel):
  model_config=ConfigDict(extra="forbid")
- columns:list[str]=Field(min_length=1,max_length=14)
+ columns:list[str]=Field(min_length=1,max_length=20)
  filters:list[str]=Field(max_length=6)
  values:dict[str,str]=Field(default_factory=dict,max_length=6)
  sort:list[MasterSort]=Field(default_factory=list,max_length=8)
@@ -29,4 +33,5 @@ def check_layout(entity,layout):
   raise ValueError("Invalid master filter.")
  if any(len(v)>200 for v in layout.values.values()):
   raise ValueError("Filter value is too long.")
+ layout.columns=[*layout.columns,*[c for c in MASTER_REQUIRED_COLUMNS[entity] if c not in layout.columns]]
  return layout

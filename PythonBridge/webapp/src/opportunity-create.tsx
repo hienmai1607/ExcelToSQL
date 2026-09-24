@@ -1,22 +1,24 @@
 import {useEffect,useRef,useState,useMemo} from 'react';
 import {ApiError,call,type Row} from './api';
 import {Modal,ErrorNote,Badge} from './ui';
+import {requirementFields,fieldValues,fieldPayload} from './packaging-fields';
 import {IconButton} from './icons';
 
-type Line={id?:number;version?:string;locked?:boolean;key:number;product:string;description:string;units:string;percent:string;price:string};
-const blank=(key:number):Line=>({key,product:'',description:'',units:'',percent:'',price:''});
+type Line={id?:number;version?:string;locked?:boolean;key:number;requirements:Record<string,string>;product:string;description:string;units:string;percent:string;price:string};
+const blank=(key:number):Line=>({key,requirements:fieldValues(undefined,requirementFields),product:'',description:'',units:'',percent:'',price:''});
 export function OpportunityCreate({onClose,onSaved,rows,focusItem}:{onClose:()=>void;onSaved:(number:string)=>void;rows?:Row[];focusItem?:number}){
  const header=rows?.[0],editing=!!header;
  const value=(x:unknown)=>x==null?'':String(x);
- const originals:Line[]=useMemo(()=>rows?rows.filter(r=>r.ItemID!=null).map((r,i)=>({key:i+2,id:Number(r.ItemID),version:value(r.ItemRowVersion),locked:r.ItemStage!=='Draft',product:value(r.ProductID),description:value(r.ItemDescription),units:value(r.AnnualUnit),percent:value(r.EstPctAwarded),price:value(r.ShelfPrice)})):[blank(2)],[rows]);
+ const originals:Line[]=useMemo(()=>rows?rows.filter(r=>r.ItemID!=null).map((r,i)=>({key:i+2,id:Number(r.ItemID),version:value(r.ItemRowVersion),locked:r.ItemStage!=='Draft'||!!r.HasOpenPackagingRequest,requirements:fieldValues(r,requirementFields),product:value(r.ProductID),description:value(r.ItemDescription),units:value(r.AnnualUnit),percent:value(r.EstPctAwarded),price:value(r.ShelfPrice)})):[blank(2)],[rows]);
  const originalById=useMemo(()=>new Map(originals.map(x=>[x.id,x])),[originals]);
  const title=editing?'Edit Opportunity':'New Opportunity';
- const [lookups,setLookups]=useState<{customers:Row[];products:Row[]}>({customers:[],products:[]}),[loading,setLoading]=useState(true),[retry,setRetry]=useState(0);
+ const [lookups,setLookups]=useState<{customers:Row[];products:Row[];currencies?:Row[]}>({customers:[],products:[]}),[loading,setLoading]=useState(true),[retry,setRetry]=useState(0);
  const [customer,setCustomer]=useState(value(header?.CustomerID)),[description,setDescription]=useState(value(header?.OpportunityDesc)),[open,setOpen]=useState(value(header?.BidOpen).slice(0,10)),[closeDate,setCloseDate]=useState(value(header?.BidClose).slice(0,10));
+ const [currency,setCurrency]=useState(value(header?.CurrencyID)),[rate,setRate]=useState(value(header?.ExchangeRateToVND));
  const [lines,setLines]=useState<Line[]>(originals),[error,setError]=useState(''),[confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[uncertain,setUncertain]=useState(false);
  const sequence=useRef(originals.length+1),posting=useRef(false);
  const submitted=lines.filter(x=>!x.locked&&(!x.id||JSON.stringify(x)!==JSON.stringify(originalById.get(x.id))));
- const dirty=editing?(customer!==value(header?.CustomerID)||description!==value(header?.OpportunityDesc)||open!==value(header?.BidOpen).slice(0,10)||closeDate!==value(header?.BidClose).slice(0,10)||submitted.length>0):!!(customer||description||open||closeDate||lines.length>1||lines.some(x=>x.product||x.description||x.units||x.percent||x.price));
+ const dirty=currency!==value(header?.CurrencyID)||rate!==value(header?.ExchangeRateToVND)||(editing?(customer!==value(header?.CustomerID)||description!==value(header?.OpportunityDesc)||open!==value(header?.BidOpen).slice(0,10)||closeDate!==value(header?.BidClose).slice(0,10)||submitted.length>0):!!(customer||description||open||closeDate||lines.length>1||lines.some(x=>x.product||x.description||x.units||x.percent||x.price||Object.values(x.requirements).some(Boolean))));
  useEffect(()=>{if(!loading&&focusItem)document.getElementById('opp-edit-item-'+focusItem)?.scrollIntoView({block:'center'})},[loading,focusItem]);
  useEffect(()=>{let active=true;setLoading(true);setError('');call<typeof lookups>('/api/opportunity/lookups').then(x=>{if(active)setLookups(x)}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[retry]);
  useEffect(()=>{const unload=(e:BeforeUnloadEvent)=>{if(dirty||busy){e.preventDefault();e.returnValue=''}};const nav=(e:Event)=>{if(busy||(dirty&&!window.confirm('Discard unsaved Opportunity?')))e.preventDefault()};window.addEventListener('beforeunload',unload);window.addEventListener('bridge:navigate',nav);return()=>{window.removeEventListener('beforeunload',unload);window.removeEventListener('bridge:navigate',nav)}},[dirty,busy]);
@@ -27,11 +29,15 @@ export function OpportunityCreate({onClose,onSaved,rows,focusItem}:{onClose:()=>
   if(submitted.length>500)errors.push('Save no more than 500 changed items at a time.');
   if(editing&&(header?.HeaderStage!=='Draft'||!header?.HeaderRowVersion)){setError('Only a Draft Opportunity with a current version can be edited. Refresh the overview.');return}
   if(!lookups.customers.some(x=>String(x.ID)===customer))errors.push('Choose an active customer.');
+  if(!currency||!(lookups.currencies||[]).some(c=>String(c.ID)===currency))errors.push('Choose an Opportunity currency.');
+  if(!/^\d{1,13}(\.\d{1,6})?$/.test(rate)||Number(rate)<=0)errors.push('Enter a positive exchange rate to VND (up to 6 decimals).');
+  if((lookups.currencies||[]).find(c=>String(c.ID)===currency)?.CurrencyCode==='VND'&&Number(rate)!==1)errors.push('The VND exchange rate must be 1.');
   if(!description.trim())errors.push('Enter an Opportunity description.');
   if(!open||!closeDate)errors.push('Enter both bid dates.');else if(closeDate<open)errors.push('Bid close must be on or after bid open.');
   for(const [i,x] of lines.entries()){
    const prefix='Item '+(i+1)+': ';
    if(editing&&!submitted.some(y=>y.key===x.key))continue;
+   for(const f of requirementFields){const v=x.requirements[f.key];if(v&&f.numeric&&(!/^\d+(\.\d+)?$/.test(v)||(f.integer&&!/^\d+$/.test(v))))errors.push(prefix+f.label+': enter a valid nonnegative number.');}
    if(x.id&&!x.version)errors.push(prefix+'refresh to load the current version.');
    if(!lookups.products.some(p=>String(p.ID)===x.product))errors.push(prefix+'choose an active product.');
    else if(lines.filter(y=>y.product===x.product).length>1)errors.push(prefix+'this product is already used in another item.');
@@ -49,8 +55,8 @@ export function OpportunityCreate({onClose,onSaved,rows,focusItem}:{onClose:()=>
   const changed=editing?submitted:lines;
   try{
    const result=await call<{header_results:Row[];item_results:Row[]}>('/api/opportunity/batch',{
-    header_rows:[{RowNum:1,Command:editing?'U':'C',ID:editing?header!.OpportunityID:null,RowVersion:editing?header!.HeaderRowVersion:null,OpportunityNumber:key,CustomerID:Number(customer),OpportunityDesc:description.trim(),BidOpen:open,BidClose:closeDate}],
-    item_rows:changed.map(x=>({RowNum:x.key,Command:x.id?'U':'C',ID:x.id||null,RowVersion:x.version||null,OpportunityNumber:key,ProductID:Number(x.product),ItemDescription:x.description.trim(),AnnualUnit:Number(x.units),EstPctAwarded:x.percent===''?null:Number(x.percent),ShelfPrice:x.price===''?null:Number(x.price)}))
+    header_rows:[{RowNum:1,Command:editing?'U':'C',ID:editing?header!.OpportunityID:null,RowVersion:editing?header!.HeaderRowVersion:null,OpportunityNumber:key,CustomerID:Number(customer),CurrencyID:Number(currency),ExchangeRateToVND:rate,OpportunityDesc:description.trim(),BidOpen:open,BidClose:closeDate}],
+    item_rows:changed.map(x=>({...fieldPayload(x.requirements,requirementFields),RowNum:x.key,Command:x.id?'U':'C',ID:x.id||null,RowVersion:x.version||null,OpportunityNumber:key,ProductID:Number(x.product),ItemDescription:x.description.trim(),AnnualUnit:Number(x.units),EstPctAwarded:x.percent===''?null:Number(x.percent),ShelfPrice:x.price===''?null:Number(x.price)}))
    });
    const headers=result?.header_results,items=result?.item_results;
    if(!Array.isArray(headers)||!Array.isArray(items)||headers.length!==1||Number(headers[0].RowNum)!==1||items.length!==changed.length||changed.some(x=>items.filter(r=>Number(r.RowNum)===x.key).length!==1)||[...headers,...items].some(r=>!['OK','ERROR'].includes(String(r.Status)))){
@@ -62,22 +68,25 @@ export function OpportunityCreate({onClose,onSaved,rows,focusItem}:{onClose:()=>
   }catch(e){if(e instanceof ApiError&&(e.status===0||e.status>=500)){setUncertain(true);setError('Save outcome unknown. Close and refresh the list before saving this Opportunity again.')}else setError((e as Error).message)}
   finally{posting.current=false;setBusy(false);setConfirm(false)}
  }
- return <Modal label={title} className="customer-drawer opportunity-drawer" onClose={close}>
+ return <Modal label={title} className="dialog opportunity-editor opportunity-entry-dialog" onClose={close}>
   <div className="customer-editor-heading"><h2>{title}</h2><IconButton icon="close" label="Close Opportunity form" disabled={busy} onClick={close}/></div>
   <ErrorNote value={error}/>{loading?<p>Loading customers and products...</p>:(!lookups.customers.length||!lookups.products.length)&&<div className="notice">Active customers and products are required.<IconButton icon="refresh" label="Reload choices" onClick={()=>setRetry(n=>n+1)}/></div>}
   <form onSubmit={e=>{e.preventDefault();review()}}>
-   <fieldset disabled={busy||uncertain||loading||(editing&&header?.HeaderStage!=='Draft')}><div className="customer-sections"><section className="customer-entry"><header><h3>Opportunity</h3><Badge value={header?.HeaderStage||"Draft"}/></header>
-    <label>Customer *<select aria-label="Customer *" required value={customer} onChange={e=>setCustomer(e.target.value)}><option value="">Choose customer</option>{customer&&!lookups.customers.some(x=>String(x.ID)===customer)&&<option value={customer}>{value(header?.CustomerName)} (unavailable)</option>}{lookups.customers.map(x=><option key={String(x.ID)} value={String(x.ID)}>{x.CustomerName}</option>)}</select></label>
+   <fieldset disabled={busy||uncertain||loading||(editing&&header?.HeaderStage!=='Draft')}><div className="panel opportunity-header-box"><section className="customer-entry" aria-label="Header Info"><header><h3>Header Info</h3><Badge value={header?.HeaderStage||"Draft"}/></header>
+    <div className="opportunity-header-fields"><label>Customer *<select aria-label="Customer *" required value={customer} onChange={e=>setCustomer(e.target.value)}><option value="">Choose customer</option>{customer&&!lookups.customers.some(x=>String(x.ID)===customer)&&<option value={customer}>{value(header?.CustomerName)} (unavailable)</option>}{lookups.customers.map(x=><option key={String(x.ID)} value={String(x.ID)}>{x.CustomerName}</option>)}</select></label>
     <label>Description *<input required maxLength={300} value={description} onChange={e=>setDescription(e.target.value)}/></label>
     <div className="customer-form-grid"><label>Bid open *<input required type="date" max="9999-12-31" value={open} onChange={e=>setOpen(e.target.value)}/></label><label>Bid close *<input required type="date" min={open||undefined} max="9999-12-31" value={closeDate} onChange={e=>setCloseDate(e.target.value)}/></label></div>
-   </section></div>
-   <div className="section-label"><h3>Items ({lines.length})</h3><IconButton icon="plus" label="Add item" disabled={lines.length>=500} onClick={()=>{const x=blank(++sequence.current);setLines(xs=>[...xs,x])}}/></div>
-   <div className="customer-sections">{lines.map((x,i)=><section className="customer-entry" key={x.key} id={'opp-edit-item-'+(x.id||x.key)} aria-label={'Item '+(i+1)}><header><h3>Item {i+1}</h3>{x.locked&&<Badge value="Read only"/>}<IconButton icon="close" label={'Remove item '+(i+1)} disabled={!!x.id||lines.length===1} onClick={()=>setLines(xs=>xs.filter(y=>y.key!==x.key))}/></header>
-    <fieldset disabled={x.locked}><label>Product *<select aria-label="Product *" required value={x.product} onChange={e=>change(x.key,'product',e.target.value)}><option value="">Choose product</option>{x.product&&!lookups.products.some(p=>String(p.ID)===x.product)&&<option value={x.product}>{value(rows?.find(r=>Number(r.ItemID)===x.id)?.ProductCode)} (unavailable)</option>}{lookups.products.map(p=><option key={String(p.ID)} value={String(p.ID)}>{p.ProductCode}</option>)}</select></label>
+    <label>Currency *<select aria-label="Currency *" required value={currency} onChange={e=>{setCurrency(e.target.value);setRate((lookups.currencies||[]).find(c=>String(c.ID)===e.target.value)?.CurrencyCode==='VND'?'1':'')}}><option value="">Choose currency</option>{(lookups.currencies||[]).map(c=><option key={String(c.ID)} value={String(c.ID)}>{c.CurrencyCode} — {c.CurrencyName}</option>)}</select></label>
+    <label>Exchange rate to VND *<input aria-label="Exchange rate to VND *" required inputMode="decimal" value={rate} onChange={e=>setRate(e.target.value)}/><small>1 currency unit = this many VND</small></label>
+   </div></section></div>
+   <section className="panel opportunity-entry-items" aria-label="Item Details"><div className="section-label"><h3>Item Details ({lines.length})</h3><IconButton icon="plus" label="Add item" disabled={lines.length>=500} onClick={()=>{const x=blank(++sequence.current);setLines(xs=>[...xs,x])}}/></div>
+   <div className="opportunity-entry-list">{lines.map((x,i)=><section className="opportunity-entry-row" key={x.key} id={'opp-edit-item-'+(x.id||x.key)} aria-label={'Item '+(i+1)}><header><h3>Item {i+1}</h3>{x.locked&&<Badge value="Read only"/>}<IconButton icon="close" label={'Remove item '+(i+1)} disabled={!!x.id||lines.length===1} onClick={()=>setLines(xs=>xs.filter(y=>y.key!==x.key))}/></header>
+    <fieldset className="opportunity-entry-fields" disabled={x.locked}><label>Product *<select aria-label="Product *" required value={x.product} onChange={e=>change(x.key,'product',e.target.value)}><option value="">Choose product</option>{x.product&&!lookups.products.some(p=>String(p.ID)===x.product)&&<option value={x.product}>{value(rows?.find(r=>Number(r.ItemID)===x.id)?.ProductCode)} (unavailable)</option>}{lookups.products.map(p=><option key={String(p.ID)} value={String(p.ID)}>{p.ProductCode}</option>)}</select></label>
     <label>Item description *<input required maxLength={300} value={x.description} onChange={e=>change(x.key,'description',e.target.value)}/></label>
     <div className="opportunity-numbers"><label>Annual units *<input required inputMode="numeric" value={x.units} onChange={e=>change(x.key,'units',e.target.value)}/></label><label>Estimated award %<input inputMode="decimal" value={x.percent} onChange={e=>change(x.key,'percent',e.target.value)}/></label><label>Shelf price<input inputMode="decimal" value={x.price} onChange={e=>change(x.key,'price',e.target.value)}/></label></div>
-   </fieldset></section>)}</div></fieldset>
-   <div className="actions batch-actions"><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="primary" disabled={busy||uncertain||loading||(editing&&!dirty)||!lookups.customers.length||!lookups.products.length}>Review & save</button></div>
+   <details className="opportunity-requirements"><summary>Packaging requirements</summary><div className="master-fields">{requirementFields.map(f=><label key={f.key}>{f.label}<input aria-label={f.label} maxLength={f.max||24} inputMode={f.numeric?'decimal':undefined} value={x.requirements[f.key]||''} onChange={e=>setLines(xs=>xs.map(y=>y.key===x.key?{...y,requirements:{...y.requirements,[f.key]:e.target.value}}:y))}/></label>)}</div></details>
+   </fieldset></section>)}</div></section></fieldset>
+   <div className="actions opportunity-entry-actions"><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="primary" disabled={busy||uncertain||loading||(editing&&!dirty)||!lookups.customers.length||!lookups.products.length}>Review & save</button></div>
   </form>
   {confirm&&<Modal label="Confirm Opportunity save" onClose={()=>{if(!busy)setConfirm(false)}}><h2>{editing?'Save Opportunity changes?':'Create this Opportunity?'}</h2><p>{description.trim()}</p><p>{editing?submitted.length:lines.length} {editing?'changed/new items':'items'} · Draft</p><div className="actions"><button disabled={busy} onClick={()=>setConfirm(false)}>Back to form</button><button className="primary" disabled={busy} onClick={save}>{busy?'Saving...':'Confirm save'}</button></div></Modal>}
  </Modal>

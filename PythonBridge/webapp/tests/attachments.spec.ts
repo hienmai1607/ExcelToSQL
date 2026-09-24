@@ -4,7 +4,7 @@ test('create links files to returned request item; failed upload survives reload
  await page.route('**/api/**',async route=>{
   const request=route.request(),url=new URL(request.url());let body:unknown;
   if(url.pathname.endsWith('/session'))body={username:'Admin',scopes:['Admin'],is_admin:true};
-  else if(url.pathname==='/api/opportunity/grid')body={total:1,page:1,rows:[{OpportunityID:1,OpportunityNumber:'OPP-1',CustomerName:'Customer',HeaderStage:'Draft',HeaderRowVersion:'AAAAAAAAAAE=',ItemID:11,ProductCode:'P1',ItemStage:'Draft',ItemRowVersion:'AAAAAAAAAAE='}]};
+  else if(url.pathname==='/api/opportunity/grid')body={total:1,page:1,rows:[{OpportunityID:1,OpportunityNumber:'OPP-1',CustomerName:'Customer',HeaderStage:'Draft',HeaderRowVersion:'AAAAAAAAAAE=',ItemID:11,PackagingType:'Pouch',ProductCode:'P1',ItemStage:'Draft',ItemRowVersion:'AAAAAAAAAAE='}]};
   else if(url.pathname==='/api/packaging/manual'){createCount++;body={header:{RequestNumber:'PKG-1'},items:[{ID:901,OpportunityItemID:11}],replayed:false}}
   else if(request.method()==='PUT'){
    uploads.push({url:request.url(),body:request.postDataBuffer()!.toString()});
@@ -13,7 +13,7 @@ test('create links files to returned request item; failed upload survives reload
   }else return route.fulfill({status:500,json:{detail:'Unexpected request'}});
   return route.fulfill({json:body});
  });
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details'}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await page.getByRole('checkbox',{name:'Select P1 item 11'}).check();
  await page.getByLabel('Files for item 11').setInputFiles({name:'drawing.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.7\nfile content')});
  await page.getByLabel('Response due',{exact:true}).fill('2099-10-01');

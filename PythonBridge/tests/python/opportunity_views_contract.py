@@ -8,6 +8,13 @@ import opportunity_views as views
 from preferences_api import Settings
 
 class ViewContracts(unittest.TestCase):
+    def test_item_prefix_columns(self):
+        settings=Settings(opportunity={"items":{"columns":["ProductCode"],"prefix_columns":["ProductCode"]}})
+        self.assertEqual(settings.opportunity.items.prefix_columns, ["ProductCode"])
+        for kind, prefixes in (("header", ["ProductCode"]), ("items", ["Password"]), ("items", ["ProductCode", "ProductCode"])):
+            with self.assertRaises(ValidationError):
+                Settings(opportunity={kind:{"columns":["OpportunityNumber"] if kind=="header" else ["ProductCode"],"prefix_columns":prefixes}})
+
     def test_allowlisted_sort(self):
         for value in ('null', '{}', '[{"column":"AnnualUnit"}]', '[{"column":"BidOpen","direction":"DROP"}]', '[{"column":"BidOpen"},{"column":"BidOpen"}]'):
             with self.assertRaises(HTTPException):

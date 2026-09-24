@@ -25,9 +25,16 @@ class Contracts(unittest.TestCase):
    query,params=sql.call_args.args
    self.assertIn("[AnnualUnit] DESC, ItemID ASC",query)
    self.assertIn("i.RowVersion ItemRowVersion",query)
-   self.assertNotIn("i.Cost",query)
+   self.assertIn("CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.Cost END Cost",query)
    self.assertIn(5,params)
    self.assertEqual(result["total"],1000)
+ def test_combined_request_ids_are_typed_parameters(self):
+  with patch("packaging_api.execute",return_value=[[],[{"Total":0}]]) as sql:
+   views.item_read("PIC",None,1,10001,None,None,"[]",request_ids=[12,13])
+   query,params=sql.call_args.args
+   self.assertIn("WITH (RequestID INT '$')",query)
+   self.assertEqual(params.count("[12, 13]"),2)
+   self.assertNotIn("[12, 13]",query)
  def test_separate_profile(self):
   s=Settings(requests={"header":{"columns":["RequestNumber","RequestedByName"],"filters":["status"],"values":{"status":"Open"}},"items":{"columns":["ProductCode","PIC"],"sort":[{"column":"PIC"}]}})
   self.assertEqual(s.requests.header.values["status"],"Open")

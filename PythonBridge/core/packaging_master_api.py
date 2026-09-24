@@ -84,7 +84,7 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
  return dict(rows=rows,total=sets[1][0]["Total"],page=page,page_size=page_size)
 class Export(BaseModel):
  model_config=ConfigDict(extra="forbid")
- columns:list[str]=Field(min_length=1,max_length=14)
+ columns:list[str]=Field(min_length=1,max_length=20)
  rows:list[list[str|None]]=Field(max_length=500)
 @router.post("/{entity}/export")
 def export(entity:Entity,body:Export,ctx:AccessContext=Depends(get_access_context)):

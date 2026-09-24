@@ -1,10 +1,38 @@
-.opportunity-drawer{width:min(850px,100%)}
 .opportunity-numbers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.opportunity-drawer fieldset{border:0;padding:0;min-width:0}
-.opportunity-drawer .customer-entry label{margin-bottom:14px}
 .opportunity-page .opportunity-link{padding:0;text-align:left;font-weight:600}
 .opportunity-page .view-toolbar{display:flex;gap:8px}
 .opportunity-request-box{margin-top:18px}
 .active-packaging-request{display:block;min-width:135px;max-width:210px;margin-top:6px;font-size:11px;white-space:normal}
 .opportunity-page .customer-actions{width:90px;min-width:90px;white-space:nowrap}
 @media(max-width:700px){.opportunity-numbers{grid-template-columns:1fr}}
+dialog.opportunity-editor{position:fixed;inset:0;margin:auto;width:min(1240px,96vw);max-width:96vw;max-height:90dvh;padding:24px;overflow:auto}
+.opportunity-editor fieldset{min-width:0;border:0;padding:0;margin:0}
+.opportunity-editor .customer-editor-heading{margin-bottom:18px}
+.opportunity-editor .customer-editor-heading h2{margin:0}
+.opportunity-editor .opportunity-header-box{margin-bottom:20px}
+.opportunity-header-fields{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:18px;align-items:end}
+.opportunity-editor .customer-form-grid{margin:0;gap:12px}
+.opportunity-editor label{min-width:0;margin:0;gap:6px}
+.opportunity-editor input,.opportunity-editor select{min-width:0;width:100%}
+.opportunity-entry-items .section-label{padding:12px 18px;align-items:center;border-bottom:1px solid #d7e0d9}
+.opportunity-entry-items h3{margin:0}
+.opportunity-entry-list{max-height:42dvh;overflow:auto}
+.opportunity-entry-row{padding:12px 18px;display:grid;grid-template-columns:86px minmax(0,1fr);gap:14px;align-items:start}
+.opportunity-entry-row+.opportunity-entry-row{border-top:1px solid #d7e0d9}
+.opportunity-entry-row>header{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-top:18px}
+.opportunity-entry-row h3{margin:0;font-size:12px}
+.opportunity-entry-row .icon-button{padding:4px}
+.opportunity-editor .opportunity-entry-fields{display:grid;grid-template-columns:1.1fr 1.5fr .8fr .8fr .8fr;gap:12px}
+.opportunity-entry-fields .opportunity-numbers{display:contents}
+.opportunity-editor .opportunity-entry-actions{position:sticky;bottom:-24px;padding:16px 0;margin-top:18px;background:var(--surface,#fff);border-top:1px solid #d7e0d9}
+[data-theme=dark] .opportunity-entry-row,[data-theme=dark] .opportunity-entry-items .section-label,[data-theme=dark] .opportunity-entry-actions{border-color:#40594b}
+@media(max-width:900px){.opportunity-header-fields{grid-template-columns:1fr 1fr}.opportunity-header-fields>.customer-form-grid{grid-column:1/-1}.opportunity-editor .opportunity-entry-fields{grid-template-columns:repeat(3,minmax(0,1fr))}.opportunity-entry-fields>label:nth-child(2){grid-column:span 2}}
+@media(max-width:550px){dialog.opportunity-editor{padding:16px}.opportunity-header-fields{grid-template-columns:1fr}.opportunity-editor .customer-form-grid{grid-template-columns:1fr 1fr}.opportunity-entry-row{grid-template-columns:1fr;padding:12px;gap:8px}.opportunity-entry-row>header{padding:0;justify-content:space-between}.opportunity-editor .opportunity-entry-fields{grid-template-columns:1fr 1fr}.opportunity-entry-fields>label:nth-child(2){grid-column:auto}.opportunity-entry-list{max-height:none}.opportunity-editor .opportunity-entry-actions{bottom:-16px}}
+.item-view-tabs{display:flex;gap:8px;margin-left:20px;flex-wrap:wrap}
+.item-view-tabs button{padding:7px 16px;border-radius:7px}
+.item-view-tabs button[aria-pressed="true"]{background:var(--accent,#287d71);color:#fff;border-color:var(--accent,#287d71)}
+@media(max-width:550px){.item-view-tabs{margin-left:0;width:100%}}
+.opportunity-requirements{grid-column:1/-1;padding:12px 0}.opportunity-requirements summary{cursor:pointer;margin-bottom:12px;font-weight:600}.opportunity-requirements .master-fields{grid-template-columns:repeat(auto-fit,minmax(185px,1fr))}
+dialog.opportunity-entry-dialog{width:min(1760px,98vw);max-width:98vw;max-height:96dvh;min-height:85dvh}
+.opportunity-entry-dialog .opportunity-entry-list{max-height:58dvh}
+@media(max-width:550px){dialog.opportunity-entry-dialog{min-height:0}.opportunity-entry-dialog .opportunity-entry-list{max-height:none}}

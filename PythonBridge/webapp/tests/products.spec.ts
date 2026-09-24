@@ -21,8 +21,10 @@ test('Product user gets master; batch grams and ounces use existing write API',a
  await page.getByRole('button',{name:'New product',exact:true}).click();
  const form=page.getByRole('dialog',{name:'New product',exact:true});
  await form.getByLabel('Product code',{exact:true}).fill('P2');await form.getByLabel('Product name',{exact:true}).fill('Cashews');await form.getByLabel('Weight',{exact:true}).fill('250.1234');
+ await form.getByLabel('Category',{exact:true}).fill('Nuts');
  await form.getByRole('button',{name:'Add record section'}).click();
  const second=form.getByRole('region',{name:'Record 2'});
+ await second.getByLabel('Category',{exact:true}).fill('Nuts');
  await second.getByLabel('Product code',{exact:true}).fill('P3');await second.getByLabel('Product name',{exact:true}).fill('Walnuts');await second.getByLabel('Weight',{exact:true}).fill('8');await second.getByLabel('Weight unit',{exact:true}).selectOption('oz');
  await form.getByRole('button',{name:'Review & save'}).click();expect(state.writes).toHaveLength(0);
  await page.getByRole('button',{name:'Confirm save'}).click();await expect(form).toHaveCount(0);

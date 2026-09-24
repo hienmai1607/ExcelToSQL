@@ -9,6 +9,7 @@ Technical design references:
 - [Authentication and deployment](docs/authentication-and-deployment.md)
 - [Transaction model](docs/transaction-model.md)
 - [Packaging model](docs/packaging-model.md)
+- [Opportunity change log](docs/opportunity-change-log.md)
 
 Project layout and shared functions:
 

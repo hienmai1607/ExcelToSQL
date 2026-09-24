@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from auth import AccessContext, get_access_context
 from db import get_raw_cursor
+from packaging_fields import ResponseFields, enriched_response, sql_error
 
 router = APIRouter(prefix='/api/packaging', tags=['Packaging'])
 log = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ class PriceRow(MasterRow):
     EffectiveTo: date | None = None
     Status: Literal['Active', 'Block'] | None = None
 
-class ResponseRow(Input):
+class ResponseRow(Input, ResponseFields):
     RowNum: int = Field(ge=1)
     ID: int = Field(ge=1)
     MaterialID: int | None = Field(None, ge=1)
@@ -136,6 +137,9 @@ def execute(sql, params):
         raise
     except Exception as exc:
         message = str(exc)
+        detail = sql_error(exc)
+        if detail:
+            raise HTTPException(409 if '52952' in message or '52958' in message else 422, detail) from exc
         if '51101' in message:
             raise HTTPException(401, 'Username is incorrect.') from exc
         if '51125' in message:
@@ -190,7 +194,8 @@ def price_save(payload: PriceBatch, ctx: AccessContext = Depends(get_access_cont
 
 @router.post('/response/batch')
 def response_save(payload: ResponseBatch, ctx: AccessContext = Depends(get_access_context)):
-    return batch(payload,ctx,'PackagingResponseBatchType','usp_PackagingResponse_Batch',RESPONSE)
+    require(ctx,'Packaging')
+    return enriched_response(payload,ctx)
 
 def paged(sql, params, page, page_size):
     rows = execute(sql,params)[0]

@@ -1,6 +1,6 @@
 import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
-const header={OpportunityID:1,OpportunityNumber:'OPP-2026-00001',CustomerName:'Northstar Foods',OpportunityDesc:'Autumn retail range',BidOpen:'2026-09-01',BidClose:'2026-10-15',HeaderStage:'Draft',HeaderRowVersion:rv};
+const header={PackagingType:'Pouch',OpportunityID:1,OpportunityNumber:'OPP-2026-00001',CustomerName:'Northstar Foods',OpportunityDesc:'Autumn retail range',BidOpen:'2026-09-01',BidClose:'2026-10-15',HeaderStage:'Draft',HeaderRowVersion:rv};
 const opps=[{...header,ItemID:11,ProductCode:'P-101',ItemDescription:'Roasted almonds',AnnualUnit:12000,ItemStage:'Draft',ItemRowVersion:rv},{...header,ItemID:12,ProductCode:'P-102',ItemDescription:'Cashew assortment',AnnualUnit:9000,ItemStage:'Draft',ItemRowVersion:rv}];
 const request={RequestID:5,RequestNumber:'PKG-00005',OpportunityNumber:header.OpportunityNumber,CustomerName:header.CustomerName,ResponseDue:'2026-10-01',RequestedByName:'Sales',ItemCount:2,Unassigned:1,RequestStatus:'Open'};
 const reqItems=[{...request,ItemID:101,ProductCode:'P-101',ItemDescription:'Roasted almonds',PackagingRequirement:'Recyclable carton',ItemStage:'Assigned',PICUserID:null,PIC:null,ItemRowVersion:rv},{...request,ItemID:102,ProductCode:'P-102',ItemDescription:'Cashew assortment',PackagingRequirement:'',ItemStage:'Approved',PICUserID:2,PIC:'Packaging User',ItemRowVersion:rv}];
@@ -20,16 +20,16 @@ async function mock(page:Page,scopes=['Admin']) {
 test('active request blocks selection until its item completes or cancels',async({page})=>{
  await mock(page);let active=true;
  await page.route('**/api/opportunity/grid?**',route=>route.fulfill({json:{rows:opps.map((r,i)=>({...r,HasOpenPackagingRequest:i===0&&active,OpenPackagingRequestNumber:i===0&&active?'PKG-009':null,OpenPackagingRequestStage:i===0&&active?'Pending Review':null})),total:1,page:1}}));
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details'}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await expect(page.getByRole('checkbox',{name:'Select P-101 item 11'})).toBeDisabled();
  await expect(page.getByText('PKG-009 · Pending Review')).toBeVisible();
  await expect(page.getByRole('checkbox',{name:'Select P-102 item 12'})).toBeEnabled();
- active=false;await page.getByRole('button',{name:'Refresh Opportunities'}).click();await page.getByRole('button',{name:'View details'}).click();
+ active=false;await page.getByRole('button',{name:'Refresh Opportunities'}).click();await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await expect(page.getByRole('checkbox',{name:'Select P-101 item 11'})).toBeEnabled();
 });
 test('items are boxed and request box follows selection without losing entered notes',async({page})=>{
  await mock(page);await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('button',{name:'View details'}).click();
+ await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await expect(page.locator('.opportunity-items-box')).toHaveClass(/panel/);
  const requestBox=page.getByRole('region',{name:'Packaging request',exact:true});
  await expect(requestBox).toHaveCount(0);
@@ -47,7 +47,7 @@ test('browse details, filter, select a subset and create exactly that subset',as
  await page.getByLabel('Customer',{exact:true}).fill('North');
  const requested=page.waitForRequest(r=>r.url().includes('customer_name=North'));
  await page.getByRole('button',{name:'Apply filters'}).click();await requested;
- await page.getByRole('button',{name:'View details'}).click();
+ await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await expect(page.getByText('Roasted almonds')).toBeVisible();
  await page.getByRole('checkbox',{name:'Select P-101 item 11'}).check();
  await page.getByLabel('Response due',{exact:true}).fill('2099-10-01');
@@ -64,7 +64,7 @@ test('browse details, filter, select a subset and create exactly that subset',as
 test('lost create reply retains payload across reload and retries the same key',async({page})=>{
  await mock(page);const payloads:any[]=[];
  await page.route('**/api/packaging/manual',async route=>{payloads.push(route.request().postDataJSON());if(payloads.length===1)return route.abort('failed');return route.fulfill({json:{header:{RequestNumber:'PKG-00006'},items:payloads[1].items,replayed:true}})});
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details'}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await page.getByRole('checkbox',{name:'Select P-101 item 11'}).check();
  await page.getByLabel('Response due',{exact:true}).fill('2099-10-01');
  await page.getByRole('button',{name:'Create Packaging Request (1)'}).click();
@@ -106,8 +106,19 @@ test('mobile layout has no page overflow and screenshot',async({page})=>{
  await page.screenshot({path:'test-results/mobile.png',fullPage:true});
 });
 test('desktop screenshot and editable page size reaches API',async({page})=>{
- await mock(page);await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details'}).click();
+ await mock(page);await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await page.screenshot({path:'test-results/opportunities.png',fullPage:true});
  const requested=page.waitForRequest(r=>r.url().includes('page_size=10'));
  await page.getByLabel('Rows per page').fill('10');await page.getByLabel('Rows per page').press('Enter');await requested;
+});
+test('missing Packaging type blocks request creation before posting',async({page})=>{
+ await mock(page);
+ await page.route('**/api/opportunity/grid?**',route=>route.fulfill({json:{rows:opps.map(r=>({...r,PackagingType:null})),total:1,page:1}}));
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
+ await page.getByRole('checkbox',{name:'Select P-101 item 11'}).check();
+ await page.getByLabel('Response due').fill('2026-10-01');
+ await page.getByRole('button',{name:'Create Packaging Request (1)'}).click();
+ await expect(page.getByRole('alert')).toContainText('Enter Packaging type');
+ await expect(page.getByRole('dialog')).toHaveCount(0);
 });

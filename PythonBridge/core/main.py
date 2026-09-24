@@ -9,10 +9,17 @@ import time
 import uuid
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
+from opportunity_changes_api import router as opportunity_changes_router
+from packaging_changes_api import router as packaging_changes_router
+from product_excel_api import router as product_excel_router
+from opportunity_excel_api import router as opportunity_excel_router
+from packaging_excel_api import router as packaging_excel_router
+from packaging_master_excel_api import router as packaging_master_excel_router
 from workbench_api import router as workbench_router
 from packaging_master_api import router as packaging_master_router
 from customer_sort import parse_sort
 from opportunity_views import sorted_grid
+from packaging_fields import enriched_batch
 from preferences_api import router as preferences_router
 from attachments_api import router as attachments_router
 
@@ -38,6 +45,12 @@ from schemas import (
 )
 
 app = FastAPI(title="Opportunity/Product Bridge API")
+app.include_router(opportunity_changes_router)
+app.include_router(packaging_changes_router)
+app.include_router(product_excel_router)
+app.include_router(opportunity_excel_router)
+app.include_router(packaging_excel_router)
+app.include_router(packaging_master_excel_router)
 app.include_router(packaging_router)
 app.include_router(workbench_router)
 app.include_router(packaging_master_router)
@@ -195,10 +208,15 @@ def product_batch(
         for r in payload.rows
     ]
 
-    return _run_user_master_batch(
-        "Product", "dbo.usp_Product_Batch", tvp_rows, username, is_admin,
-        scopes, ("opportunity_master_lookups",)
-    )
+    _require_scope(is_admin, scopes, "Product")
+    results = []
+    # Product master retains independent row outcomes.
+    for model, values in zip(payload.rows, tvp_rows):
+        result = enriched_batch("dbo.usp_Product_Batch", [[values]], [username,int(is_admin)], [[model]], ["Product"])[0]
+        results.extend(result)
+    if any(r.get("Status") == "OK" for r in results):
+        invalidate("opportunity_master_lookups")
+    return {"results": _encode_row_versions(results)}
 
 # --- Opportunity (+ Items) ------------------------------------------------
 
@@ -258,11 +276,14 @@ def opportunity_batch(
     header_results: list[dict] = []
     item_results: list[dict] = []
     for document in documents.values():
-        document_headers, document_items = run_header_detail_batch(
-            proc_name="dbo.usp_Opportunity_HeaderDetail_Batch",
-            header_tvp_rows=document["headers"],
-            detail_tvp_rows=document["items"],
-            scalar_params=[username, int(is_admin)],
+        header_nums={r[0] for r in document["headers"]}
+        item_nums={r[0] for r in document["items"]}
+        document_headers, document_items = enriched_batch(
+            "dbo.usp_Opportunity_HeaderDetail_Batch",
+            [document["headers"],document["items"]], [username,int(is_admin)],
+            [[r for r in payload.header_rows if r.row_num in header_nums],
+             [r for r in payload.item_rows if r.row_num in item_nums]],
+            ["Opportunity","OpportunityItem"],
         )
         header_results.extend(document_headers)
         item_results.extend(document_items)
@@ -521,6 +542,7 @@ def opportunity_lookups_read(
         return {
             "customers": [{"ID": row["ID"], "CustomerName": row["CustomerName"]} for row in customers],
             "products": [{"ID": row["ID"], "ProductCode": row["ProductCode"]} for row in products],
+            "currencies": run_read_query("dbo.usp_OpportunityCurrencyLookup_Read", [username]),
         }
     return cached("opportunity_master_lookups", ttl_seconds=60, loader=load_lookups)
 

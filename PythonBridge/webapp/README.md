@@ -15,6 +15,15 @@ For development, run npm.cmd run dev in webapp/; open http://127.0.0.1:5173/work
 
 ## Use
 
+### Opportunity change log
+
+Open an Opportunity and select the history icon in its item toolbar. The log
+combines header and item field changes with old/new values, user, source and UTC+7 (AM/PM)
+time. Filter by level/source/field and choose rows per page.
+Apply sql/21_opportunity_change_log.sql to the existing test database and restart
+the API before using this feature. Changes are captured from installation onward.
+See docs/opportunity-change-log.md for system-job attribution and deployment.
+
 ### Packaging requests
 
 The request list uses the same compact transaction design as Opportunities:
@@ -258,7 +267,7 @@ order. Apply sql/20_customer_sort.sql after migration 19 and restart the API.
 Existing Excel callers keep Customer name ascending as their default.
 
 Customer layout also offers Created at, Created by and Updated by. Audit users
-are displayed and exported as usernames, never IDs. Audit timestamps use UTC;
+are displayed and exported as usernames, never IDs. Audit timestamps display UTC+7 with AM/PM (for example 23 Sep 2026, 04:00 PM);
 an unmodified record has no Updated at/Updated by value. Currency and Created by
 filters are available under Layout options. Market/Currency choices show code
 and name. Apply sql/19_customer_web_details.sql after the existing migrations;
@@ -270,3 +279,18 @@ the additional stored-procedure parameters are optional for Excel compatibility.
 
 Browser tests use installed Google Chrome and mocked API writes; no live records are created.
 tests/python/packaging_workbook_api_contract.py exercises actual Packaging mutations with rolled-back SQL fixtures.
+## Packaging field entry
+
+See [Packaging field rollout](../docs/packaging-field-rollout.md) for the local webapp release, required migrations, item tabs, entry permissions and Excel compatibility notes.
+
+## Opportunity Excel Local Update
+
+The Opportunities toolbar downloads a combined Header / Item workbook with separate commands, blue/orange headers, required columns, filters and header-based paging. See [Opportunity Excel guide](../docs/opportunity-excel-workbench.md). Deploy `templates/Opportunity_Local_Update.xlsm` alongside the API; runtime downloads do not require Office on the server.
+
+## Packaging Request Excel Local Update
+
+The Packaging requests toolbar downloads a combined request/header and item workbook for response updates. Header snapshots, PIC assignment and workflow remain app-controlled. See [Packaging Excel guide](../docs/packaging-excel-workbench.md). Deploy `templates/Packaging_Request_Local_Update.xlsm` alongside the API.
+
+## Packaging Material and Pricing Excel Local Update
+
+Both master sections offer layout-aware C/U/Block workbooks through Excel Local Update. They share `templates/Packaging_Master_Local_Update.xlsm` and one VBA engine. See the [Packaging master Excel guide](../docs/packaging-master-excel-workbench.md).

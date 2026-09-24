@@ -32,10 +32,12 @@ test('compact request views save header/item layout independently and sort on se
  await page.getByRole('button',{name:'Sort by Annual units',exact:true}).click();await itemRequest;
  await page.getByRole('button',{name:'Request item layout',exact:true}).click();
  const itemLayout=page.getByRole('complementary',{name:'Request item layout',exact:true});
- await itemLayout.getByRole('group',{name:'Visible columns'}).getByLabel('Description',{exact:true}).uncheck();
+ await expect(itemLayout.getByRole('group',{name:'Visible columns'}).getByLabel('Description',{exact:true})).toBeDisabled();
+ await itemLayout.getByRole('group',{name:'Visible columns'}).getByLabel('Annual units',{exact:true}).uncheck();
  await itemLayout.getByRole('button',{name:'Save layout to profile'}).click();await expect(itemLayout.getByRole('status')).toContainText('saved');
  expect(profile().settings.requests.header.columns).not.toContain('Unassigned');
- expect(profile().settings.requests.items.columns).not.toContain('ItemDescription');
+ expect(profile().settings.requests.items.columns).toContain('ItemDescription');
+ expect(profile().settings.requests.items.columns).not.toContain('AnnualUnit');
  expect(profile().settings.columns).toEqual(['CustomerName']);
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(page.getByRole('button',{name:'Sort by Unassigned',exact:true})).toHaveCount(0);

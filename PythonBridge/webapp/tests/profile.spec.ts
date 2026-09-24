@@ -69,7 +69,7 @@ test('audit columns, creator/currency filters and descriptive entry choices',asy
  const req=page.waitForRequest(r=>r.url().includes('currency_id=2')&&r.url().includes('created_by=7'));
  await page.getByRole('button',{name:'Search',exact:true}).click();await req;
  await expect(page.getByRole('cell',{name:'Alice',exact:true})).toBeVisible();
- await expect(page.getByRole('cell',{name:'2026-09-19 08:30:00 UTC',exact:true})).toBeVisible();
+ await expect(page.getByRole('cell',{name:'19 Sep 2026, 03:30 PM',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Save layout to profile'}).click();
  await expect(page.getByRole('status')).toContainText('saved to your profile');
  expect(state.profile().settings).toMatchObject({currency_id:'2',created_by:'7'});

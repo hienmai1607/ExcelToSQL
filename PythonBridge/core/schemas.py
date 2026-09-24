@@ -10,9 +10,10 @@ the corresponding tuple-building code in main.py together.
 from typing import Literal, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
+from packaging_fields import ProductFields, HeaderFields, ItemFields
 
 
-class ProductRow(BaseModel):
+class ProductRow(ProductFields):
     row_num: int = Field(..., alias="RowNum")
     command: Literal["C", "U", "D"] = Field(..., alias="Command")
     id: Optional[int] = Field(None, alias="ID")
@@ -34,7 +35,7 @@ class ProductBatchRequest(BaseModel):
     # request, never trusted from what Excel sends.
 
 
-class OpportunityHeaderRow(BaseModel):
+class OpportunityHeaderRow(HeaderFields):
     row_num: int = Field(..., alias="RowNum")
     command: Literal["C", "U", "D"] = Field(..., alias="Command")
     id: Optional[int] = Field(None, alias="ID")
@@ -50,7 +51,7 @@ class OpportunityHeaderRow(BaseModel):
         populate_by_name = True
 
 
-class OpportunityItemRow(BaseModel):
+class OpportunityItemRow(ItemFields):
     row_num: int = Field(..., alias="RowNum")
     command: Literal["C", "U", "D"] = Field(..., alias="Command")
     id: Optional[int] = Field(None, alias="ID")

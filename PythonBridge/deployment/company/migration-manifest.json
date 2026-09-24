@@ -9,6 +9,7 @@
     { "id": "080_admin_master_rowversion", "path": "sql/08_admin_master_rowversion.sql", "stripDevelopmentUse": true },
     { "id": "090_users_useraccess_admin_master", "path": "sql/09_users_useraccess_admin_master.sql", "stripDevelopmentUse": true },
     { "id": "110_user_master_customer_product", "path": "sql/11_user_master_customer_product.sql", "stripDevelopmentUse": true },
-    { "id": "120_opportunity_transaction_model", "path": "sql/12_opportunity_transaction_model.sql", "stripDevelopmentUse": true }
+    { "id": "120_opportunity_transaction_model", "path": "sql/12_opportunity_transaction_model.sql", "stripDevelopmentUse": true },
+    { "id": "210_opportunity_change_log", "path": "sql/21_opportunity_change_log.sql", "stripDevelopmentUse": true }
   ]
 }
