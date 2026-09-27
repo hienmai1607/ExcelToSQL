@@ -87,7 +87,7 @@ Private Function CellValue(ByVal r As Long, ByVal c As Long) As Variant
 End Function
 Private Function SameValue(ByVal a As Variant, ByVal b As Variant, ByVal key As String) As Boolean
     If Len(S(a)) = 0 And Len(S(b)) = 0 Then SameValue = True: Exit Function
-    If InStr("|AnnualUnit|EstPctAwarded|ShelfPrice|ExchangeRateToVND|MaxPalletHeightM|ShelfLifeDays|", "|" & key & "|") > 0 Then
+    If InStr("|AnnualUnit|EstPctAwarded|ShelfPrice|ExchangeRateToVND|ExchangeRateVNDPerUSD|ExchangeRateCustomerCurrencyPerUSD|MaxPalletHeightM|ShelfLifeDays|", "|" & key & "|") > 0 Then
         If IsNumeric(a) And IsNumeric(b) Then SameValue = (CDbl(a) = CDbl(b)): Exit Function
     End If
     SameValue = (StrComp(S(a), S(b), vbBinaryCompare) = 0)

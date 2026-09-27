@@ -42,10 +42,18 @@ try {
  $controls.Range('A26').Value2='Add item: select an Opportunity data row and press Ctrl+Shift+I (or run OpportunityAddItem).'
  $book.VBProject.VBComponents.Item('ThisWorkbook').CodeModule.AddFromString(@'
 Private Sub Workbook_Activate()
- Application.OnKey "^+i", "'" & ThisWorkbook.Name & "'!OpportunityAddItem"
+ ' Excel can reject OnKey while focus moves to/from Protected View.
+ ' This optional shortcut must never prevent a workbook from opening.
+ On Error Resume Next
+ Application.OnKey "^+i", "'" & Replace(ThisWorkbook.Name, "'", "''") & "'!OpportunityAddItem"
+ Err.Clear
+ On Error GoTo 0
 End Sub
 Private Sub Workbook_Deactivate()
+ On Error Resume Next
  Application.OnKey "^+i"
+ Err.Clear
+ On Error GoTo 0
 End Sub
 '@)
  $config.Visible=2

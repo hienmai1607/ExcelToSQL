@@ -1,0 +1,9 @@
+.resizable-table th{position:relative;padding-right:18px}
+.resizable-table th,.resizable-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.resizable-table th .sort-heading{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.resizable-table td input,.resizable-table td select{max-width:100%;min-width:0;box-sizing:border-box}
+.column-resizer{position:absolute;right:0;top:0;bottom:0;width:9px;cursor:col-resize;touch-action:none;user-select:none;z-index:2}
+.column-resizer:hover,.column-resizer:focus-visible{background:#43847766;outline:2px solid #438477;outline-offset:-2px}
+
+.resizable-table .customer-actions{width:auto;white-space:normal;padding:8px 12px;text-overflow:clip}
+.resizable-table .customer-actions button{margin:2px}

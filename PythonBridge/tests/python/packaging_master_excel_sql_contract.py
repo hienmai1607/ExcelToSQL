@@ -17,9 +17,11 @@ class MasterExcelSQL(unittest.TestCase):
   def cursor():yield self.cur
   mock=patch.object(packaging_api,"get_raw_cursor",cursor);mock.start();self.addCleanup(mock.stop)
   self.ctx=AccessContext(self.actor,self.username,frozenset({"Admin"}))
+  self.cur.execute("IF NOT EXISTS(SELECT 1 FROM dbo.UoM WHERE UoMCode='EA') INSERT dbo.UoM(UoMCode,UoMName,CreatedBy) VALUES('EA','Each',?)",self.actor)
   self.code="XL-"+uuid4().hex[:12]
-  r=self.save("materials",command="C",changes=dict(MaterialCode=self.code,MaterialName=self.code,Description="Keep hidden",UnitOfMeasure="EA"))
+  r=self.save("materials",command="C",changes=dict(MaterialName=self.code,Description="Keep hidden",UnitOfMeasure="EA"))
   self.assertEqual(r["Status"],"OK",r);self.material=r
+  self.code=r["NewMaterialCode"]
  def save(self,entity,**row):
   return excel.save(entity,excel.Batch(rows=[dict(row=3,**row)]),self.ctx)["results"][0]
  def create_price(self):

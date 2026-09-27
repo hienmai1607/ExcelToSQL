@@ -21,6 +21,35 @@ class Contracts(unittest.TestCase):
    CurrencyID=4,CostBasis="per pack",MaterialID=5,HeightMM=Decimal("10.000"),RequestNumber="PCR-2")
  def edit(self,**kw):
   return m.Edit(**{**dict(row=3,request_id=2,item_id=3,version="AAAAAAAAAAE=",changes={"FirstPMType":"Bag"}),**kw})
+ def test_excel_numbers_in_response_text_fields(self):
+  result=m.prepare(self.edit(changes={"FirstPMType":1,"SecondPMType":2,"PackagingDescription":4}),self.row,self.ctx).rows[0]
+  self.assertEqual(result.FirstPMType,"1")
+  self.assertEqual(result.SecondPMType,"2")
+  self.assertEqual(result.PackagingDescription,"4")
+ def test_excel_text_conversion_is_scoped_and_preserves_strings(self):
+  for key in m.TEXT_FIELDS-{"PMCostCurrencyCode"}:
+   with self.subTest(key=key):
+    edit=self.edit(changes={key:12.5})
+    self.assertEqual(edit.changes[key],"12.5")
+  for value in (None,"","001","Film"):
+   self.assertEqual(self.edit(changes={"FirstPMType":value}).changes["FirstPMType"],value)
+  self.assertEqual(self.edit(changes={"FirstPMMOQ":12}).changes["FirstPMMOQ"],12)
+  self.assertEqual(self.edit(changes={"PMCostCurrencyCode":123}).changes["PMCostCurrencyCode"],"123")
+ def test_excel_text_rejects_invalid_shapes_and_nonfinite_numbers(self):
+  for value in (True,False,[],{},float("nan"),float("inf")):
+   with self.subTest(value=value),self.assertRaises(ValidationError):
+    self.edit(changes={"FirstPMType":value})
+  with self.assertRaises(ValidationError):
+   m.prepare(self.edit(changes={"FirstPMType":"x"*101}),self.row,self.ctx)
+ def test_response_api_remains_strict(self):
+  with self.assertRaises(ValidationError):
+   m.ResponseBatch(rows=[dict(RowNum=3,ID=3,RowVersion="AAAAAAAAAAE=",FirstPMType=1)])
+ def test_save_accepts_excel_numeric_text(self):
+  batch=m.Batch(rows=[self.edit(changes={"FirstPMType":1,"SecondPMType":2,"PackagingDescription":4})])
+  with patch.object(m,"load_sources",return_value={3:self.row}),patch.object(m,"response_save",return_value={"results":[{"Status":"OK","NewRowVersion":"AAAAAAAAAAI="}]}) as writer:
+   result=m.save(batch,self.ctx)
+   self.assertEqual(result["results"][0]["status"],"OK")
+   self.assertEqual(writer.call_args.args[0].rows[0].PackagingDescription,"4")
  def test_scope(self):
   with self.assertRaises(HTTPException):m.save(m.Batch(rows=[self.edit()]),AccessContext(2,"Sales",frozenset({"Opportunity"})))
  def test_ownership_stage_and_admin(self):

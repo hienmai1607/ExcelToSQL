@@ -9,11 +9,13 @@ the corresponding tuple-building code in main.py together.
 
 from typing import Literal, Optional
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from packaging_fields import ProductFields, HeaderFields, ItemFields
 
 
 class ProductRow(ProductFields):
+    is_mix: Optional[bool] = Field(None, alias="IsMix")
+    customer_id: Optional[int] = Field(None, alias="CustomerID", ge=1)
     row_num: int = Field(..., alias="RowNum")
     command: Literal["C", "U", "D"] = Field(..., alias="Command")
     id: Optional[int] = Field(None, alias="ID")
@@ -23,6 +25,14 @@ class ProductRow(ProductFields):
     weight_unit: Optional[Literal["g", "oz"]] = Field(None, alias="WeightUnit")
     status: Optional[Literal["Active", "Block"]] = Field(None, alias="Status")
     row_version: Optional[str] = Field(None, alias="RowVersion")  # base64
+
+    @model_validator(mode="after")
+    def grade_create_only(self):
+        if self.is_mix and self.GradeVersion is not None:
+            raise ValueError("Product Mix uses child Product grades; it cannot maintain its own Grade version.")
+        if self.command != "C" and self.GradeVersion is not None:
+            raise ValueError("Use the Grade versions screen to update an existing Product's grades.")
+        return self
 
     class Config:
         populate_by_name = True

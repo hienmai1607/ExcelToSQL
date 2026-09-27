@@ -22,7 +22,7 @@ try {
  for($i=0;$i -lt $labels.Count;$i++){$controls.Cells.Item($i+3,1)=$labels[$i];$controls.Cells.Item($i+3,2)='0'}
  $controls.Columns.Item(1).ColumnWidth=38;$controls.Columns.Item(2).ColumnWidth=32
  $controls.Range('A10').Value2='Save uses your Windows identity. Development header mode is testing only.'
- $controls.Range('A11').Value2='Weight (g) is editable; ounces and audit fields are read-only. D blocks a product.'
+ $controls.Range('A11').Value2='Product codes are automatic. Maintain Grade versions in the webapp.'
  $controls.Range('A12').Value2='New Product reveals required columns. Refresh discards unsaved changes after confirmation.'
  $buttons=@(@('Save','ProductSave'),@('Refresh','ProductRefresh'),@('Filter','ProductFilter'),@('Previous','ProductPrevious'),@('Next','ProductNext'),@('New Product','ProductNew'))
  for($i=0;$i -lt $buttons.Count;$i++){
@@ -30,9 +30,9 @@ try {
   $button.Caption=$buttons[$i][0];$button.OnAction=$buttons[$i][1]
  }
  $legend=@(
-  @('Required *','Product code, name, weight. Category is required for new products.',0xCCF2FF),
+  @('Required *','Product name, weight. Category is required for new products.',0xCCF2FF),
   @('Editable','Optional input columns and Command.',0xF7EBDD),
-  @('Display only','Calculated weight, audit details, results and hidden metadata.',0xE6E6E7)
+  @('Display only','Product code, calculated weight, audit details, results and hidden metadata.',0xE6E6E7)
  )
  for($i=0;$i -lt $legend.Count;$i++){
   $cell=$controls.Cells.Item(22+$i,1)

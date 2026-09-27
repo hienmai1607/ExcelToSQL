@@ -1,0 +1,28 @@
+.grade-dialog{width:min(1100px,94vw);max-width:94vw;max-height:90vh;overflow:auto}.grade-version-bar,.grade-navigation{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin:1rem 0}.grade-version-bar label,.grade-navigation label{display:flex;gap:.5rem;align-items:center}.grade-navigation select{max-width:420px}.grade-dialog table{width:100%}.grade-dialog td:nth-child(3){min-width:240px}.grade-dialog td:nth-child(3) input{width:100%}.grade-dialog td:nth-child(4) input{width:110px}.grade-total{padding:1rem;text-align:right}.grade-dialog .actions{margin-top:1rem}.grade-dialog input[readonly]{border-color:transparent;background:transparent}.grade-entry-action{display:flex;align-items:center;gap:.6rem;margin:.5rem 0 1rem}
+.grade-view-switch{display:flex;gap:.5rem;margin:1rem 0}.grade-view-switch button[aria-pressed=true]{font-weight:700;box-shadow:inset 0 -3px 0 currentColor}.grade-groups{display:grid;gap:1rem}.grade-group-heading{display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;padding:1rem}.grade-group-heading h3{margin:0}.grade-group-heading span{overflow-wrap:anywhere}.grade-row-actions{display:flex;gap:.4rem}.grade-group table{table-layout:fixed;min-width:640px}.grade-group th:nth-child(1){width:17%}.grade-group th:nth-child(2){width:7%}.grade-group th:nth-child(4){width:16%}.grade-group th:nth-child(5){width:100px}.grade-group td{overflow-wrap:anywhere}
+
+/* Compact, aligned controls with a live structural summary. */
+.grade-dialog .customer-editor-heading{align-items:flex-start;gap:16px}
+.grade-dialog .customer-editor-heading h2{margin:0;font-size:22px}
+.grade-dialog .customer-editor-heading p{margin:6px 0 0;font-size:13px}
+.grade-controls{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin:18px 0 10px}
+.grade-version-bar{gap:10px;margin:0;align-items:flex-end}
+.grade-version-bar label{align-items:flex-start;gap:6px;margin:0}
+.grade-version-bar select{width:180px;height:38px}
+.grade-version-bar button{height:38px}
+.grade-version-bar label:last-child{min-width:90px}
+.grade-version-bar label:last-child .badge{height:38px;display:inline-flex;align-items:center}
+.grade-summary{display:flex;gap:24px;margin:0;padding:0 0 0 20px;border-left:1px solid var(--border,#d7e0d9)}
+.grade-summary dt{font-size:11px;text-transform:none;letter-spacing:0;margin-bottom:6px}
+.grade-summary dd{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.grade-readonly-note{font-size:12px;margin:0 0 10px}
+.grade-view-switch{margin:12px 0}
+.grade-group-heading{padding:12px 14px;gap:12px}
+.grade-dialog td,.grade-dialog th{padding:10px 14px}
+.grade-dialog td input:not([type=checkbox]){height:36px;min-width:0;width:100%}
+.grade-dialog td:nth-child(3){min-width:0}
+.grade-total{padding:10px 14px;font-size:12px}
+.grade-dialog .actions{margin-top:14px}
+@media(max-width:650px){.grade-summary{width:100%;border-left:0;border-top:1px solid var(--border,#d7e0d9);padding:12px 0 0;justify-content:space-between;gap:12px}.grade-version-bar{width:100%;gap:8px}.grade-version-bar select{width:150px}.grade-dialog{padding:18px}}
+
+.mix-table{table-layout:fixed;min-width:680px}.mix-table th:first-child{width:40%}.mix-table th:last-child{width:64px}.grade-dialog .mix-table td:nth-child(3){min-width:0}.mix-table td:nth-child(2),.mix-table td:nth-child(4){font-variant-numeric:tabular-nums}.mix-help{font-size:12px}.master-fields input[type=checkbox]{width:18px;height:18px}

@@ -150,11 +150,13 @@ Take care when removing administrator access. Always retain at least one tested,
 
 ## 6. Product Master
 
-Product is maintained in `Product_Template.xlsm`.
+Product is maintained in the Products web section or a freshly downloaded
+Product Excel Local Update workbook. Use the Grade icon in Products to maintain
+versioned, multi-level grade structures. See [Product Grade versions](product-grade-versions.md).
 
 | Field | Rule |
 | --- | --- |
-| Product Code | Required and unique |
+| Product Code | Generated automatically; read-only and unique |
 | Product Name | Required and unique |
 | Weight Value | Required, numeric, and greater than zero |
 | Weight Unit | Select `g` or `oz` |
@@ -423,3 +425,9 @@ Open a request and click the history icon beside Close/Refresh to see header and
 ## Packaging Request saved specifications
 
 Each new request saves its Product information, Opportunity item requirements, and source currency/exchange rate. Later source changes do not alter the request. Specifications are read-only; cancel and recreate an affected item when requirements change. PICs continue editing response fields normally. Existing requests show a migration-time snapshot notice for fields added later. See [snapshot rules](packaging-request-snapshots.md).
+
+### Packaging Request list editor
+
+Use the pencil icon on a Packaging Request header row to open the centered list editor. The expanded item-details table is view-only, including attachment downloads. In the editor, managers assign PICs; authorized PICs and Admin enter responses. Source information remains read-only and locked stages cannot be edited.
+
+Review & save confirms all changed items on the current page. Items save independently; successful items are not submitted again after a partial failure. Unsaved values remain beside failure messages. An uncertain network result blocks retries until the request is closed and refreshed. Save response changes before using Submit, Approve, Return or Cancel; stage actions still require confirmation. Pagination defaults to 25 items in the editor. Changing pages or closing prompts before discarding unsaved changes.

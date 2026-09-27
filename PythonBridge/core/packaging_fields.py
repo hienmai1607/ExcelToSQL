@@ -2,18 +2,27 @@
 import json
 import re
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from product_grades import InitialGrade
 from fastapi import HTTPException
 from db import get_raw_cursor
 
-PRODUCT_FIELDS = ["Category","Grade","MixRatioPct"]
+PRODUCT_FIELDS = ["Category"]
 class ProductFields(BaseModel):
     Category: str | None = Field(None, max_length=100)
-    Grade: str | None = Field(None, max_length=100)
-    MixRatioPct: Decimal | None = Field(None, max_digits=5, decimal_places=2, ge=0, allow_inf_nan=False, le=100)
+    GradeVersion: InitialGrade | None = None
 
-OPPORTUNITY_FIELDS = ["CurrencyID","ExchangeRateToVND"]
+    @model_validator(mode="before")
+    @classmethod
+    def retired_fields(cls, values):
+        if isinstance(values, dict) and any(values.get(k) not in (None, "") for k in ("Grade", "MixRatioPct")):
+            raise ValueError("Maintain Grade and Ratio in Product Grade versions. Download a fresh workbook.")
+        return values
+
+OPPORTUNITY_FIELDS = ["CurrencyID","ExchangeRateToVND","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"]
 class HeaderFields(BaseModel):
+    ExchangeRateVNDPerUSD: Decimal | None = Field(None, max_digits=19, decimal_places=6, gt=0, allow_inf_nan=False)
+    ExchangeRateCustomerCurrencyPerUSD: Decimal | None = Field(None, max_digits=19, decimal_places=6, gt=0, allow_inf_nan=False)
     CurrencyID: int | None = Field(None, ge=1)
     ExchangeRateToVND: Decimal | None = Field(None, max_digits=19, decimal_places=6, gt=0, allow_inf_nan=False)
 
@@ -117,6 +126,12 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                         scalar_params[0],result["NewID"],result["NewRowVersion"],json.dumps(extra),int(model.command=="C"))
                     updated=consume(cursor)
                     result["NewRowVersion"]=updated[0][0]["RowVersion"]
+                    if kind=="Product" and model.command=="C" and model.GradeVersion is not None:
+                        grade=model.GradeVersion
+                        cursor.execute("EXEC dbo.usp_ProductGrade_Save ?,?,NULL,NULL,?,?,?",
+                            result["NewID"],scalar_params[0],result["NewRowVersion"],grade.Status,
+                            json.dumps([i.model_dump(mode="json") for i in grade.items]))
+                        result["NewRowVersion"]=consume(cursor)[0][0]["ProductRowVersion"]
             cursor.execute("COMMIT TRANSACTION")
             return sets
         except Exception as exc:

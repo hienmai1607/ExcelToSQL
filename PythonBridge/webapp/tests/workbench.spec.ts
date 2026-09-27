@@ -10,6 +10,7 @@ async function mock(page:Page,scopes=['Admin']) {
   if(url.pathname.endsWith('/session'))body={username:'Admin',scopes,is_admin:scopes.includes('Admin')};
   else if(url.pathname==='/api/opportunity/grid')body={rows:opps,total:1,page:1};
   else if(url.pathname==='/api/workbench/requests')body={rows:[request],total:1,page:1};
+  else if(url.pathname==='/api/packaging/lookups')body={currencies:[{ID:1,CurrencyCode:'VND'}]};
   else if(url.pathname==='/api/workbench/pics')body={rows:[{ID:2,UserName:'Packaging User'}]};
   else if(url.pathname==='/api/packaging/requests')body={rows:reqItems,total:2,page:1};
   else if(url.pathname.endsWith('/attachments'))body={rows:[]};
@@ -51,13 +52,12 @@ test('browse details, filter, select a subset and create exactly that subset',as
  await expect(page.getByText('Roasted almonds')).toBeVisible();
  await page.getByRole('checkbox',{name:'Select P-101 item 11'}).check();
  await page.getByLabel('Response due',{exact:true}).fill('2099-10-01');
- await page.getByLabel('Requirement 11').fill('Recyclable carton');
  await page.getByRole('button',{name:'Create Packaging Request (1)'}).click();
  await expect(page.getByRole('dialog')).toBeVisible();
  expect(payload).toBeUndefined();
  await page.getByRole('button',{name:'Create request',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('PKG-00006');
- expect(payload.items).toEqual([{OpportunityItemID:11,ExpectedRowVersion:rv,PackagingRequirement:'Recyclable carton'}]);
+ expect(payload.items).toEqual([{OpportunityItemID:11,ExpectedRowVersion:rv,PackagingRequirement:null}]);
  expect(payload.ExpectedRowVersion).toBe(rv);
  expect(payload.CreationKey).toMatch(/^[0-9a-f-]{36}$/);
 });
@@ -79,25 +79,25 @@ test('manager assigns an item with its RowVersion and locked items cannot be ass
  await mock(page,['PackagingManager']);let payload:any;
  await page.route('**/api/packaging/items/101/assign',async route=>{payload=route.request().postDataJSON();return route.fulfill({json:{result:{ID:101,RowVersion:'AAAAAAAAAAI='}}})});
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View request'}).click();
- await page.getByLabel('PIC for item 101').selectOption('2');
+ await page.getByRole('button',{name:/Edit request /}).click();await page.getByLabel('PIC for item 101').selectOption('2');
  await expect(page.getByLabel('PIC for item 102')).toBeDisabled();
- await page.getByRole('button',{name:'Assign',exact:true}).first().click();
- await page.getByRole('button',{name:'Confirm assignment'}).click();
- await expect(page.getByRole('status')).toContainText('PIC assigned');
+ await page.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save'}).click();
+ await expect(page.getByRole('status')).toContainText('1 item(s) saved.');
  expect(payload).toEqual({PICUserID:2,ExpectedRowVersion:rv});
 });
 test('sales can read requests but cannot assign PICs',async({page})=>{
  await mock(page,['Opportunity']);await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await page.getByRole('button',{name:'Packaging requests'}).click();
  await page.getByRole('button',{name:'View request'}).click();
- await expect(page.getByLabel('PIC for item 101')).toBeDisabled();
+ await expect(page.getByRole('button',{name:/Edit request /})).toHaveCount(0);
 });
 test('assignment conflict preserves the old PIC and shows refresh guidance',async({page})=>{
  await mock(page);await page.route('**/api/packaging/items/101/assign',route=>route.fulfill({status:409,json:{detail:'Conflict: stale RowVersion.'}}));
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests'}).click();await page.getByRole('button',{name:'View request'}).click();
- await page.getByLabel('PIC for item 101').selectOption('2');await page.getByRole('button',{name:'Assign',exact:true}).first().click();await page.getByRole('button',{name:'Confirm assignment'}).click();
- await expect(page.getByRole('alert')).toContainText('Refresh request items');
- await expect(page.getByRole('status')).toHaveCount(0);
+ await page.getByRole('button',{name:/Edit request /}).click();await page.getByLabel('PIC for item 101').selectOption('2');await page.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save'}).click();
+ await expect(page.getByRole('alert')).toContainText('Conflict: stale RowVersion.');
+ await expect(page.getByRole('status')).toContainText('0 item(s) saved.');
 });
 test('mobile layout has no page overflow and screenshot',async({page})=>{
  await mock(page);await page.setViewportSize({width:390,height:844});await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();

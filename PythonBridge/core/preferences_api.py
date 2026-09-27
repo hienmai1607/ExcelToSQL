@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from customer_sort import SortRule, unique_sort
-from master_models import Entity, MasterLayout, check_layout
+from master_models import Entity, MasterLayout, check_layout, ColumnWidth
 from opportunity_views import OpportunityViews
 from request_views import RequestViews
 from auth import AccessContext, get_access_context
@@ -21,6 +21,7 @@ Column = Literal["CustomerName", "MarketCode", "CurrencyCode", "Status", "Update
 Filter = Literal["customer_name", "market_id", "status", "currency_id", "created_by"]
 
 class Settings(BaseModel):
+    column_widths: dict[Column | Literal["_Actions"], ColumnWidth] = Field(default_factory=dict,max_length=9)
     requests: RequestViews = Field(default_factory=RequestViews)
     opportunity: OpportunityViews = Field(default_factory=OpportunityViews)
     masters: dict[Entity, MasterLayout] = Field(default_factory=dict)
@@ -97,6 +98,10 @@ def snapshot_xlsx(body, labels=None, sheet_name="Customers") -> bytes:
         cells = []
         for i, value in enumerate(values):
             if value is None:
+                continue
+            numeric_columns={"UnitPrice","UnitUSDPrice","ExchangeRateToUSD","WeightGrams","WeightOz","QuantityFrom","QuantityTo"}
+            if number>1 and body.columns[i] in numeric_columns and re.fullmatch(r"-?\d+(?:\.\d+)?",value):
+                cells.append(f'<c r="{chr(65+i)}{number}" t="n"><v>{value}</v></c>')
                 continue
             # Inline strings, never formulas: =, +, -, @ remain literal text in Excel.
             value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", value)

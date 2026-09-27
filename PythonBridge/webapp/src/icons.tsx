@@ -1,5 +1,6 @@
 import type {ButtonHTMLAttributes} from 'react';
 const paths={
+ grade:'M10 2h4v4h-4z M3 18h4v4H3z M17 18h4v4h-4z M12 6v6 M5 18v-6h14v6',
  history:'M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v5l3 2',
  price:'M3 3h8l10 10-8 8L3 11z M7 7h.01',
  sort:'M4 5h16 M4 12h11 M4 19h6 m9-7 0 9 m-3-3 3 3 3-3',

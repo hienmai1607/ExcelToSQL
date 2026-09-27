@@ -66,7 +66,7 @@ Failed:
 End Function
 '@)
  $ws=$book.Worksheets.Item('Product')
- if($ws.Cells.Item(1,2).Interior.Color -ne 0xF7EBDD){throw 'Editable Grade header must be blue'}
+ if($ws.Cells.Item(1,2).Interior.Color -ne 0xCCF2FF){throw 'Required Product name header must be yellow'}
  if($ws.Cells.Item(1,3).Interior.Color -ne 0xCCF2FF){throw 'Required Product name header must be yellow'}
  if($ws.Cells.Item(1,18).Interior.Color -ne 0xE6E6E7){throw 'Display metadata header must be gray'}
  'PASS: required/editable/display header colors render in Excel.'

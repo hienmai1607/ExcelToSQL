@@ -4,7 +4,7 @@ async function setup(page:Page,scopes=['Opportunity']){
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',user_id:10,scopes,is_admin:scopes.includes('Admin')}});
   if(path==='/api/opportunity/grid')return route.fulfill({json:{rows:[],total:0,page:1}});
-  if(path==='/api/opportunity/lookups')return route.fulfill({json:{currencies:[{ID:1,CurrencyCode:'VND',CurrencyName:'Vietnamese Dong'}],customers:[{ID:1,CustomerName:'Northstar'}],products:[{ID:2,ProductCode:'Almonds'},{ID:3,ProductCode:'Cashews'}]}});
+  if(path==='/api/opportunity/lookups')return route.fulfill({json:{currencies:[{ID:1,CurrencyCode:'VND',CurrencyName:'Vietnamese Dong'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2}],products:[{ID:2,ProductCode:'Almonds',CustomerID:1},{ID:3,ProductCode:'Cashews',CustomerID:1}]}});
   if(path==='/api/workbench/preferences')return route.fulfill({json:{settings:{dark:false,nav_hidden:false,columns:['CustomerName'],filters:[],sort:[],page_size:25},version:0}});
   if(path==='/api/customer')return route.fulfill({json:{rows:[],total:0,page:1}});
   if(path==='/api/customer/lookups')return route.fulfill({json:{markets:[],currencies:[]}});
@@ -16,7 +16,11 @@ async function fill(page:Page){
  await page.getByRole('button',{name:'New Opportunity',exact:true}).click();
  const form=page.getByRole('dialog',{name:'New Opportunity',exact:true});
  await form.getByLabel('Customer *',{exact:true}).selectOption('1');
- await form.getByLabel('Currency *',{exact:true}).selectOption('1');
+ await expect(form.getByLabel('Customer currency',{exact:true})).toHaveValue('USD');
+ await expect(form.getByLabel('Customer currency',{exact:true})).toHaveAttribute('readonly','');
+ await expect(form.getByLabel('Currency *',{exact:true})).toHaveCount(0);
+ await form.getByLabel('Exchange rate VND per USD *',{exact:true}).fill('25000');
+ await form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true}).fill('1');
  await form.getByLabel('Description *',{exact:true}).fill('Retail launch');
  await form.getByLabel('Bid open *').fill('2026-09-01');
  await form.getByLabel('Bid close *').fill('2026-10-01');
@@ -51,13 +55,42 @@ test('creates one header with multiple items only after confirmation',async({pag
  await expect(page.getByRole('dialog',{name:'Confirm Opportunity save'})).toBeVisible();expect(payload).toBeUndefined();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('OPP-2026-12345 created');
- expect(payload.header_rows[0]).toMatchObject({CurrencyID:1,ExchangeRateToVND:'1'});
+ expect(payload.header_rows[0]).toMatchObject({ExchangeRateVNDPerUSD:'25000',ExchangeRateCustomerCurrencyPerUSD:'1'});
  expect(payload.item_rows[0]).toMatchObject({PackagingType:'Pouch',MaxPalletHeightM:'1.25',ShelfLifeDays:'365'});
  expect(payload.header_rows).toHaveLength(1);expect(payload.item_rows).toHaveLength(2);
  expect(payload.item_rows.every((x:any)=>x.OpportunityNumber===payload.header_rows[0].OpportunityNumber)).toBeTruthy();
  expect(payload.item_rows[0].EstPctAwarded).toBeNull();expect(payload.item_rows[0].ShelfPrice).toBeNull();
  expect(payload.item_rows[1].AnnualUnit).toBe(0);expect(payload.item_rows[1].EstPctAwarded).toBe(0);
  expect(payload.header_rows[0].Stage).toBeUndefined();
+});
+
+test('entry controls align and packaging fields use a compact grid',async({page})=>{
+ await page.setViewportSize({width:1800,height:1100});
+ await setup(page);const form=await fill(page);
+ const selectors=['Customer *','Bid open *','Bid close *','Customer currency','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
+ const boxes=await Promise.all(selectors.map(name=>form.getByLabel(name,{exact:true}).boundingBox()));
+ for(const box of boxes)expect(box!.height).toBe(38);
+ await form.getByText('Packaging requirements',{exact:true}).click();
+ const pallet=await form.getByLabel('Pallet size',{exact:true}).boundingBox();
+ const stacking=await form.getByLabel('Pallet stacking',{exact:true}).boundingBox();
+ expect(Math.abs(pallet!.width-stacking!.width)).toBeLessThan(2);
+ expect(pallet!.width).toBeLessThan(450);
+ await expect(form.getByLabel('Opportunity summary')).toContainText('Available products');
+ await page.screenshot({path:'test-results/opportunity-entry-layout.png',fullPage:true});
+});
+
+test('product choices follow Customer and clear selections when Customer changes',async({page})=>{
+ await setup(page);
+ await page.route('**/api/opportunity/lookups',route=>route.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2},{ID:2,CustomerName:'Southstar'}],products:[{ID:2,ProductCode:'North product',CustomerID:1},{ID:3,ProductCode:'South product',CustomerID:2},{ID:4,ProductCode:'Unassigned',CustomerID:null}],currencies:[]}}));
+ await page.getByRole('button',{name:'New Opportunity',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New Opportunity',exact:true}),product=form.getByLabel('Product *',{exact:true});
+ await expect(product).toBeDisabled();
+ await form.getByLabel('Customer *',{exact:true}).selectOption('1');
+ await expect(product.locator('option')).toHaveText(['Choose product','North product']);
+ await product.selectOption('2');
+ await form.getByLabel('Customer *',{exact:true}).selectOption('2');
+ await expect(product).toHaveValue('');
+ await expect(product.locator('option')).toHaveText(['Choose product','South product']);
 });
 test('validates numeric limits, dates and keeps at least one item',async({page})=>{
  await setup(page);const form=await fill(page);

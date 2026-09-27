@@ -14,7 +14,7 @@ for(const entity of ['materials','prices'] as const){
   await page.getByRole('button',{name:entity==='materials'?'Packaging Material':'Packaging Material Pricing',exact:true}).click();
   await page.getByRole('button',{name:'Layout options',exact:true}).click();
   const columns=page.getByRole('group',{name:'Visible columns',exact:true});
-  await expect(columns.getByRole('checkbox',{name:entity==='materials'?'Material code':'Material',exact:true})).toBeDisabled();
+  await expect(columns.getByRole('checkbox',{name:entity==='materials'?'Material name':'Material',exact:true})).toBeDisabled();
   const download=page.waitForEvent('download');
   await page.getByRole('button',{name:'Excel Local Update',exact:true}).click();
   expect((await download).suggestedFilename()).toBe(entity==='materials'?'Packaging_Material_Local_Update.xlsm':'Packaging_Pricing_Local_Update.xlsm');

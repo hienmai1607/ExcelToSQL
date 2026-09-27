@@ -38,7 +38,11 @@ class PackagingFoundation(unittest.TestCase):
         """)
         self.actor, self.username = self.cur.fetchone()
         self.customer = self.cur.execute("SELECT TOP(1) ID FROM dbo.Customer WHERE Status='Active' ORDER BY ID").fetchval()
-        self.product = self.cur.execute("SELECT TOP(1) ID FROM dbo.Product WHERE Status='Active' ORDER BY ID").fetchval()
+        self.product = self.cur.execute("""
+            INSERT dbo.Product(ProductCode,ProductName,WeightGrams,CreatedBy,CustomerID)
+            VALUES('T-'+LEFT(CONVERT(VARCHAR(36),NEWID()),16),'Test '+CONVERT(VARCHAR(36),NEWID()),100,?,?);
+            SELECT CONVERT(INT,SCOPE_IDENTITY());
+        """,self.actor,self.customer).fetchval()
         self.opp = self.cur.execute("""
             INSERT dbo.Opportunity(OpportunityNumber,CustomerID,OpportunityDesc,BidOpen,BidClose,Stage,CreatedBy)
             VALUES('FND-'+LEFT(CONVERT(VARCHAR(36),NEWID()),16),?,'Foundation test','2026-09-01','2026-10-01','Draft',?);

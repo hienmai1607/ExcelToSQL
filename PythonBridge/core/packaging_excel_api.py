@@ -25,6 +25,7 @@ HEADER_REQUIRED=["RequestNumber","OpportunityNumber","CustomerName"]
 ITEM_REQUIRED=["ProductCode","ItemDescription","PIC",*REVIEW_REQUIRED]
 # Same response fields exposed by the current web response editor; no snapshot or assignment edits.
 EDITABLE={*PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS,"PMCost","PMCostCurrencyCode","CostBasis","ResponseNotes","HeightMM","WidthMM","LengthMM"}
+TEXT_FIELDS={"FirstPMType","SecondPMType","PackagingDescription","PalletType","PMCostCurrencyCode","CostBasis","ResponseNotes"}
 EXTRA={"CostBasis","ResponseNotes","HeightMM","WidthMM","LengthMM"}
 META=["_RequestID","_ItemID","_ItemVersion","_Original"]
 ALL_ITEMS=ITEMS|EXTRA
@@ -144,6 +145,17 @@ class Edit(BaseModel):
  @model_validator(mode="after")
  def fields(self):
   if set(self.changes)-EDITABLE:raise ValueError("Header, snapshot, PIC and workflow fields are display only.")
+  # Excel General cells serialize numeric-looking text as JSON numbers.
+  # Normalize only Excel text fields; keep response API schemas strict.
+  changes=dict(self.changes)
+  for key in TEXT_FIELDS & changes.keys():
+   value=changes[key]
+   if value is None or isinstance(value,str):continue
+   if isinstance(value,bool) or not isinstance(value,(int,float,Decimal)):
+    raise ValueError(key+" must be text or a number, not a structured value.")
+   if not Decimal(str(value)).is_finite():raise ValueError(key+" must be finite.")
+   changes[key]=str(value)
+  self.changes=changes
   return self
 class Batch(BaseModel):
  model_config=ConfigDict(extra="forbid")

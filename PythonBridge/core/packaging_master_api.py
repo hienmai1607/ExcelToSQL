@@ -17,7 +17,8 @@ PRODUCT_AUTH="""IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON
  THROW 51040,'Product access is required for this action.',1;
 """
 def require_entity(ctx,entity):
- if entity=="products": require(ctx,"Product")
+ if entity=="uoms": require(ctx,"Admin")
+ elif entity=="products": require(ctx,"Product")
  else: require(ctx,"Packaging","PackagingManager")
 
 def order_by(entity,raw):
@@ -33,17 +34,19 @@ def order_by(entity,raw):
 def lookups(ctx:AccessContext=Depends(get_access_context),entity:Entity="materials"):
  if entity=="products":
   require(ctx,"Product")
-  sets=execute(PRODUCT_AUTH+"""SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.Product p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID;""",[ctx.username])
-  return dict(materials=[],currencies=[],creators=sets[0])
+  sets=execute(PRODUCT_AUTH+"""SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.Product p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID; SELECT ID,CustomerName,Status FROM dbo.Customer ORDER BY CustomerName,ID;""",[ctx.username])
+  return dict(materials=[],currencies=[],creators=sets[0],customers=sets[1])
  require(ctx,"Packaging","PackagingManager")
  sets=execute("""
  DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT;
  SELECT ID,MaterialCode,MaterialName,Status FROM dbo.PackagingMaterial ORDER BY MaterialCode,ID;
  SELECT ID,CurrencyCode,CurrencyName FROM dbo.Currency ORDER BY CurrencyCode,ID;
  SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.PackagingMaterial m WHERE m.CreatedBy=u.ID)
- OR EXISTS(SELECT 1 FROM dbo.PackagingPrice p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID;
+ OR EXISTS(SELECT 1 FROM dbo.PackagingPrice p WHERE p.CreatedBy=u.ID) OR EXISTS(SELECT 1 FROM dbo.Vendor v WHERE v.CreatedBy=u.ID) ORDER BY u.UserName,u.ID;
+ SELECT ID,VendorName,Status,CurrencyID FROM dbo.Vendor ORDER BY VendorName,ID;
+ SELECT ID,UoMCode,UoMName,Status FROM dbo.UoM ORDER BY UoMCode,ID;
  """,[ctx.username])
- return dict(materials=sets[0],currencies=sets[1],creators=sets[2])
+ return dict(materials=sets[0],currencies=sets[1],creators=sets[2],vendors=sets[3],uoms=sets[4])
 @router.get("/{entity}")
 def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,ge=1,le=500),
  search:str=Query("",max_length=200),status:LiteralStatus=None,
@@ -53,9 +56,19 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
  require_entity(ctx,entity)
  order=order_by(entity,sort)
  if entity=="products":
-  source="dbo.Product p"
-  select="p.*"
+  source="dbo.Product p LEFT JOIN dbo.Customer pc ON pc.ID=p.CustomerID"
+  select="p.IsMix,CAST(CASE WHEN p.IsMix=0 OR EXISTS(SELECT 1 FROM dbo.ProductMixVersion mv WHERE mv.ProductID=p.ID AND mv.Status='Active') THEN 1 ELSE 0 END AS BIT) AS MixReady,p.CustomerID,pc.CustomerName,p.ID,p.ProductCode,p.ProductName,p.Category,p.WeightGrams,p.WeightOz,p.Status,p.CreatedBy,p.CreatedAt,p.UpdatedBy,p.UpdatedAt,p.RowVersion"
   where="(?='' OR p.ProductCode LIKE ? OR p.ProductName LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
+  params=[search,search+"%",search+"%",status,status,created_by,created_by]
+ elif entity=="uoms":
+  source="dbo.UoM p"
+  select="p.*"
+  where="(?='' OR p.UoMCode LIKE ? OR p.UoMName LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
+  params=[search,search+"%",search+"%",status,status,created_by,created_by]
+ elif entity=="vendors":
+  source="dbo.Vendor p LEFT JOIN dbo.Currency vc ON vc.ID=p.CurrencyID"
+  select="p.*,vc.CurrencyCode"
+  where="(?='' OR p.VendorName LIKE ? OR p.Address LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="materials":
   source="dbo.PackagingMaterial p"
@@ -63,13 +76,15 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
   where="(?='' OR p.MaterialCode LIKE ? OR p.MaterialName LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  else:
-  source="dbo.PackagingPrice p JOIN dbo.PackagingMaterial m ON m.ID=p.MaterialID JOIN dbo.Currency c ON c.ID=p.CurrencyID"
-  select="p.*,m.MaterialCode,m.MaterialName,c.CurrencyCode"
+  source="dbo.PackagingPrice p JOIN dbo.PackagingMaterial m ON m.ID=p.MaterialID JOIN dbo.Currency c ON c.ID=p.CurrencyID LEFT JOIN dbo.Vendor v ON v.ID=p.VendorID"
+  select="p.*,p.PriceBasis AS BaseUoM,m.MaterialCode,m.MaterialName,c.CurrencyCode,v.VendorName"
   where="""(?='' OR m.MaterialCode LIKE ? OR m.MaterialName LIKE ? OR p.PriceBasis LIKE ?)
    AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.MaterialID=?) AND (? IS NULL OR p.CurrencyID=?)
    AND (? IS NULL OR (p.EffectiveFrom<=? AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=?)))
    AND (? IS NULL OR p.CreatedBy=?)"""
   params=[search,search+"%",search+"%",search+"%",status,status,material_id,material_id,currency_id,currency_id,as_of,as_of,as_of,created_by,created_by]
+ if entity=="uoms":
+  execute("IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID WHERE u.UserName=? AND u.IsActive=1 AND a.Scope='Admin') THROW 51102,'Admin access is required for this action.',1;",[ctx.username])
  auth_sql=PRODUCT_AUTH if entity=="products" else "DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT;"
  sets=execute(f"""
  {auth_sql}

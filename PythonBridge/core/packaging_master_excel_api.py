@@ -15,17 +15,19 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from auth import AccessContext, get_access_context
 from master_models import MasterLayout, COLUMNS, MASTER_REQUIRED_COLUMNS, check_layout
 from packaging_master_api import read as master_read, require_entity
-from packaging_api import execute, require, MaterialBatch, PriceBatch, material_save, price_save
+from packaging_api import execute, require, MaterialBatch, PriceBatch, material_save, price_save, VendorBatch, vendor_save, UoMBatch, uom_save
 from product_excel_api import sheet, header_styles
 
-Entity=Literal["materials","prices"]
+Entity=Literal["materials","prices","vendors","uoms"]
 router=APIRouter(prefix="/api/workbench/master-excel",tags=["Packaging Master Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Packaging_Master_Local_Update.xlsm"
 CONFIG={
+ "uoms":dict(table="UoM",filename="UoM_Local_Update.xlsm",title="UoM",editable={"UoMCode","UoMName","Status"}),
+ "vendors":dict(table="Vendor",filename="Vendor_Local_Update.xlsm",title="Vendor",editable={"VendorName","Address","Status","CurrencyCode"}),
  "materials":dict(table="PackagingMaterial",filename="Packaging_Material_Local_Update.xlsm",title="Packaging Material",
-  editable={"MaterialCode","MaterialName","Description","UnitOfMeasure","Status"}),
+  editable={"MaterialName","Description","UnitOfMeasure","Status"}),
  "prices":dict(table="PackagingPrice",filename="Packaging_Pricing_Local_Update.xlsm",title="Packaging Pricing",
-  editable={"MaterialCode","CurrencyCode","PriceBasis","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"})
+  editable={"ExchangeRateToUSD","VendorName","MaterialCode","CurrencyCode","BaseUoM","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"})
 }
 AUTH="DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT; "
 META=["_ID","_RowVersion","_Original"]
@@ -157,18 +159,37 @@ def sources(entity,ids,ctx):
  return {r["ID"]:r for r in rows}
 
 def prepare(entity,edit,source,ctx):
+ if entity=="prices" and "PriceBasis" in edit.changes:
+  edit.changes["BaseUoM"]=edit.changes.pop("PriceBasis")
  if set(edit.changes)-CONFIG[entity]["editable"]:raise ValueError("Read-only or unknown field.")
  if edit.command!="C":
   if not source:raise ValueError("Row not found. Refresh.")
   if source["RowVersion"]!=edit.version:raise ValueError("RowVersion conflict. Refresh before saving.")
  values={**source,**edit.changes}
- fields=CONFIG[entity]["editable"] if entity=="materials" else {"MaterialID","CurrencyID","PriceBasis","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"}
+ fields=CONFIG[entity]["editable"] if entity!="prices" else {"ExchangeRateToUSD","VendorID","MaterialID","CurrencyID","PriceBasis","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"}
  data={k:values.get(k) for k in fields}
+ if entity=="prices" and "BaseUoM" in edit.changes:data["PriceBasis"]=edit.changes["BaseUoM"]
+ if entity=="vendors":
+  data.pop("CurrencyCode",None)
+  data["CurrencyID"]=source.get("CurrencyID")
+  if "CurrencyCode" in edit.changes:
+   code=edit.changes["CurrencyCode"]
+   data["CurrencyID"]=resolve(ctx,"Currency","CurrencyCode",code) if code else None
  if edit.command!="D":
   if entity=="prices":
+   if "VendorName" in edit.changes or edit.command=="C":
+    vendor=values.get("VendorName")
+    data["VendorID"]=resolve(ctx,"Vendor","VendorName",str(vendor).strip()) if vendor is not None and str(vendor).strip() else None
    for name,table in (("Material","PackagingMaterial"),("Currency","Currency")):
     key=name+"Code"
-    if key in edit.changes or edit.command=="C":data[name+"ID"]=resolve(ctx,table,key,values.get(key))
+    if key in edit.changes or edit.command=="C":
+     value=values.get(key)
+     data[name+"ID"]=resolve(ctx,table,key,value) if value is not None and str(value).strip() else None
+   if data["VendorID"] and (edit.command=="C" or "VendorName" in edit.changes) and not str(edit.changes.get("CurrencyCode") or "").strip():
+    vendor_rows=execute(AUTH+"SELECT CurrencyID FROM dbo.Vendor WHERE ID=?",[ctx.username,data["VendorID"]])[0]
+    data["CurrencyID"]=vendor_rows[0]["CurrencyID"] if vendor_rows else None
+    if data["CurrencyID"]!=source.get("CurrencyID") and "ExchangeRateToUSD" not in edit.changes:
+     data["ExchangeRateToUSD"]=None
    for key in ("EffectiveFrom","EffectiveTo"):
     if data[key] is not None:
      # Reject bare Excel serials at the API; VBA converts real date cells to ISO.
@@ -179,17 +200,17 @@ def prepare(entity,edit,source,ctx):
    if data.get(key) is None or str(data[key]).strip()=="":raise ValueError(key+" is required.")
  if edit.command=="C" and not data.get("Status"):data["Status"]="Active"
  data.update(RowNum=edit.row,Command=edit.command,ID=edit.id,RowVersion=edit.version)
- return (MaterialBatch if entity=="materials" else PriceBatch)(rows=[data])
+ return (UoMBatch if entity=="uoms" else VendorBatch if entity=="vendors" else MaterialBatch if entity=="materials" else PriceBatch)(rows=[data])
 
 @router.post("/{entity}/save")
 def save(entity:Entity,body:Batch,ctx:AccessContext=Depends(get_access_context)):
- require(ctx,"Packaging")
+ require(ctx,"Admin" if entity=="uoms" else "Packaging")
  source=sources(entity,[r.id for r in body.rows if r.id],ctx)
  results=[]
  for edit in body.rows:
   try:
    payload=prepare(entity,edit,source.get(edit.id,{}),ctx)
-   result=(material_save if entity=="materials" else price_save)(payload,ctx)["results"]
+   result=(uom_save if entity=="uoms" else vendor_save if entity=="vendors" else material_save if entity=="materials" else price_save)(payload,ctx)["results"]
    results.extend(result)
   except (ValueError,HTTPException) as exc:
    if isinstance(exc,HTTPException) and exc.status_code>=500:raise

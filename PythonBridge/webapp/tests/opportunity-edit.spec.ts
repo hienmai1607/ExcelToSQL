@@ -1,6 +1,6 @@
 import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
-const header={CurrencyID:1,ExchangeRateToVND:1,OpportunityID:1,OpportunityNumber:'OPP-1',CustomerID:1,CustomerName:'Northstar',OpportunityDesc:'Retail',BidOpen:'2026-09-01',BidClose:'2026-10-01',HeaderStage:'Draft',HeaderRowVersion:rv};
+const header={CustomerCurrencyCode:'USD',ExchangeRateVNDPerUSD:25000,ExchangeRateCustomerCurrencyPerUSD:1,OpportunityID:1,OpportunityNumber:'OPP-1',CustomerID:1,CustomerName:'Northstar',OpportunityDesc:'Retail',BidOpen:'2026-09-01',BidClose:'2026-10-01',HeaderStage:'Draft',HeaderRowVersion:rv};
 const rows=[
  {...header,ItemID:11,ProductName:'Roasted almonds',WeightGrams:'100.00',ProductID:2,ProductCode:'Almonds',ItemDescription:'Almond pack',AnnualUnit:100,EstPctAwarded:null,ShelfPrice:20,ItemStage:'Draft',ItemRowVersion:'AAAAAAAAAAI='},
  {...header,ItemID:12,ProductID:3,ProductCode:'Cashews',ItemDescription:'Cashew pack',AnnualUnit:5,EstPctAwarded:0,ShelfPrice:3,ItemStage:'Draft',ItemRowVersion:'AAAAAAAAAAM='},
@@ -14,7 +14,7 @@ async function setup(page:Page,locked=false){
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',user_id:10,scopes:['Opportunity'],is_admin:false}});
   if(path==='/api/workbench/preferences'){if(route.request().method()==='POST')profile={settings:route.request().postDataJSON().settings,version:profile.version+1};return route.fulfill({json:profile})}
   if(path==='/api/opportunity/grid')return route.fulfill({json:{rows:rows.map(r=>({...r,HeaderStage:locked?'In progress':'Draft'})),total:1,page:1}});
-  if(path==='/api/opportunity/lookups')return route.fulfill({json:{currencies:[{ID:1,CurrencyCode:'VND',CurrencyName:'Vietnamese Dong'}],customers:[{ID:1,CustomerName:'Northstar'}],products:[{ID:2,ProductCode:'Almonds'},{ID:3,ProductCode:'Cashews'},{ID:4,ProductCode:'Walnuts'},{ID:5,ProductCode:'Pecans'}]}});
+  if(path==='/api/opportunity/lookups')return route.fulfill({json:{currencies:[{ID:1,CurrencyCode:'VND',CurrencyName:'Vietnamese Dong'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2}],products:[{ID:2,CustomerID:1,ProductCode:'Almonds'},{ID:3,CustomerID:1,ProductCode:'Cashews'},{ID:4,CustomerID:1,ProductCode:'Walnuts'},{ID:5,CustomerID:1,ProductCode:'Pecans'}]}});
   if(path==='/api/opportunity/batch'){const body=route.request().postDataJSON();writes.push(body);return route.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-1'}],item_results:body.item_rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
   return route.fulfill({json:{rows:[],total:0}});
  });
@@ -119,19 +119,21 @@ test('header and item views persist separately; sorting keeps item selection by 
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await expect(page.getByRole('table',{name:'Opportunity items',exact:true}).getByRole('button',{name:'Sort by Description',exact:true})).toHaveCount(1);
 });
-test('item tabs retain selection and requirements; prefix layout survives reload',async({page})=>{
+test('item tabs retain selection without removed entry columns; prefix layout survives reload',async({page})=>{
  const state=await setup(page);
  await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  const table=page.getByRole('table',{name:'Opportunity items',exact:true});
  await table.getByRole('checkbox',{name:'Select Almonds item 11'}).check();
- await table.getByLabel('Requirement 11',{exact:true}).fill('Recyclable pack');
+ await expect(table.getByRole('columnheader',{name:'Packaging requirement',exact:true})).toHaveCount(0);
+ await expect(table.getByRole('columnheader',{name:'Attachments',exact:true})).toHaveCount(0);
+ await expect(table.locator('input[type=file]')).toHaveCount(0);
  await page.getByRole('button',{name:'Product Info',exact:true}).click();
  await expect(table.getByRole('columnheader',{name:'Packaging requirement',exact:true})).toHaveCount(0);
  await expect(table.getByRole('button',{name:'Sort by Annual units',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await expect(table.getByRole('button',{name:'Sort by Annual units',exact:true})).toHaveCount(0);
  await expect(table.getByRole('button',{name:'Sort by Product',exact:true})).toBeVisible();
- await expect(table.getByLabel('Requirement 11',{exact:true})).toHaveValue('Recyclable pack');
+ await expect(table.getByLabel('Requirement 11',{exact:true})).toHaveCount(0);
  await expect(table.getByRole('checkbox',{name:'Select Almonds item 11'})).toBeChecked();
  await page.getByRole('button',{name:'Item layout',exact:true}).click();
  const layout=page.getByRole('complementary',{name:'Item layout',exact:true});
@@ -145,7 +147,7 @@ test('item tabs retain selection and requirements; prefix layout survives reload
  await page.getByRole('button',{name:'All Fields',exact:true}).click();
  await expect(table.getByLabel('Requirement 11',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
- await expect(table.getByLabel('Requirement 11',{exact:true})).toHaveValue('Recyclable pack');
+ await expect(table.getByLabel('Requirement 11',{exact:true})).toHaveCount(0);
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
@@ -176,7 +178,7 @@ test('request box only appears in Packaging tab; Product Info is read-only',asyn
  await page.getByRole('button',{name:'Product Info',exact:true}).click();
  await expect(box).toHaveCount(0);
  await expect(table.getByText('Roasted almonds',{exact:true})).toBeVisible();
- await expect(table.getByText('100.00',{exact:true})).toBeVisible();
+ await expect(table.getByRole('cell',{name:'100',exact:true}).last()).toBeVisible();
  await expect(table.getByRole('textbox')).toHaveCount(0);
  await expect(table.getByRole('checkbox')).toHaveCount(0);
  await page.getByRole('button',{name:'Packaging Request',exact:true}).click();

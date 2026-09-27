@@ -23,7 +23,7 @@ from cache import invalidate
 router=APIRouter(prefix="/api/workbench/product-excel",tags=["Product Excel"])
 ROOT=Path(__file__).resolve().parents[1]
 TEMPLATE=ROOT/"templates"/"Product_Local_Update.xlsm"
-EDITABLE={"ProductCode","ProductName","Category","Grade","MixRatioPct","WeightGrams","Status"}
+EDITABLE={"CustomerName","ProductName","Category","WeightGrams","Status"}
 REQUIRED=list(PRODUCT_REQUIRED_COLUMNS)
 META=["_ID","_RowVersion","_Original"]
 class View(BaseModel):
@@ -172,11 +172,17 @@ def save(body:Batch,ctx:AccessContext=Depends(get_access_context)):
  from pydantic import ValidationError
  results=[]
  for row in body.rows:
+  changes=dict(row.changes)
+  if "CustomerName" in changes:
+   matches=execute(PRODUCT_AUTH+"SELECT ID FROM dbo.Customer WHERE CustomerName=?",[ctx.username,str(changes.pop("CustomerName") or "").strip()])[0]
+   if len(matches)!=1:
+    results.append(dict(RowNum=row.row,Status="ERROR",Message="Choose an existing Customer name."));continue
+   changes["CustomerID"]=matches[0]["ID"]
   if row.command=="U":
    with get_raw_cursor() as cur:
     cur.execute("SET XACT_ABORT ON; BEGIN TRANSACTION")
     try:
-     cur.execute("EXEC dbo.usp_Product_Fields_Save ?,?,?,?,0",ctx.username,row.id,rv(row.version),json.dumps(row.changes))
+     cur.execute("EXEC dbo.usp_Product_Fields_Save ?,?,?,?,0",ctx.username,row.id,rv(row.version),json.dumps(changes))
      version=consume(cur)[0][0]["RowVersion"]
      cur.execute("COMMIT TRANSACTION")
      invalidate("opportunity_master_lookups")
@@ -192,12 +198,12 @@ def save(body:Batch,ctx:AccessContext=Depends(get_access_context)):
   if row.command!="C":
    # Merge omitted fields from the server; the supplied RowVersion still guards the write.
    with get_raw_cursor() as cur:
-    cur.execute(PRODUCT_AUTH+"SELECT ProductCode,ProductName,WeightGrams,Status FROM dbo.Product WHERE ID=?",ctx.username,row.id)
+    cur.execute(PRODUCT_AUTH+"SELECT CustomerID,ProductCode,ProductName,WeightGrams,Status FROM dbo.Product WHERE ID=?",ctx.username,row.id)
     rows=fetch_all_as_dicts(cur)
    if not rows:
     results.append(dict(RowNum=row.row,Status="ERROR",Message="Row not found."));continue
    values=rows[0]
-  values.update(row.changes)
+  values.update(changes)
   values["WeightValue"]=values.pop("WeightGrams",None)
   values["WeightUnit"]="g"
   values.update(RowNum=row.row,Command=row.command,ID=row.id,RowVersion=row.version)

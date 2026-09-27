@@ -19,7 +19,7 @@ from auth import AccessContext
 class WebFields(PackagingFoundation):
     def setUp(self):
         super().setUp()
-        sql=(ROOT/"sql/23_packaging_field_writes.sql").read_text(encoding="utf-8")
+        sql=(ROOT/"sql/23_packaging_field_writes.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/27_product_grade_versions.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/28_product_customer.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/29_product_mix.sql").read_text(encoding="utf-8")
         for batch in re.split(r"^GO\s*$",sql,flags=re.M|re.I):
             if batch.strip():
                 self.cur.execute(batch)
@@ -36,20 +36,21 @@ class WebFields(PackagingFoundation):
 
     def test_product_create_roundtrip(self):
         code="P-"+uuid4().hex[:16]
-        result=main.product_batch(ProductBatchRequest(rows=[dict(RowNum=1,Command="C",ProductCode=code,
-            ProductName="Fields "+code,WeightValue=100,WeightUnit="g",Category="Nuts",Grade="A",MixRatioPct="25.50")]),
+        result=main.product_batch(ProductBatchRequest(rows=[dict(RowNum=1,Command="C",
+            CustomerID=self.customer,ProductName="Fields "+code,WeightValue=100,WeightUnit="g",Category="Nuts",GradeVersion=dict(items=[dict(ParentID="0",ID=1,Grade="A",RatioPct=100)]))]),
             self.username,True,frozenset())
         self.assertEqual(result["results"][0]["Status"],"OK",result)
-        row=self.cur.execute("SELECT Category,Grade,MixRatioPct FROM dbo.Product WHERE ProductCode=?",code).fetchone()
-        self.assertEqual(tuple(map(str,row)),("Nuts","A","25.50"))
+        row=self.cur.execute("SELECT Category,ProductCode FROM dbo.Product WHERE ID=?",result["results"][0]["NewID"]).fetchone()
+        self.assertEqual(row.Category,"Nuts")
+        self.assertRegex(row.ProductCode,r"^PRD-\d{10}$")
 
     def test_category_required_and_insert_rolled_back(self):
         code="P-"+uuid4().hex[:16]
-        result=main.product_batch(ProductBatchRequest(rows=[dict(RowNum=1,Command="C",ProductCode=code,
-            ProductName="Fields "+code,WeightValue=100,WeightUnit="g")]),self.username,True,frozenset())
+        result=main.product_batch(ProductBatchRequest(rows=[dict(RowNum=1,Command="C",
+            CustomerID=self.customer,ProductName="Fields "+code,WeightValue=100,WeightUnit="g")]),self.username,True,frozenset())
         self.assertEqual(result["results"][0]["Status"],"ERROR")
         self.assertIn("Category",result["results"][0]["Message"])
-        self.assertEqual(self.cur.execute("SELECT COUNT(*) FROM dbo.Product WHERE ProductCode=?",code).fetchval(),0)
+        self.assertEqual(self.cur.execute("SELECT COUNT(*) FROM dbo.Product WHERE ProductName=?","Fields "+code).fetchval(),0)
 
     def test_opportunity_extended_save_and_version(self):
         from db import bytes_to_b64

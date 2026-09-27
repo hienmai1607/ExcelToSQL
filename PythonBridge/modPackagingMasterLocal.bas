@@ -76,7 +76,7 @@ Private Function CurrentValues(ByVal r As Long, Optional ByVal validate As Boole
     Set CurrentValues = d
 End Function
 Private Function NumericField(ByVal key As String) As Boolean
-    NumericField = InStr("|QuantityFrom|QuantityTo|UnitPrice|", "|" & key & "|") > 0
+    NumericField = InStr("|QuantityFrom|QuantityTo|UnitPrice|ExchangeRateToUSD|", "|" & key & "|") > 0
 End Function
 Private Function ISODate(ByVal value As Variant, Optional ByVal validate As Boolean = True) As Variant
     If Len(S(value)) = 0 Then
@@ -230,7 +230,15 @@ Public Sub PackagingMasterNew()
     WS.Cells(r, FieldColumn("Status")).Value2 = "Active"
     If S(Config.Range("B6").Value2) = "prices" Then WS.Cells(r, FieldColumn("QuantityFrom")).Value2 = 0
     WS.Activate
-    WS.Cells(r, FieldColumn("MaterialCode")).Select
+    If S(Config.Range("B6").Value2) = "uoms" Then
+        WS.Cells(r, FieldColumn("UoMCode")).Select
+    ElseIf S(Config.Range("B6").Value2) = "vendors" Then
+        WS.Cells(r, FieldColumn("VendorName")).Select
+    ElseIf S(Config.Range("B6").Value2) = "materials" Then
+        WS.Cells(r, FieldColumn("MaterialName")).Select
+    Else
+        WS.Cells(r, FieldColumn("MaterialCode")).Select
+    End If
 End Sub
 Public Sub PackagingMasterSave()
     If busy Then Exit Sub
@@ -291,6 +299,9 @@ Public Sub PackagingMasterSave()
             WS.Cells(r, FieldColumn("Command")).Value2 = "N"
             WS.Cells(r, FieldColumn("_ID")).Value2 = x("NewID")
             WS.Cells(r, FieldColumn("_RowVersion")).Value2 = x("NewRowVersion")
+            If x.Exists("NewMaterialCode") Then
+                If Not IsNull(x("NewMaterialCode")) Then WS.Cells(r, FieldColumn("MaterialCode")).Value2 = x("NewMaterialCode")
+            End If
             Set entry = CurrentValues(r)
             WS.Cells(r, FieldColumn("_Original")).Value2 = JsonConverter.ConvertToJson(entry)
         End If

@@ -12,6 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from opportunity_changes_api import router as opportunity_changes_router
 from packaging_changes_api import router as packaging_changes_router
 from product_excel_api import router as product_excel_router
+from product_grades_api import router as product_grades_router
+from product_mix_api import router as product_mix_router
 from opportunity_excel_api import router as opportunity_excel_router
 from packaging_excel_api import router as packaging_excel_router
 from packaging_master_excel_api import router as packaging_master_excel_router
@@ -48,6 +50,8 @@ app = FastAPI(title="Opportunity/Product Bridge API")
 app.include_router(opportunity_changes_router)
 app.include_router(packaging_changes_router)
 app.include_router(product_excel_router)
+app.include_router(product_grades_router)
+app.include_router(product_mix_router)
 app.include_router(opportunity_excel_router)
 app.include_router(packaging_excel_router)
 app.include_router(packaging_master_excel_router)
@@ -212,7 +216,7 @@ def product_batch(
     results = []
     # Product master retains independent row outcomes.
     for model, values in zip(payload.rows, tvp_rows):
-        result = enriched_batch("dbo.usp_Product_Batch", [[values]], [username,int(is_admin)], [[model]], ["Product"])[0]
+        result = enriched_batch("dbo.usp_Product_Batch", [[values]], [username,int(is_admin),model.customer_id,model.is_mix], [[model]], ["Product"])[0]
         results.extend(result)
     if any(r.get("Status") == "OK" for r in results):
         invalidate("opportunity_master_lookups")
@@ -540,8 +544,8 @@ def opportunity_lookups_read(
         customers = run_read_query("dbo.usp_OpportunityCustomerLookup_Read", [username])
         products = run_read_query("dbo.usp_OpportunityProductLookup_Read", [username])
         return {
-            "customers": [{"ID": row["ID"], "CustomerName": row["CustomerName"]} for row in customers],
-            "products": [{"ID": row["ID"], "ProductCode": row["ProductCode"]} for row in products],
+            "customers": [{"ID": row["ID"], "CustomerName": row["CustomerName"], "CurrencyID": row.get("CurrencyID"), "CustomerCurrencyCode": row.get("CustomerCurrencyCode")} for row in customers],
+            "products": [{"ID": row["ID"], "ProductCode": row["ProductCode"], "ProductName": row["ProductName"], "CustomerID": row["CustomerID"]} for row in products],
             "currencies": run_read_query("dbo.usp_OpportunityCurrencyLookup_Read", [username]),
         }
     return cached("opportunity_master_lookups", ttl_seconds=60, loader=load_lookups)

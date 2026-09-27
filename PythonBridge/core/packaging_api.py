@@ -33,9 +33,29 @@ class MaterialRow(MasterRow):
     UnitOfMeasure: str | None = Field(None, max_length=20)
     Status: Literal['Active', 'Block'] | None = None
 
+class UoMRow(MasterRow):
+    UoMCode: str | None = Field(None, max_length=40)
+    UoMName: str | None = Field(None, max_length=500)
+    Status: Literal["Active", "Block"] | None = None
+
+class UoMBatch(Input):
+    rows: list[UoMRow] = Field(min_length=1,max_length=500)
+
+class VendorRow(MasterRow):
+    CurrencyID: int | None = Field(None, ge=1)
+    VendorName: str | None = Field(None, max_length=200)
+    Address: str | None = Field(None, max_length=500)
+    Status: Literal["Active", "Block"] | None = None
+
+class VendorBatch(Input):
+    rows: list[VendorRow] = Field(min_length=1,max_length=500)
+
 class PriceRow(MasterRow):
+    ExchangeRateToUSD: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=10)
+    VendorID: int | None = Field(None, ge=1)
     MaterialID: int | None = Field(None, ge=1)
     CurrencyID: int | None = Field(None, ge=1)
+    BaseUoM: str | None = Field(None, max_length=40)
     PriceBasis: str | None = Field(None, max_length=40)
     QuantityFrom: Decimal | None = Field(None, ge=0, max_digits=18, decimal_places=4)
     QuantityTo: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=4)
@@ -190,7 +210,26 @@ def material_save(payload: MaterialBatch, ctx: AccessContext = Depends(get_acces
 
 @router.post('/price/batch')
 def price_save(payload: PriceBatch, ctx: AccessContext = Depends(get_access_context)):
-    return batch(payload,ctx,'PackagingPriceBatchType','usp_PackagingPrice_Batch',PRICE)
+    require(ctx,'Packaging')
+    for row in payload.rows:
+        if 'BaseUoM' in row.model_fields_set:
+            if row.PriceBasis is not None and row.PriceBasis != row.BaseUoM:
+                raise HTTPException(422,'Conflicting Base UoM values.')
+            row.PriceBasis=row.BaseUoM
+    missing=[r.ID for r in payload.rows if r.Command!='C' and r.ID and 'VendorID' not in r.model_fields_set]
+    if missing:
+        current=execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT; SELECT ID,VendorID FROM dbo.PackagingPrice WHERE ID IN(SELECT value FROM OPENJSON(?))",[ctx.username,json.dumps(missing)])[0]
+        vendors={r['ID']:r['VendorID'] for r in current}
+        for row in payload.rows:
+            if row.ID in vendors and 'VendorID' not in row.model_fields_set: row.VendorID=vendors[row.ID]
+    missing_rates=[r.ID for r in payload.rows if r.Command!='C' and r.ID and 'ExchangeRateToUSD' not in r.model_fields_set]
+    if missing_rates:
+        current=execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT; SELECT ID,CurrencyID,ExchangeRateToUSD FROM dbo.PackagingPrice WHERE ID IN(SELECT value FROM OPENJSON(?))",[ctx.username,json.dumps(missing_rates)])[0]
+        existing={r['ID']:r for r in current}
+        for row in payload.rows:
+            if row.ID in existing and 'ExchangeRateToUSD' not in row.model_fields_set and row.CurrencyID==existing[row.ID]['CurrencyID']:
+                row.ExchangeRateToUSD=existing[row.ID]['ExchangeRateToUSD']
+    return batch(payload,ctx,'PackagingPriceBatchTypeV3','usp_PackagingPrice_BatchV3',PRICE+[('VendorID','INT'),('ExchangeRateToUSD','DECIMAL(18,10)')])
 
 @router.post('/response/batch')
 def response_save(payload: ResponseBatch, ctx: AccessContext = Depends(get_access_context)):
@@ -268,3 +307,20 @@ def assign(item_id: int, payload: Assignment, ctx: AccessContext = Depends(get_a
 def transition(item_id: int, payload: Transition, ctx: AccessContext = Depends(get_access_context)):
     require(ctx,'Packaging' if payload.TargetStage in ('Working','Pending Review') else 'PackagingManager')
     return {'result':execute('EXEC dbo.usp_PackagingRequestItem_Transition ?,?,?,?,?', [ctx.username,item_id,rv(payload.ExpectedRowVersion),payload.TargetStage,payload.Comment])[0][0]}
+
+@router.post("/vendor/batch")
+def vendor_save(payload:VendorBatch,ctx:AccessContext=Depends(get_access_context)):
+    fields=[("RowNum","INT"),("Command","CHAR(1)"),("ID","INT"),("VendorName","NVARCHAR(200)"),("Address","NVARCHAR(500)"),("Status","VARCHAR(10)"),("RowVersionB64","VARCHAR(18)")]
+    missing=[r.ID for r in payload.rows if r.Command!='C' and r.ID and 'CurrencyID' not in r.model_fields_set]
+    if missing:
+        current=execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT; SELECT ID,CurrencyID FROM dbo.Vendor WHERE ID IN(SELECT value FROM OPENJSON(?))",[ctx.username,json.dumps(missing)])[0]
+        currencies={r['ID']:r['CurrencyID'] for r in current}
+        for row in payload.rows:
+            if row.ID in currencies and 'CurrencyID' not in row.model_fields_set: row.CurrencyID=currencies[row.ID]
+    return batch(payload,ctx,"VendorBatchTypeV2","usp_Vendor_BatchV2",fields+[('CurrencyID','INT')])
+
+@router.post("/uom/batch")
+def uom_save(payload:UoMBatch,ctx:AccessContext=Depends(get_access_context)):
+    require(ctx,"Admin")
+    fields=[("RowNum","INT"),("Command","CHAR(1)"),("ID","INT"),("UoMCode","NVARCHAR(40)"),("UoMName","NVARCHAR(500)"),("Status","VARCHAR(10)"),("RowVersionB64","VARCHAR(18)")]
+    return batch(payload,ctx,"UoMBatchType","usp_UoM_Batch",fields)

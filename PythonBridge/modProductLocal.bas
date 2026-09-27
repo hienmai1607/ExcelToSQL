@@ -38,7 +38,7 @@ Private Function S(ByVal v As Variant) As String
     If Not IsNull(v) And Not IsEmpty(v) Then S = CStr(v)
 End Function
 Private Function Editable(ByVal key As String) As Boolean
-    Editable = InStr(1, "|ProductCode|ProductName|Category|Grade|MixRatioPct|WeightGrams|Status|", "|" & key & "|", vbBinaryCompare) > 0
+    Editable = InStr(1, "|CustomerName|ProductName|Category|WeightGrams|Status|", "|" & key & "|", vbBinaryCompare) > 0
 End Function
 Private Function Api(ByVal endpoint As String, ByVal body As Object) As Object
     Dim http As Object, base As String
@@ -65,7 +65,7 @@ Private Function CurrentValues(ByVal r As Long, Optional ByVal validate As Boole
         If key <> "Command" And Left$(key, 1) <> "_" And Len(key) > 0 Then
             v = WS.Cells(r, c).Value2
             If Len(S(v)) = 0 Then v = Null
-            If validate And Not IsNull(v) And (key = "MixRatioPct" Or key = "WeightGrams") Then
+            If validate And Not IsNull(v) And (key = "WeightGrams") Then
                 If Not IsNumeric(v) Then Err.Raise vbObjectError + 3103, , "Row " & r & ": invalid numeric value for " & key
                 v = CDbl(v)
             End If
@@ -76,7 +76,7 @@ Private Function CurrentValues(ByVal r As Long, Optional ByVal validate As Boole
 End Function
 Private Function SameValue(ByVal a As Variant, ByVal b As Variant, ByVal key As String) As Boolean
     If Len(S(a)) = 0 And Len(S(b)) = 0 Then SameValue = True: Exit Function
-    If key = "MixRatioPct" Or key = "WeightGrams" Then
+    If key = "WeightGrams" Then
         If IsNumeric(a) And IsNumeric(b) Then SameValue = (CDbl(a) = CDbl(b)): Exit Function
     End If
     SameValue = (StrComp(S(a), S(b), vbBinaryCompare) = 0)
@@ -166,7 +166,7 @@ Private Sub LoadPage(ByVal target As Long)
 End Sub
 Private Sub ShowRequiredColumns()
     Dim key As Variant
-    For Each key In Array("ProductCode", "ProductName", "Category", "WeightGrams")
+    For Each key In Array("CustomerName", "ProductName", "Category", "WeightGrams")
         WS.Columns(FieldColumn(CStr(key))).Hidden = False
     Next key
 End Sub
@@ -202,13 +202,13 @@ End Sub
 Public Sub ProductNew()
     Dim key As Variant, r As Long
     If busy Then Exit Sub
-    For Each key In Array("ProductCode", "ProductName", "Category", "WeightGrams")
+    For Each key In Array("CustomerName", "ProductName", "Category", "WeightGrams")
         WS.Columns(FieldColumn(CStr(key))).Hidden = False
     Next key
     r = LastRow() + 1
     WS.Cells(r, FieldColumn("Command")).Value2 = "C"
     WS.Activate
-    WS.Cells(r, FieldColumn("ProductCode")).Select
+    WS.Cells(r, FieldColumn("ProductName")).Select
 End Sub
 Public Sub ProductSave()
     If busy Then Exit Sub
@@ -256,6 +256,9 @@ Public Sub ProductSave()
             WS.Cells(r, FieldColumn("Command")).Value2 = "N"
             WS.Cells(r, FieldColumn("_ID")).Value2 = x("NewID")
             WS.Cells(r, FieldColumn("_RowVersion")).Value2 = x("NewRowVersion")
+            If x.Exists("NewProductCode") Then
+                If Not IsNull(x("NewProductCode")) Then WS.Cells(r, FieldColumn("ProductCode")).Value2 = x("NewProductCode")
+            End If
             Set entry = CurrentValues(r)
             WS.Cells(r, FieldColumn("_Original")).Value2 = JsonConverter.ConvertToJson(entry)
         End If

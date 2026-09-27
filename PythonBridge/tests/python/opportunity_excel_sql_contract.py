@@ -21,7 +21,7 @@ class OpportunityExcelSQL(unittest.TestCase):
    mock=patch.object(module,"get_raw_cursor",cursor);mock.start();self.addCleanup(mock.stop)
   self.ctx=AccessContext(self.actor,self.username,frozenset({"Admin"}))
   self.currency=self.cur.execute("SELECT TOP(1) ID FROM dbo.Currency WHERE CurrencyCode='VND'").fetchval()
-  self.cur.execute("UPDATE dbo.Opportunity SET CurrencyID=?,ExchangeRateToVND=1 WHERE ID=?",self.currency,self.opp)
+  self.cur.execute("UPDATE o SET ExchangeRateVNDPerUSD=25000,ExchangeRateCustomerCurrencyPerUSD=1,RateCustomerCurrencyID=c.CurrencyID FROM dbo.Opportunity o JOIN dbo.Customer c ON c.ID=o.CustomerID WHERE o.ID=?",self.opp)
  def edit(self,**changes):
   row=excel.document_rows(self.ctx,self.opp)[0]
   return dict(row=3,number=row["OpportunityNumber"],opportunity_id=self.opp,item_id=self.item,
@@ -38,9 +38,10 @@ class OpportunityExcelSQL(unittest.TestCase):
   self.assertTrue(any(r.EntityLevel=="Item" and r.FieldName=="AnnualUnit" and r.NewValue=="321" and r.ChangedBy==self.username for r in changes))
  def test_create_multiple_items(self):
   source=excel.document_rows(self.ctx,self.opp)[0]
-  products=self.cur.execute("SELECT TOP(2) ProductCode FROM dbo.Product WHERE Status='Active' ORDER BY ID").fetchall()
+  self.cur.execute("INSERT dbo.Product(ProductCode,ProductName,WeightGrams,CreatedBy,CustomerID) VALUES('R-'+LEFT(CONVERT(VARCHAR(36),NEWID()),16),'Rate test '+CONVERT(VARCHAR(36),NEWID()),100,?,?)",self.actor,self.customer)
+  products=self.cur.execute("SELECT TOP(2) ProductCode FROM dbo.Product WHERE Status='Active' AND CustomerID=? ORDER BY ID",self.customer).fetchall()
   rows=[dict(row=i+3,number="XL-TEST-CREATE",header_command="C",item_command="C",
-   header_changes={k:source[k] for k in excel.HEADER_REQUIRED if k!="OpportunityNumber"},
+   header_changes={k:source[k] for k in excel.HEADER_REQUIRED if k in excel.HEADER_EDITABLE},
    item_changes={"ProductCode":p[0],"ItemDescription":"Excel create","AnnualUnit":10}) for i,p in enumerate(products)]
   result=excel.save(excel.Batch(rows=rows),self.ctx)
   self.assertTrue(all(r["status"]=="OK" for r in result["results"]),result)

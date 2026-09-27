@@ -13,15 +13,15 @@ test('Product Excel workbench uses current layout, filters and page',async({page
  await page.getByRole('button',{name:'Products',exact:true}).click();
  await page.getByRole('button',{name:'Layout options',exact:true}).click();
  const layout=page.getByRole('complementary',{name:'Master layout'});
- for(const name of ['Product code','Product name','Category','Weight (g)']){
+ for(const name of ['Product name','Category','Net Weight (g)']){
   await expect(layout.getByRole('checkbox',{name,exact:true})).toBeChecked();
   await expect(layout.getByRole('checkbox',{name,exact:true})).toBeDisabled();
  }
- await expect(layout.getByRole('checkbox',{name:'Grade',exact:true})).toBeEnabled();
+ await expect(layout.getByRole('checkbox',{name:'Grade',exact:true})).toHaveCount(0);
  const download=page.waitForEvent('download');
  await page.getByRole('button',{name:'Excel Local Update',exact:true}).click();
  expect((await download).suggestedFilename()).toBe('Product_Local_Update.xlsm');
- expect(submitted.layout.columns).toEqual(['Grade','ProductName','ProductCode','Category','WeightGrams']);
+ expect(submitted.layout.columns).toEqual(['ProductName','CustomerName','Category','WeightGrams']);
  expect(submitted.layout.values.search).toBe('Nut');
  expect(submitted.layout.page_size).toBe(200);
  await expect(page.getByText('Open the downloaded workbook',{exact:false})).toBeVisible();

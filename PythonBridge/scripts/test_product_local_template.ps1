@@ -6,7 +6,7 @@ try{
  $excel.Visible=$false;$excel.DisplayAlerts=$false
  $book=$excel.Workbooks.Open((Resolve-Path -LiteralPath $WorkbookPath).Path,0,$false)
  $ws=$book.Worksheets.Item('Product')
- if($ws.Cells.Item(2,2).Value2 -ne 'Grade'){throw 'Selected column order not preserved'}
+ if($ws.Cells.Item(2,2).Value2 -ne 'ProductName'){throw 'Selected column order not preserved'}
  if($ws.Rows.Item(2).Hidden -ne $true){throw 'Field keys should be hidden'}
  if($Refresh){
   $excel.Run("'$($book.Name)'!ProductRefresh")

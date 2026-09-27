@@ -2,13 +2,14 @@
 import json
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from master_models import MasterSort
+from master_models import MasterSort, ColumnWidth
 from packaging_fields import OPPORTUNITYITEM_FIELDS, PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS
 
 HEADERS={"RequestNumber","OpportunityNumber","CustomerName","ResponseDue","RequestStatus","ItemCount","Unassigned","RequestedByName","RequestedAt"}
 ITEMS={"CostBasis","ResponseNotes","HeightMM","WidthMM","LengthMM","ProductCode","ItemDescription","AnnualUnit","PackagingRequirement","ItemStage","PIC","ProductName","WeightGrams","Category","Grade","MixRatioPct","PMCost","PMCostCurrencyCode",*OPPORTUNITYITEM_FIELDS,*PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS}
 
 class RequestView(BaseModel):
+    column_widths:dict[str,ColumnWidth]=Field(default_factory=dict,max_length=64)
     model_config=ConfigDict(extra="forbid")
     columns:list[str]=Field(min_length=1,max_length=64)
     sort:list[MasterSort]=Field(default_factory=list,max_length=64)
@@ -26,6 +27,8 @@ class RequestViews(BaseModel):
     def valid(cls,v,info):
         if v is None:return v
         allowed=HEADERS if info.field_name=="header" else ITEMS
+        width_keys=allowed | ({"_Actions"} if info.field_name=="header" else {"_PIC","_Assign","_Documents","_Response"})
+        if any(k not in width_keys for k in v.column_widths):raise ValueError("Invalid column width key.")
         for keys in (v.columns,[r.column for r in v.sort]):
             if len(keys)!=len(set(keys)) or any(k not in allowed for k in keys):
                 raise ValueError("Invalid or duplicate Packaging Request column.")

@@ -2,14 +2,15 @@
 import json
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from master_models import MasterSort
+from master_models import MasterSort, ColumnWidth
 from packaging_api import execute
 
-HEADER_COLUMNS = {"OpportunityNumber", "CustomerName", "OpportunityDesc", "BidOpen", "BidClose", "HeaderStage", "ItemCount", "CurrencyCode", "ExchangeRateToVND"}
+HEADER_COLUMNS = {"OpportunityNumber", "CustomerName", "OpportunityDesc", "BidOpen", "BidClose", "HeaderStage", "ItemCount", "CustomerCurrencyCode", "ExchangeRateVNDPerUSD", "ExchangeRateCustomerCurrencyPerUSD"}
 from packaging_fields import OPPORTUNITYITEM_FIELDS, PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS
 ITEM_COLUMNS = {"ProductCode", "ItemDescription", "AnnualUnit", "EstPctAwarded", "ShelfPrice", "ItemStage", "ProductName", "WeightGrams", "Category", "Grade", "MixRatioPct", "PMCost", "PMCostCurrencyCode", "PackagingRequestNumber", "PackagingResponseStage", *OPPORTUNITYITEM_FIELDS, *PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS}
 
 class OpportunityView(BaseModel):
+    column_widths: dict[str, ColumnWidth] = Field(default_factory=dict,max_length=64)
     model_config = ConfigDict(extra="forbid")
     columns: list[str] = Field(min_length=1, max_length=644)
     sort: list[MasterSort] = Field(default_factory=list, max_length=644)
@@ -19,6 +20,11 @@ class OpportunityView(BaseModel):
     prefix_columns: list[str] | None = Field(None, max_length=64)
 
 def validate_view(view, allowed):
+    if allowed == HEADER_COLUMNS:
+        mapping={"CurrencyCode":"CustomerCurrencyCode","ExchangeRateToVND":"ExchangeRateVNDPerUSD"}
+        view.columns=list(dict.fromkeys(mapping.get(k,k) for k in view.columns))
+        for rule in view.sort: rule.column=mapping.get(rule.column,rule.column)
+    if any(k not in allowed and not (allowed==HEADER_COLUMNS and k=="_Actions") for k in view.column_widths):raise ValueError("Invalid column width key.")
     if view.prefix_columns is not None:
         if allowed != ITEM_COLUMNS or len(view.prefix_columns) != len(set(view.prefix_columns)) or any(c not in ITEM_COLUMNS for c in view.prefix_columns):
             raise ValueError("Invalid Opportunity item prefix columns.")
@@ -77,6 +83,9 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             SELECT o.ID OpportunityID,o.OpportunityNumber,o.CustomerID,c.CustomerName,
                 o.OpportunityDesc,o.BidOpen,o.BidClose,o.Stage HeaderStage,o.RowVersion HeaderRowVersion,
                 o.CurrencyID,o.ExchangeRateToVND,(SELECT CurrencyCode FROM dbo.Currency WHERE ID=o.CurrencyID) CurrencyCode,
+                o.ExchangeRateVNDPerUSD,c.CurrencyID AS CustomerCurrencyID,
+                (SELECT CurrencyCode FROM dbo.Currency WHERE ID=c.CurrencyID) CustomerCurrencyCode,
+                CASE WHEN o.RateCustomerCurrencyID=c.CurrencyID THEN o.ExchangeRateCustomerCurrencyPerUSD END AS ExchangeRateCustomerCurrencyPerUSD,
                 (SELECT COUNT(*) FROM dbo.OpportunityItem i WHERE i.OpportunityID=o.ID) ItemCount
             FROM dbo.Opportunity o JOIN dbo.Customer c ON c.ID=o.CustomerID WHERE {where}
         ), Ranked AS (

@@ -21,17 +21,17 @@ from schemas import OpportunityBatchRequest
 
 router=APIRouter(prefix="/api/workbench/opportunity-excel",tags=["Opportunity Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Opportunity_Local_Update.xlsm"
-HEADER_REQUIRED=["OpportunityNumber","CustomerName","OpportunityDesc","BidOpen","BidClose","CurrencyCode","ExchangeRateToVND"]
+HEADER_REQUIRED=["OpportunityNumber","CustomerName","OpportunityDesc","BidOpen","BidClose","CustomerCurrencyCode","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"]
 ITEM_REQUIRED=["ProductCode","ItemDescription","AnnualUnit"]
-HEADER_EDITABLE={"CustomerName","OpportunityDesc","BidOpen","BidClose","CurrencyCode","ExchangeRateToVND"}
+HEADER_EDITABLE={"CustomerName","OpportunityDesc","BidOpen","BidClose","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"}
 ITEM_EDITABLE={"ProductCode","ItemDescription","AnnualUnit","EstPctAwarded","ShelfPrice",*OPPORTUNITYITEM_FIELDS}
 META=["_OpportunityID","_ItemID","_HeaderVersion","_ItemVersion","_Original"]
 AUTH="""IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID
 WHERE u.UserName=? AND u.IsActive=1 AND a.Scope IN('Admin','Opportunity'))
 THROW 52744,'Opportunity access is required for this action.',1; """
 LABELS={"OpportunityNumber":"Opportunity / new group key","CustomerName":"Customer","OpportunityDesc":"Description",
-"BidOpen":"Bid open","BidClose":"Bid close","HeaderStage":"Stage","CurrencyCode":"Currency",
-"ExchangeRateToVND":"Exchange rate to VND","ItemCount":"Items","ProductCode":"Product code",
+"BidOpen":"Bid open","BidClose":"Bid close","HeaderStage":"Stage","CustomerCurrencyCode":"Customer currency",
+"ExchangeRateVNDPerUSD":"Exchange rate VND per USD","ExchangeRateCustomerCurrencyPerUSD":"Exchange rate Customer Currency per USD","ItemCount":"Items","ProductCode":"Product code",
 "ItemDescription":"Description","AnnualUnit":"Annual units","EstPctAwarded":"Estimated award %",
 "ShelfPrice":"Shelf price","ItemStage":"Stage","WeightGrams":"Net weight (g)","MaxPalletHeightM":"Max pallet height (m)",
 "ShelfLifeDays":"Shelf life (days)"}
@@ -209,15 +209,15 @@ def prepare(group,ctx):
    if k in changes and changes[k]!=v:raise ValueError("Conflicting repeated header values for "+k+".")
    changes[k]=v
  values={**source,**changes}
- header={k:values.get(k) for k in ("OpportunityDesc","BidOpen","BidClose","ExchangeRateToVND")}
+ header={k:values.get(k) for k in ("OpportunityDesc","BidOpen","BidClose","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD")}
  for k in ("BidOpen","BidClose"):
   if header[k]:header[k]=date.fromisoformat(str(header[k])[:10]).isoformat()
  if hc!="D":
   for k in HEADER_REQUIRED[1:]:
-   if values.get(k) is None or str(values[k]).strip()=="":raise ValueError(k+" is required.")
+   if k!="CustomerCurrencyCode" and (values.get(k) is None or str(values[k]).strip()==""):raise ValueError(k+" is required.")
  header.update(RowNum=first.row,Command=hc,ID=first.opportunity_id,OpportunityNumber=first.number,RowVersion=first.header_version)
  header["CustomerID"]=resolve(ctx,"Customer","CustomerName",values["CustomerName"]) if "CustomerName" in changes or not existing else source["CustomerID"]
- header["CurrencyID"]=resolve(ctx,"Currency","CurrencyCode",values["CurrencyCode"]) if "CurrencyCode" in changes or not existing else source["CurrencyID"]
+ # Customer currency is resolved in SQL; it is never supplied by Excel.
  items=[];by_id={r["ItemID"]:r for r in existing if r.get("ItemID")}
  for row in group:
   if hc=="D":
