@@ -1,3 +1,4 @@
+import {newId} from './id';
 import {ResizableTable,ColumnResizer,columnWidth} from './column-widths';
 import {opportunityDisplay} from './number-format';
 import React,{useEffect,useRef,useState} from 'react';
@@ -63,9 +64,11 @@ function Opportunities({session}:{session:Session}){
  function prepare(){if(items.some(x=>checked.has(Number(x.ItemID))&&!String(x.PackagingType||'').trim())){setError('Enter Packaging type for each selected item using Edit Opportunity before creating a request.');return}if(!header||!checked.size||!due){setError('Select at least one Draft item and enter a response due date.');return}if(items.some(x=>checked.has(Number(x.ItemID))&&x.HasOpenPackagingRequest)){setError('A selected item already has an active Packaging Request. Refresh Opportunities.');return}setError('');setConfirm(true)}
  async function create(payload?:RequestPayload){
   if(posting.current)return;
-  const body=payload||pending||(header?{OpportunityID:Number(header.OpportunityID),ExpectedRowVersion:String(header.HeaderRowVersion),CreationKey:crypto.randomUUID(),ResponseDue:due,RequestNotes:notes||null,items:items.filter(x=>checked.has(Number(x.ItemID))).map(x=>({OpportunityItemID:Number(x.ItemID),ExpectedRowVersion:String(x.ItemRowVersion),PackagingRequirement:requirements[Number(x.ItemID)]||null}))}:null);
-  if(!body)return;posting.current=true;setSaving(true);setError('');
+  let body:RequestPayload|null=null;
+  posting.current=true;setSaving(true);setError('');
   try {
+  body=payload||pending||(header?{OpportunityID:Number(header.OpportunityID),ExpectedRowVersion:String(header.HeaderRowVersion),CreationKey:newId(),ResponseDue:due,RequestNotes:notes||null,items:items.filter(x=>checked.has(Number(x.ItemID))).map(x=>({OpportunityItemID:Number(x.ItemID),ExpectedRowVersion:String(x.ItemRowVersion),PackagingRequirement:requirements[Number(x.ItemID)]||null}))}:null);
+  if(!body)throw new Error('Select Opportunity items before creating a request.');
    // Persist BEFORE POST. A lost reply can be retried using the identical payload.
    await stageFiles(session.username,body.CreationKey,checked,files);
    localStorage.setItem(pendingKey,JSON.stringify(body));setPending(body);
@@ -73,7 +76,7 @@ function Opportunities({session}:{session:Session}){
    await bindFiles(session.username,body.CreationKey,result.items);
    localStorage.removeItem(pendingKey);setPending(null);setFiles({});setConfirm(false);setSelected(null);setChecked(new Set());
    setSuccess('Request '+result.header.RequestNumber+' '+(result.replayed?'recovered':'created')+' with '+result.items.length+' item(s).');setReload(n=>n+1);
-  }catch(e){const err=e as ApiError;setConfirm(false);setError(err.message+(err.status===409?' Refresh the Opportunity and check for an existing open request.':''));if(err.status>=400&&err.status<500&&err.status!==408){localStorage.removeItem(pendingKey);setPending(null);await discardStaged(session.username,body.CreationKey)}}
+  }catch(e){const err=e as ApiError;setConfirm(false);setError(err.message+(err.status===409?' Refresh the Opportunity and check for an existing open request.':''));if(body&&err.status>=400&&err.status<500&&err.status!==408){localStorage.removeItem(pendingKey);setPending(null);await discardStaged(session.username,body.CreationKey)}}
   finally{posting.current=false;setSaving(false)}
  }
  return <div className="customers-page opportunity-page"><div className="customer-heading"><h1>Opportunities</h1></div>

@@ -1,3 +1,4 @@
+import {newId} from './id';
 import {useEffect,useRef,useState,useMemo} from 'react';
 import {ApiError,call,type Row} from './api';
 import {Modal,ErrorNote,Badge} from './ui';
@@ -54,7 +55,7 @@ export function OpportunityCreate({onClose,onSaved,rows,focusItem}:{onClose:()=>
  async function save(){
   if(posting.current||uncertain)return;posting.current=true;setBusy(true);setError('');
   // This key connects the header and items inside one SQL transaction, not a retry token.
-  const key=editing?String(header!.OpportunityNumber):'WEB-'+crypto.randomUUID().replaceAll('-','').slice(0,16);
+  const key=editing?String(header!.OpportunityNumber):'WEB-'+newId().replaceAll('-','').slice(0,16);
   const changed=editing?submitted:lines;
   try{
    const result=await call<{header_results:Row[];item_results:Row[]}>('/api/opportunity/batch',{

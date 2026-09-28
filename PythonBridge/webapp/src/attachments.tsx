@@ -1,3 +1,4 @@
+import {newId} from './id';
 import {useEffect,useRef,useState} from 'react';
 import {text,type Row} from './api';
 import './attachments.css';
@@ -28,7 +29,7 @@ export function FilePicker({files,onChange,disabled,label}:{files:PickedFile[];o
   if(selected.some(f=>f.size===0||f.size>10*1024*1024)){setError('Each file must be nonempty and at most 10 MB.');return}
   if(files.length+selected.length>20){setError('Maximum 20 files per item.');return}
   if(selected.some(f=>!allowed.split(',').some(ext=>f.name.toLowerCase().endsWith(ext)))){setError('This file type is not supported.');return}
-  setError('');onChange([...files,...selected.map(file=>({id:crypto.randomUUID(),file}))]);
+  setError('');onChange([...files,...selected.map(file=>({id:newId(),file}))]);
  }}/>{files.map(f=><div key={f.id} className="file-name"><span>{f.file.name} ({Math.ceil(f.file.size/1024)} KB)</span><button type="button" disabled={disabled} aria-label={'Remove '+f.file.name} onClick={()=>onChange(files.filter(x=>x.id!==f.id))}>×</button></div>)}{error&&<small role="alert">{error}</small>}</div>
 }
 export function AttachmentQueue({user}:{user:string}){

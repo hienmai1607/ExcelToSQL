@@ -102,3 +102,21 @@ test('visible column choices are alphabetical without reordering the table',asyn
  expect(labels).toEqual([...labels].sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'})));
  expect(await page.getByRole('columnheader').allTextContents()).toEqual(headers);
 });
+
+test('small desktop sidebar scrolls and workspace uses compact spacing',async({page})=>{
+ await page.setViewportSize({width:1020,height:766});await setup(page,'Admin');
+ const sidebar=page.locator('.sidebar');
+ expect(await sidebar.evaluate(el=>getComputedStyle(el).overflowY)).toMatch(/auto|scroll/);
+ const cell=page.getByRole('table').first().locator('tbody td').first();
+ expect(await cell.evaluate(el=>parseFloat(getComputedStyle(el).paddingTop))).toBeLessThanOrEqual(10);
+ await expect(page.getByRole('button',{name:'Units of Measure',exact:true})).toBeInViewport();
+ await expect(page.getByRole('button',{name:'Dark mode',exact:true})).toBeInViewport();
+ await page.setViewportSize({width:1020,height:430});
+ await sidebar.evaluate(el=>{el.scrollTop=el.scrollHeight});
+ expect(await sidebar.evaluate(el=>el.scrollTop)).toBeGreaterThan(0);
+ await expect(page.getByRole('button',{name:'Dark mode',exact:true})).toBeInViewport();
+ await page.getByRole('button',{name:'Collapse navigation',exact:true}).click();
+ await sidebar.evaluate(el=>{el.scrollTop=el.scrollHeight});
+ await expect(page.getByRole('button',{name:'Dark mode',exact:true})).toBeInViewport();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});

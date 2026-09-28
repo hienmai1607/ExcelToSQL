@@ -41,7 +41,8 @@ test('items are boxed and request box follows selection without losing entered n
  await item.check();await expect(page.getByLabel('Request notes',{exact:true})).toHaveValue('Keep this note');
  await expect(page.getByRole('button',{name:'Item layout',exact:true})).toBeVisible();
 });
-test('browse details, filter, select a subset and create exactly that subset',async({page})=>{
+test('create selected request items without secure-context randomUUID',async({page})=>{
+ await page.addInitScript(()=>Object.defineProperty(crypto,'randomUUID',{value:undefined,configurable:true}));
  await mock(page);let payload:any;
  await page.route('**/api/packaging/manual',async route=>{payload=route.request().postDataJSON();await route.fulfill({json:{header:{RequestNumber:'PKG-00006'},items:payload.items,replayed:false}})});
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();

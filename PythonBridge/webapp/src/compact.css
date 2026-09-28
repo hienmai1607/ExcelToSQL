@@ -9,3 +9,37 @@
 @media(max-width:700px){.app.nav-hidden .sidebar{position:fixed;inset:0 auto 0 0}.app.nav-hidden nav{display:flex;flex-direction:column;flex-wrap:nowrap}.app.nav-hidden nav button{flex:none}.app.nav-hidden .brand .logo{display:grid}.app.nav-hidden .identity{display:flex}.app.nav-hidden main{padding-inline:12px}.customers-page .customer-heading{gap:10px}.customers-page h1{font-size:24px}.customer-entry{padding:15px}.customer-form-grid{grid-template-columns:1fr}.batch-actions{bottom:-22px}.column-order{min-width:200px}.sidebar .appearance-controls{padding-top:12px}.customer-drawer .customer-entry label{margin-bottom:14px}}
 .customer-actions{text-align:center;width:64px;min-width:64px}
 .sort-rule{display:flex;align-items:flex-end;gap:9px;margin:12px 0}.sort-rule>span{align-self:center}.sort-rule label{flex:1}.sort-summary{font-size:12px;margin:0 0 12px;color:#64766c}.sort-heading{padding:0;border:0;background:transparent;color:inherit;text-transform:inherit;font-size:inherit;letter-spacing:inherit;display:flex;gap:5px}.sort-heading span{color:#367757}[data-theme=dark] .sort-heading{background:transparent}[data-theme=dark] .sort-heading span{color:#afe2be}@media(max-width:700px){.sort-rule{flex-wrap:wrap}.sort-rule label{min-width:110px}.sort-rule>span{width:100%}}
+
+/* Keep every navigation and account control reachable in short windows. */
+.sidebar{overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.sidebar>*{flex-shrink:0}
+
+/* Compact desktop density; retain the existing touch layout below 701px. */
+@media (min-width:701px) and (max-width:1100px){
+ :root{font-size:13px}
+ .sidebar{padding:18px 12px}
+ .brand{font-size:16px;letter-spacing:.5px;gap:9px}
+ .nav-label{margin:24px 10px 10px}
+ .sidebar nav{gap:4px}
+ .sidebar nav button{padding:9px 10px;min-height:38px}
+ .sidebar nav button .nav-text{font-size:12px}
+ .sidebar .appearance-controls{padding-top:12px}
+ .sidebar .identity{padding-top:12px;margin-top:12px}
+ .app.nav-hidden .sidebar{padding:18px 10px}
+ .nav-hidden nav{margin-top:20px}
+ .nav-hidden nav button{padding:9px}
+ main{padding-inline:16px}
+ .customers-page .customer-heading{padding:12px 0 8px}
+ .customers-page h1{font-size:22px}
+ button{padding:7px 11px}
+ input,select,textarea{padding:7px 9px}
+ .icon-button{min-width:36px;min-height:36px;padding:7px}
+ th{padding:10px 12px;letter-spacing:.04em}
+ td{padding:9px 12px}
+ .filters{gap:10px;padding:12px}
+ .layout-panel{padding:16px}
+ .customer-entry{padding:16px}
+ .dialog{padding:20px}
+ .master-fields,.packaging-entry-grid{gap:10px}
+ .request-editor-header,.request-editor-item{padding:12px}
+}
