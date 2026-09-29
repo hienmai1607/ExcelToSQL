@@ -99,7 +99,7 @@ def snapshot_xlsx(body, labels=None, sheet_name="Customers") -> bytes:
         for i, value in enumerate(values):
             if value is None:
                 continue
-            numeric_columns={"UnitPrice","UnitUSDPrice","ExchangeRateToUSD","WeightGrams","WeightOz","QuantityFrom","QuantityTo"}
+            numeric_columns={"BaseUnitPrice","BaseUnitUSDPrice","ConversionFactor","UnitPrice","UnitUSDPrice","ExchangeRateToUSD","WeightGrams","WeightOz","QuantityFrom","QuantityTo"}
             if number>1 and body.columns[i] in numeric_columns and re.fullmatch(r"-?\d+(?:\.\d+)?",value):
                 cells.append(f'<c r="{chr(65+i)}{number}" t="n"><v>{value}</v></c>')
                 continue

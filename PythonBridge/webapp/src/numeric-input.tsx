@@ -18,7 +18,7 @@ export function NumericInput({field,value,onValueChange,...props}:Omit<InputHTML
 }
 export function numericEntryError(field:string,value:string){
  if(!value)return '';
- const places=field==='UnitPrice'?2:3;
+ const places=field==='Factor'||field==='ConversionFactor'?9:field==='UnitPrice'?2:3;
  if(!new RegExp('^\\d+(\\.\\d{0,'+places+'})?$').test(value))return 'Use a non-negative number with up to '+places+' decimal places.';
  return '';
 }

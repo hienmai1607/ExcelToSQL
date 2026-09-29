@@ -184,8 +184,8 @@ def tvp_sql(type_name, fields):
     values = ','.join(f'CONVERT(VARBINARY(8),[{name}],1)' if name in ('RowVersionB64','ExpectedRowVersion') else f'[{name}]' for name, _ in fields)
     return f'DECLARE @Rows dbo.{type_name}; INSERT @Rows SELECT {values} FROM OPENJSON(?) WITH ({columns}); '
 
-def batch(payload, ctx, type_name, proc, fields):
-    require(ctx, 'Packaging')
+def batch(payload, ctx, type_name, proc, fields, scope="Packaging"):
+    require(ctx, scope)
     documents = []
     seen = set()
     for r in payload.rows:

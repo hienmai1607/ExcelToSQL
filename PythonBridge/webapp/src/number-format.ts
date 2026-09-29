@@ -1,6 +1,6 @@
 // Display only: never use rounded values as save payloads.
-const money=new Set(['UnitPrice','UnitUSDPrice','ShelfPrice','Cost','PMCost']);
-const numeric=new Set(['QuantityFrom','QuantityTo','WeightGrams','WeightOz','WeightValue','AnnualUnit','EstPctAwarded','MixRatioPct','RatioPct','UnitQuantity','ExchangeRateVNDPerUSD','ExchangeRateCustomerCurrencyPerUSD','ExchangeRateToUSD','ExchangeRateToVND','SourceExchangeRateToVND','MaxPalletHeightM','HeightMM','WidthMM','LengthMM','ShelfLifeDays','UnitsPerCarton','FirstPMMOQ','SecondPMMOQ','CartonsPerLayer','LayersPerPallet','PacksPerPallet','CartonsPerContainer','ItemCount','Unassigned']);
+const money=new Set(['BaseUnitPrice','BaseUnitUSDPrice','UnitPrice','UnitUSDPrice','ShelfPrice','Cost','PMCost']);
+const numeric=new Set(['Factor','ConversionFactor','QuantityFrom','QuantityTo','WeightGrams','WeightOz','WeightValue','AnnualUnit','EstPctAwarded','MixRatioPct','RatioPct','UnitQuantity','ExchangeRateVNDPerUSD','ExchangeRateCustomerCurrencyPerUSD','ExchangeRateToUSD','ExchangeRateToVND','SourceExchangeRateToVND','MaxPalletHeightM','HeightMM','WidthMM','LengthMM','ShelfLifeDays','UnitsPerCarton','FirstPMMOQ','SecondPMMOQ','CartonsPerLayer','LayersPerPallet','PacksPerPallet','CartonsPerContainer','ItemCount','Unassigned']);
 export function decimalDisplay(value:unknown,places:number,fixed=false):string|null{
  if(value===null||value===undefined||value==='')return null;
  const raw=String(value),match=/^(-?)(\d+)(?:\.(\d*))?$/.exec(raw);
@@ -14,6 +14,7 @@ export function decimalDisplay(value:unknown,places:number,fixed=false):string|n
  return (sign&&amount!==0n?'-':'')+(amount/scale).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',')+(decimal?'.'+decimal:'');
 }
 export function numberDisplay(key:string,value:unknown):string|null{
+ if(key==='Factor'||key==='ConversionFactor')return decimalDisplay(value,9);
  if(money.has(key))return decimalDisplay(value,2,true);
  if(numeric.has(key))return decimalDisplay(value,3);
  return value===null||value===undefined||value===''?null:String(value);

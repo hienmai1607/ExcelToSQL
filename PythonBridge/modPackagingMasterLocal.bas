@@ -228,13 +228,13 @@ Public Sub PackagingMasterNew()
     r = LastRow() + 1
     WS.Cells(r, FieldColumn("Command")).Value2 = "C"
     WS.Cells(r, FieldColumn("Status")).Value2 = "Active"
-    If S(Config.Range("B6").Value2) = "prices" Then WS.Cells(r, FieldColumn("QuantityFrom")).Value2 = 0
+    If S(Config.Range("B6").Value2) = "prices" Or S(Config.Range("B6").Value2) = "raw-prices" Then WS.Cells(r, FieldColumn("QuantityFrom")).Value2 = 0
     WS.Activate
     If S(Config.Range("B6").Value2) = "uoms" Then
         WS.Cells(r, FieldColumn("UoMCode")).Select
     ElseIf S(Config.Range("B6").Value2) = "vendors" Then
         WS.Cells(r, FieldColumn("VendorName")).Select
-    ElseIf S(Config.Range("B6").Value2) = "materials" Then
+    ElseIf S(Config.Range("B6").Value2) = "materials" Or S(Config.Range("B6").Value2) = "raw-materials" Then
         WS.Cells(r, FieldColumn("MaterialName")).Select
     Else
         WS.Cells(r, FieldColumn("MaterialCode")).Select

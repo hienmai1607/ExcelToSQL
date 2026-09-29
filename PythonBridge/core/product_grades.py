@@ -8,6 +8,7 @@ class GradeItem(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     ParentID: str = Field(pattern=r"^0(?:/[1-9][0-9]{0,3}){0,11}$", max_length=60)
     ID: int = Field(ge=1, le=9999)
+    RawGradeID: int | None = Field(None, ge=1)
     Grade: str = Field(min_length=1, max_length=100)
     RatioPct: Decimal = Field(gt=0, le=100, max_digits=5, decimal_places=2, allow_inf_nan=False)
 

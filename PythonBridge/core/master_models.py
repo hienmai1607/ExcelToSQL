@@ -1,7 +1,7 @@
 """Allow-listed packaging master layouts shared by profile and read endpoints."""
 from typing import Literal, Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-Entity=Literal["materials","prices","products","vendors","uoms"]
+Entity=Literal["materials","prices","raw-materials","raw-prices","raw-grades","products","vendors","uoms"]
 AUDIT={"CreatedAt":"Created at","CreatedByName":"Created by","UpdatedAt":"Updated at","UpdatedByName":"Updated by"}
 COLUMNS={
  "uoms":{"UoMCode":"UoM code","UoMName":"UoM name","Status":"Status",**AUDIT},
@@ -16,6 +16,17 @@ MASTER_REQUIRED_COLUMNS={"uoms":("UoMCode",),"vendors":("VendorName",),
  "products":PRODUCT_REQUIRED_COLUMNS,
  "materials":("MaterialName","UnitOfMeasure"),
  "prices":("MaterialCode","CurrencyCode","BaseUoM","QuantityFrom","UnitPrice","EffectiveFrom")}
+COLUMNS["prices"].update(MaterialBaseUoM="Material Base UoM",ConversionFactor="Conversion factor",
+ BaseUnitPrice="Base unit price (Vendor currency)",BaseUnitUSDPrice="Base unit USD price",ConversionStatus="Conversion status")
+for raw, original in (("raw-materials","materials"),("raw-prices","prices")):
+ COLUMNS[raw]=dict(COLUMNS[original])
+ FILTERS[raw]=set(FILTERS[original])
+ MASTER_REQUIRED_COLUMNS[raw]=MASTER_REQUIRED_COLUMNS[original]
+
+COLUMNS["raw-grades"]={"MaterialAssign":"Material assign","ParentGradeName":"Parent grade","ParentMaterialCode":"Parent Raw Material","GradeName":"Grade name","MaterialCode":"Raw Material","MaterialName":"Raw Material name","Status":"Status",**AUDIT}
+FILTERS["raw-grades"]={"search","status","created_by"}
+MASTER_REQUIRED_COLUMNS["raw-grades"]=("GradeName",)
+
 class MasterSort(BaseModel):
  model_config=ConfigDict(extra="forbid")
  column:str=Field(max_length=40)
@@ -24,7 +35,7 @@ ColumnWidth = Annotated[int, Field(ge=80, le=800, strict=True)]
 class MasterLayout(BaseModel):
  column_widths: dict[str, ColumnWidth] = Field(default_factory=dict,max_length=64)
  model_config=ConfigDict(extra="forbid")
- columns:list[str]=Field(min_length=1,max_length=20)
+ columns:list[str]=Field(min_length=1,max_length=32)
  filters:list[str]=Field(max_length=6)
  values:dict[str,str]=Field(default_factory=dict,max_length=6)
  sort:list[MasterSort]=Field(default_factory=list,max_length=8)
@@ -34,7 +45,7 @@ def check_layout(entity,layout):
  if entity=="products":
   layout.columns=[c for c in layout.columns if c not in ("Grade","MixRatioPct")]
   layout.sort=[s for s in layout.sort if s.column not in ("Grade","MixRatioPct")]
- if entity=="prices":
+ if entity in ("prices","raw-prices"):
   layout.columns=list(dict.fromkeys("BaseUoM" if c=="PriceBasis" else c for c in layout.columns))
   for rule in layout.sort:
    if rule.column=="PriceBasis":rule.column="BaseUoM"

@@ -37,10 +37,14 @@ test('mix activation submits child quantities and version tokens; active mix is 
  expect(writes[0]).toMatchObject({Status:'Active',ProductRowVersion:rv,items:[{ProductID:2,UnitQuantity:'2.5',RowVersion:rv}]});
  await mix.getByRole('button',{name:'Grade',exact:true}).click();
  const grades=page.getByRole('dialog',{name:'Product grades',exact:true});
- await expect(grades.getByRole('cell',{name:'Child Grade A',exact:true})).toBeVisible();
+ await expect(grades.getByText('Child Grade A',{exact:true})).toBeVisible();
  await expect(grades.getByRole('button',{name:'New version',exact:true})).toHaveCount(0);
  await expect(grades.getByRole('button',{name:'Review & save',exact:true})).toHaveCount(0);
- await expect(grades.locator('table input')).toHaveCount(0);
+ const tree=grades.getByRole('region',{name:'Horizontal grade tree'});
+ await expect(tree).toBeVisible();
+ await expect(tree.locator('input')).toHaveCount(0);
+ await expect(tree.getByRole('button')).toHaveCount(0);
+ await expect(tree.getByRole('heading',{name:'Level 1'})).toBeVisible();
 });
 test('Product Mix column is display-only; Edit retains the checkbox',async({page})=>{
  await setup(page);

@@ -6,7 +6,7 @@ async function setup(page:Page,scope='Admin'){
   const u=new URL(route.request().url()),p=u.pathname;
   if(p.endsWith('/session'))return route.fulfill({json:{user_id:1,username:'Tester',scopes:[scope],is_admin:scope==='Admin'}});
   if(p.endsWith('/preferences')){if(route.request().method()==='POST')profile={settings:route.request().postDataJSON().settings,version:profile.version+1};return route.fulfill({json:profile})}
-  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{uoms:[{ID:4,UoMCode:"EA",UoMName:"Each",Status:"Active"},{ID:1,UoMCode:"Each",UoMName:"Each",Status:"Active"},{ID:2,UoMCode:"Per box",Status:"Active"},{ID:3,UoMCode:"Changed basis",Status:"Active"}],vendors:[{ID:7,VendorName:'Local supplier',Status:'Active',CurrencyID:2}],materials:[{ID:1,MaterialCode:'BOX',MaterialName:'Cardboard box',Status:'Active'}],currencies:[{ID:2,CurrencyCode:'USD',CurrencyName:'US Dollar'}],creators:[{ID:1,UserName:'Tester'}]}});
+  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{rawGrades:[{ID:21,GradeName:'Whole kernels',MaterialCode:'RAW-1',Status:'Active',MaterialStatus:'Active',ParentGradeID:null}],uoms:[{ID:4,UoMCode:"EA",UoMName:"Each",Status:"Active"},{ID:1,UoMCode:"Each",UoMName:"Each",Status:"Active"},{ID:2,UoMCode:"Per box",Status:"Active"},{ID:3,UoMCode:"Changed basis",Status:"Active"}],vendors:[{ID:7,VendorName:'Local supplier',Status:'Active',CurrencyID:2}],materials:[{ID:1,MaterialCode:'BOX',MaterialName:'Cardboard box',Status:'Active'}],currencies:[{ID:2,CurrencyCode:'USD',CurrencyName:'US Dollar'}],creators:[{ID:1,UserName:'Tester'}]}});
   if(p==='/api/workbench/masters/materials')return route.fulfill({json:{rows:[{ID:3,MaterialCode:'BAG',MaterialName:'Paper bag',Description:null,UnitOfMeasure:'EA',Status:'Active',RowVersion:rv}],total:1,page:1}});
   if(p==='/api/workbench/masters/prices')return route.fulfill({json:{rows:[{ID:4,MaterialID:1,MaterialCode:'BOX',MaterialName:'Cardboard box',CurrencyID:2,CurrencyCode:'USD',BaseUoM:'Each',QuantityFrom:'0.0000',QuantityTo:null,UnitPrice:'12345678901234.1234',EffectiveFrom:'2026-09-20',EffectiveTo:null,Status:'Active',RowVersion:rv}],total:1,page:1}});
   if(p.endsWith('/batch')){const payload=route.request().postDataJSON();writes.push({path:p,...payload});return route.fulfill({json:{results:payload.rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
@@ -172,4 +172,69 @@ test('pricing entry groups thousands and rejects excess decimals',async({page})=
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
  expect(state.writes[0].rows[0]).toMatchObject({UnitPrice:'25000.12',ExchangeRateToUSD:'25000.123'});
+});
+
+test('RawMaterial role creates raw masters and pricing through isolated routes',async({page})=>{
+ const state=await setup(page,'RawMaterial');
+ await expect(page.getByRole('button',{name:'Packaging Material',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'Vendors',exact:true})).toBeDisabled();
+ await page.getByRole('button',{name:'New raw material',exact:true}).click();
+ await page.getByLabel('Material name',{exact:true}).fill('Cashew kernels');
+ await page.getByLabel('Base UoM',{exact:true}).selectOption('EA');
+ await page.getByRole('button',{name:'Review & save'}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ expect(state.writes[0].path).toBe('/api/raw-material/material/batch');
+ await page.getByRole('button',{name:'Raw Material Pricing',exact:true}).click();
+ await page.getByRole('button',{name:'New raw material price',exact:true}).click();
+ await page.getByLabel('Vendor',{exact:true}).selectOption('7');
+ await expect(page.getByLabel('Vendor currency',{exact:true})).toHaveValue('2');
+ await page.getByRole('dialog').getByLabel('Material',{exact:true}).selectOption('1');
+ await page.getByLabel('Price UoM',{exact:true}).selectOption('EA');
+ await page.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('12500.25');
+ await page.getByLabel('Unit price (Vendor currency)',{exact:true}).blur();
+ await expect(page.getByLabel('Unit price (Vendor currency)',{exact:true})).toHaveValue('12,500.25');
+ await page.getByLabel('Effective from',{exact:true}).fill('2026-09-28');
+ await page.getByRole('button',{name:'Review & save'}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ expect(state.writes[1].path).toBe('/api/raw-material/price/batch');
+ expect(state.writes[1].rows[0]).toMatchObject({VendorID:7,CurrencyID:2,UnitPrice:'12500.25'});
+});
+test('Packaging role cannot open Raw Material masters',async({page})=>{
+ await setup(page,'Packaging');
+ await expect(page.getByRole('button',{name:'Raw Material',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'Raw Material Pricing',exact:true})).toBeDisabled();
+});
+
+test('RawMaterial users maintain Raw Grade relationships',async({page})=>{
+ const state=await setup(page,'RawMaterial');
+ await page.getByRole('button',{name:'Raw Grade Master',exact:true}).click();
+ await page.getByRole('button',{name:'New raw grade',exact:true}).click();
+ await page.getByLabel('Grade name',{exact:true}).fill('W320');
+ await page.getByLabel('Parent grade',{exact:true}).selectOption('21');
+ await page.getByLabel('Material assign',{exact:true}).check();
+ await page.getByRole('dialog').getByLabel('Raw Material',{exact:true}).selectOption('1');
+ await page.getByRole('button',{name:'Review & save'}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ expect(state.writes[0].path).toBe('/api/raw-material/grade/batch');
+ expect(state.writes[0].rows[0]).toMatchObject({GradeName:'W320',MaterialAssign:true,MaterialID:1,ParentGradeID:21});
+});
+
+test('Raw Grade can be saved without material after unticking assignment',async({page})=>{
+ const state=await setup(page,'RawMaterial');
+ await page.getByRole('button',{name:'Raw Grade Master',exact:true}).click();
+ await page.getByRole('button',{name:'New raw grade',exact:true}).click();
+ await page.getByLabel('Grade name',{exact:true}).fill('Group grade');
+ await expect(page.getByRole('dialog').getByLabel('Raw Material',{exact:true})).toHaveCount(0);
+ await page.getByLabel('Material assign',{exact:true}).check();
+ await page.getByRole('button',{name:'Review & save'}).click();
+ await expect(page.getByText('Required.',{exact:true})).toBeVisible();
+ await page.getByRole('dialog').getByLabel('Raw Material',{exact:true}).selectOption('1');
+ await page.getByLabel('Material assign',{exact:true}).uncheck();
+ await page.getByRole('button',{name:'Review & save'}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ expect(state.writes[0].rows[0]).toMatchObject({MaterialAssign:false,MaterialID:null});
 });

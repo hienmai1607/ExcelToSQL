@@ -14,11 +14,12 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from auth import AccessContext, get_access_context
 from master_models import MasterLayout, COLUMNS, MASTER_REQUIRED_COLUMNS, check_layout
-from packaging_master_api import read as master_read, require_entity
+from packaging_master_api import read as master_read, require_entity, master_auth
 from packaging_api import execute, require, MaterialBatch, PriceBatch, material_save, price_save, VendorBatch, vendor_save, UoMBatch, uom_save
 from product_excel_api import sheet, header_styles
 
-Entity=Literal["materials","prices","vendors","uoms"]
+from raw_material_api import material_save as raw_material_save, price_save as raw_price_save
+Entity=Literal["materials","prices","raw-materials","raw-prices","vendors","uoms"]
 router=APIRouter(prefix="/api/workbench/master-excel",tags=["Packaging Master Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Packaging_Master_Local_Update.xlsm"
 CONFIG={
@@ -29,6 +30,8 @@ CONFIG={
  "prices":dict(table="PackagingPrice",filename="Packaging_Pricing_Local_Update.xlsm",title="Packaging Pricing",
   editable={"ExchangeRateToUSD","VendorName","MaterialCode","CurrencyCode","BaseUoM","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"})
 }
+CONFIG["raw-materials"]={**CONFIG["materials"],"table":"RawMaterial","filename":"Raw_Material_Local_Update.xlsm","title":"Raw Material"}
+CONFIG["raw-prices"]={**CONFIG["prices"],"table":"RawMaterialPrice","filename":"Raw_Material_Pricing_Local_Update.xlsm","title":"Raw Material Pricing"}
 AUTH="DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT; "
 META=["_ID","_RowVersion","_Original"]
 class View(BaseModel):
@@ -43,8 +46,8 @@ class PageInput(View):
  currency:str=Field("",max_length=10)
  as_of:date|None=None
 
-def resolve(ctx,table,column,value):
- rows=execute(AUTH+f"SELECT ID FROM dbo.{table} WHERE {column}=?",[ctx.username,value])[0]
+def resolve(ctx,table,column,value,entity="materials"):
+ rows=execute(master_auth(entity)+f"SELECT ID FROM dbo.{table} WHERE {column}=?",[ctx.username,value])[0]
  if len(rows)!=1:raise ValueError(column+" was not found or is ambiguous.")
  return rows[0]["ID"]
 
@@ -68,11 +71,11 @@ def page_data(entity,body,ctx,override=False):
   search=body.search if override else values.get("search","")
   status=body.status if override else values.get("status","")
   if status not in ("","Active","Block"):raise ValueError("Invalid status.")
-  creator=resolve(ctx,"Users","UserName",body.creator) if override and body.creator else None if override else int(values["created_by"]) if values.get("created_by") else None
+  creator=resolve(ctx,"Users","UserName",body.creator,entity) if override and body.creator else None if override else int(values["created_by"]) if values.get("created_by") else None
   material=currency=effective=None
-  if entity=="prices":
-   material=resolve(ctx,"PackagingMaterial","MaterialCode",body.material) if override and body.material else None if override else int(values["material_id"]) if values.get("material_id") else None
-   currency=resolve(ctx,"Currency","CurrencyCode",body.currency) if override and body.currency else None if override else int(values["currency_id"]) if values.get("currency_id") else None
+  if entity in ("prices","raw-prices"):
+   material=resolve(ctx,"RawMaterial" if entity=="raw-prices" else "PackagingMaterial","MaterialCode",body.material,entity) if override and body.material else None if override else int(values["material_id"]) if values.get("material_id") else None
+   currency=resolve(ctx,"Currency","CurrencyCode",body.currency,entity) if override and body.currency else None if override else int(values["currency_id"]) if values.get("currency_id") else None
    effective=body.as_of if override else date.fromisoformat(values["as_of"]) if values.get("as_of") else None
   for id in (creator,material,currency):
    if id is not None and id<1:raise ValueError("Invalid filter ID.")
@@ -89,8 +92,9 @@ def page(entity:Entity,body:PageInput,ctx:AccessContext=Depends(get_access_conte
 def filter_labels(entity,body,ctx):
  result={}
  for key,table,column in (("created_by","Users","UserName"),("material_id","PackagingMaterial","MaterialCode"),("currency_id","Currency","CurrencyCode")):
+  if table=="PackagingMaterial" and entity=="raw-prices":table="RawMaterial"
   if body.layout.values.get(key):
-   rows=execute(AUTH+f"SELECT {column} AS Label FROM dbo.{table} WHERE ID=?",[ctx.username,int(body.layout.values[key])])[0]
+   rows=execute(master_auth(entity)+f"SELECT {column} AS Label FROM dbo.{table} WHERE ID=?",[ctx.username,int(body.layout.values[key])])[0]
    result[key]=rows[0]["Label"] if rows else ""
  return result
 
@@ -155,38 +159,38 @@ class Batch(BaseModel):
 def sources(entity,ids,ctx):
  if not ids:return {}
  table=CONFIG[entity]["table"]
- rows=execute(AUTH+f"SELECT * FROM dbo.{table} WHERE ID IN (SELECT ID FROM OPENJSON(CAST(? AS NVARCHAR(MAX))) WITH(ID INT '$'))",[ctx.username,json.dumps(ids)])[0]
+ rows=execute(master_auth(entity)+f"SELECT * FROM dbo.{table} WHERE ID IN (SELECT ID FROM OPENJSON(CAST(? AS NVARCHAR(MAX))) WITH(ID INT '$'))",[ctx.username,json.dumps(ids)])[0]
  return {r["ID"]:r for r in rows}
 
 def prepare(entity,edit,source,ctx):
- if entity=="prices" and "PriceBasis" in edit.changes:
+ if entity in ("prices","raw-prices") and "PriceBasis" in edit.changes:
   edit.changes["BaseUoM"]=edit.changes.pop("PriceBasis")
  if set(edit.changes)-CONFIG[entity]["editable"]:raise ValueError("Read-only or unknown field.")
  if edit.command!="C":
   if not source:raise ValueError("Row not found. Refresh.")
   if source["RowVersion"]!=edit.version:raise ValueError("RowVersion conflict. Refresh before saving.")
  values={**source,**edit.changes}
- fields=CONFIG[entity]["editable"] if entity!="prices" else {"ExchangeRateToUSD","VendorID","MaterialID","CurrencyID","PriceBasis","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"}
+ fields=CONFIG[entity]["editable"] if entity not in ("prices","raw-prices") else {"ExchangeRateToUSD","VendorID","MaterialID","CurrencyID","PriceBasis","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"}
  data={k:values.get(k) for k in fields}
- if entity=="prices" and "BaseUoM" in edit.changes:data["PriceBasis"]=edit.changes["BaseUoM"]
+ if entity in ("prices","raw-prices") and "BaseUoM" in edit.changes:data["PriceBasis"]=edit.changes["BaseUoM"]
  if entity=="vendors":
   data.pop("CurrencyCode",None)
   data["CurrencyID"]=source.get("CurrencyID")
   if "CurrencyCode" in edit.changes:
    code=edit.changes["CurrencyCode"]
-   data["CurrencyID"]=resolve(ctx,"Currency","CurrencyCode",code) if code else None
+   data["CurrencyID"]=resolve(ctx,"Currency","CurrencyCode",code,entity) if code else None
  if edit.command!="D":
-  if entity=="prices":
+  if entity in ("prices","raw-prices"):
    if "VendorName" in edit.changes or edit.command=="C":
     vendor=values.get("VendorName")
-    data["VendorID"]=resolve(ctx,"Vendor","VendorName",str(vendor).strip()) if vendor is not None and str(vendor).strip() else None
-   for name,table in (("Material","PackagingMaterial"),("Currency","Currency")):
+    data["VendorID"]=resolve(ctx,"Vendor","VendorName",str(vendor).strip(),entity) if vendor is not None and str(vendor).strip() else None
+   for name,table in (("Material","RawMaterial" if entity=="raw-prices" else "PackagingMaterial"),("Currency","Currency")):
     key=name+"Code"
     if key in edit.changes or edit.command=="C":
      value=values.get(key)
-     data[name+"ID"]=resolve(ctx,table,key,value) if value is not None and str(value).strip() else None
+     data[name+"ID"]=resolve(ctx,table,key,value,entity) if value is not None and str(value).strip() else None
    if data["VendorID"] and (edit.command=="C" or "VendorName" in edit.changes) and not str(edit.changes.get("CurrencyCode") or "").strip():
-    vendor_rows=execute(AUTH+"SELECT CurrencyID FROM dbo.Vendor WHERE ID=?",[ctx.username,data["VendorID"]])[0]
+    vendor_rows=execute(master_auth(entity)+"SELECT CurrencyID FROM dbo.Vendor WHERE ID=?",[ctx.username,data["VendorID"]])[0]
     data["CurrencyID"]=vendor_rows[0]["CurrencyID"] if vendor_rows else None
     if data["CurrencyID"]!=source.get("CurrencyID") and "ExchangeRateToUSD" not in edit.changes:
      data["ExchangeRateToUSD"]=None
@@ -200,17 +204,17 @@ def prepare(entity,edit,source,ctx):
    if data.get(key) is None or str(data[key]).strip()=="":raise ValueError(key+" is required.")
  if edit.command=="C" and not data.get("Status"):data["Status"]="Active"
  data.update(RowNum=edit.row,Command=edit.command,ID=edit.id,RowVersion=edit.version)
- return (UoMBatch if entity=="uoms" else VendorBatch if entity=="vendors" else MaterialBatch if entity=="materials" else PriceBatch)(rows=[data])
+ return (UoMBatch if entity=="uoms" else VendorBatch if entity=="vendors" else MaterialBatch if entity in ("materials","raw-materials") else PriceBatch)(rows=[data])
 
 @router.post("/{entity}/save")
 def save(entity:Entity,body:Batch,ctx:AccessContext=Depends(get_access_context)):
- require(ctx,"Admin" if entity=="uoms" else "Packaging")
+ require(ctx,"Admin" if entity=="uoms" else "RawMaterial" if entity in ("raw-materials","raw-prices") else "Packaging")
  source=sources(entity,[r.id for r in body.rows if r.id],ctx)
  results=[]
  for edit in body.rows:
   try:
    payload=prepare(entity,edit,source.get(edit.id,{}),ctx)
-   result=(uom_save if entity=="uoms" else vendor_save if entity=="vendors" else material_save if entity=="materials" else price_save)(payload,ctx)["results"]
+   result=(raw_material_save if entity=="raw-materials" else raw_price_save if entity=="raw-prices" else uom_save if entity=="uoms" else vendor_save if entity=="vendors" else material_save if entity in ("materials","raw-materials") else price_save)(payload,ctx)["results"]
    results.extend(result)
   except (ValueError,HTTPException) as exc:
    if isinstance(exc,HTTPException) and exc.status_code>=500:raise

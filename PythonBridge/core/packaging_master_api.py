@@ -16,8 +16,14 @@ PRODUCT_AUTH="""IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON
  WHERE u.UserName=? AND u.IsActive=1 AND a.Scope IN(N'Admin',N'Product'))
  THROW 51040,'Product access is required for this action.',1;
 """
+def master_auth(entity):
+ return ("DECLARE @Actor INT; EXEC dbo.usp_RawMaterial_Authorize ?,@Actor OUTPUT;"
+         if entity in ("raw-materials","raw-prices","raw-grades") else
+         "DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT;")
+
 def require_entity(ctx,entity):
- if entity=="uoms": require(ctx,"Admin")
+ if entity in ("raw-materials","raw-prices","raw-grades"): require(ctx,"RawMaterial")
+ elif entity=="uoms": require(ctx,"Admin")
  elif entity=="products": require(ctx,"Product")
  else: require(ctx,"Packaging","PackagingManager")
 
@@ -36,17 +42,25 @@ def lookups(ctx:AccessContext=Depends(get_access_context),entity:Entity="materia
   require(ctx,"Product")
   sets=execute(PRODUCT_AUTH+"""SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.Product p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID; SELECT ID,CustomerName,Status FROM dbo.Customer ORDER BY CustomerName,ID;""",[ctx.username])
   return dict(materials=[],currencies=[],creators=sets[0],customers=sets[1])
- require(ctx,"Packaging","PackagingManager")
- sets=execute("""
- DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT;
- SELECT ID,MaterialCode,MaterialName,Status FROM dbo.PackagingMaterial ORDER BY MaterialCode,ID;
+ require_entity(ctx,entity)
+ raw=entity in ("raw-materials","raw-prices","raw-grades")
+ material="RawMaterial" if raw else "PackagingMaterial"
+ price="RawGrade" if entity=="raw-grades" else "RawMaterialPrice" if raw else "PackagingPrice"
+ sets=execute(master_auth(entity)+f"""
+ SELECT ID,MaterialCode,MaterialName,Status FROM dbo.{material} ORDER BY MaterialCode,ID;
  SELECT ID,CurrencyCode,CurrencyName FROM dbo.Currency ORDER BY CurrencyCode,ID;
- SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.PackagingMaterial m WHERE m.CreatedBy=u.ID)
- OR EXISTS(SELECT 1 FROM dbo.PackagingPrice p WHERE p.CreatedBy=u.ID) OR EXISTS(SELECT 1 FROM dbo.Vendor v WHERE v.CreatedBy=u.ID) ORDER BY u.UserName,u.ID;
+ SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.{material} m WHERE m.CreatedBy=u.ID)
+ OR EXISTS(SELECT 1 FROM dbo.{price} p WHERE p.CreatedBy=u.ID) OR EXISTS(SELECT 1 FROM dbo.Vendor v WHERE v.CreatedBy=u.ID) ORDER BY u.UserName,u.ID;
  SELECT ID,VendorName,Status,CurrencyID FROM dbo.Vendor ORDER BY VendorName,ID;
  SELECT ID,UoMCode,UoMName,Status FROM dbo.UoM ORDER BY UoMCode,ID;
  """,[ctx.username])
- return dict(materials=sets[0],currencies=sets[1],creators=sets[2],vendors=sets[3],uoms=sets[4])
+ result=dict(materials=sets[0],currencies=sets[1],creators=sets[2],vendors=sets[3],uoms=sets[4])
+ if entity=="raw-grades":
+  result["rawGrades"]=execute(master_auth(entity)+"""
+   SELECT g.ID,g.GradeName,g.ParentGradeID,g.MaterialAssign,g.Status,m.MaterialCode,m.MaterialName,m.Status AS MaterialStatus
+   FROM dbo.RawGrade g LEFT JOIN dbo.RawMaterial m ON m.ID=g.MaterialID ORDER BY g.GradeName,m.MaterialCode,g.ID;
+  """,[ctx.username])[0]
+ return result
 @router.get("/{entity}")
 def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,ge=1,le=500),
  search:str=Query("",max_length=200),status:LiteralStatus=None,
@@ -65,19 +79,31 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
   select="p.*"
   where="(?='' OR p.UoMCode LIKE ? OR p.UoMName LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
+ elif entity=="raw-grades":
+  source="dbo.RawGrade p LEFT JOIN dbo.RawMaterial m ON m.ID=p.MaterialID LEFT JOIN dbo.RawGrade parent ON parent.ID=p.ParentGradeID LEFT JOIN dbo.RawMaterial pm ON pm.ID=parent.MaterialID"
+  select="p.*,m.MaterialCode,m.MaterialName,parent.GradeName AS ParentGradeName,pm.MaterialCode AS ParentMaterialCode,CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.ProductGradeItem gi WHERE gi.RawGradeID=p.ID) THEN 1 ELSE 0 END AS BIT) AS AssignmentLocked"
+  where="(?='' OR p.GradeName LIKE ? OR m.MaterialCode LIKE ? OR m.MaterialName LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
+  params=[search,search+"%",search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="vendors":
   source="dbo.Vendor p LEFT JOIN dbo.Currency vc ON vc.ID=p.CurrencyID"
   select="p.*,vc.CurrencyCode"
   where="(?='' OR p.VendorName LIKE ? OR p.Address LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
- elif entity=="materials":
-  source="dbo.PackagingMaterial p"
+ elif entity in ("materials","raw-materials"):
+  source="dbo.RawMaterial p" if entity=="raw-materials" else "dbo.PackagingMaterial p"
   select="p.*"
   where="(?='' OR p.MaterialCode LIKE ? OR p.MaterialName LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  else:
   source="dbo.PackagingPrice p JOIN dbo.PackagingMaterial m ON m.ID=p.MaterialID JOIN dbo.Currency c ON c.ID=p.CurrencyID LEFT JOIN dbo.Vendor v ON v.ID=p.VendorID"
-  select="p.*,p.PriceBasis AS BaseUoM,m.MaterialCode,m.MaterialName,c.CurrencyCode,v.VendorName"
+  if entity=="raw-prices": source=source.replace("PackagingPrice","RawMaterialPrice").replace("PackagingMaterial","RawMaterial")
+  source+=" OUTER APPLY dbo.fn_UnitConversion(p.PriceBasis,m.UnitOfMeasure,"+("NULL,p.MaterialID" if entity=="raw-prices" else "p.MaterialID,NULL")+",p.VendorID) conv"
+  factor="CASE WHEN p.PriceBasis=m.UnitOfMeasure THEN CONVERT(DECIMAL(18,3),1) ELSE conv.Factor END"
+  select=("p.*,p.PriceBasis AS BaseUoM,m.MaterialCode,m.MaterialName,c.CurrencyCode,v.VendorName,"
+          "m.UnitOfMeasure AS MaterialBaseUoM,"+factor+" AS ConversionFactor,"
+          "CONVERT(DECIMAL(38,8),p.UnitPrice/NULLIF(("+factor+"),0)) AS BaseUnitPrice,"
+          "CONVERT(DECIMAL(38,8),p.UnitUSDPrice/NULLIF(("+factor+"),0)) AS BaseUnitUSDPrice,"
+          "CASE WHEN p.PriceBasis=m.UnitOfMeasure THEN 'Same unit' WHEN conv.ID IS NULL THEN 'Conversion required' ELSE 'Converted' END AS ConversionStatus")
   where="""(?='' OR m.MaterialCode LIKE ? OR m.MaterialName LIKE ? OR p.PriceBasis LIKE ?)
    AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.MaterialID=?) AND (? IS NULL OR p.CurrencyID=?)
    AND (? IS NULL OR (p.EffectiveFrom<=? AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=?)))
@@ -85,7 +111,7 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
   params=[search,search+"%",search+"%",search+"%",status,status,material_id,material_id,currency_id,currency_id,as_of,as_of,as_of,created_by,created_by]
  if entity=="uoms":
   execute("IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID WHERE u.UserName=? AND u.IsActive=1 AND a.Scope='Admin') THROW 51102,'Admin access is required for this action.',1;",[ctx.username])
- auth_sql=PRODUCT_AUTH if entity=="products" else "DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT;"
+ auth_sql=PRODUCT_AUTH if entity=="products" else master_auth(entity)
  sets=execute(f"""
  {auth_sql}
  ;WITH MasterRows AS (SELECT {select},creator.UserName AS CreatedByName,updater.UserName AS UpdatedByName
@@ -99,11 +125,11 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
  return dict(rows=rows,total=sets[1][0]["Total"],page=page,page_size=page_size)
 class Export(BaseModel):
  model_config=ConfigDict(extra="forbid")
- columns:list[str]=Field(min_length=1,max_length=20)
+ columns:list[str]=Field(min_length=1,max_length=32)
  rows:list[list[str|None]]=Field(max_length=500)
 @router.post("/{entity}/export")
 def export(entity:Entity,body:Export,ctx:AccessContext=Depends(get_access_context)):
  require_entity(ctx,entity)
  if len(body.columns)!=len(set(body.columns)) or any(c not in COLUMNS[entity] for c in body.columns):
   raise HTTPException(422,"Invalid export columns.")
- return Response(snapshot_xlsx(body,COLUMNS[entity],"Products" if entity=="products" else "Packaging"),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":f'attachment; filename="{entity}.xlsx"',"Cache-Control":"no-store"})
+ return Response(snapshot_xlsx(body,COLUMNS[entity],"Products" if entity=="products" else "Raw Material" if entity in ("raw-materials","raw-prices","raw-grades") else "Packaging"),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":f'attachment; filename="{entity}.xlsx"',"Cache-Control":"no-store"})

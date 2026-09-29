@@ -167,7 +167,7 @@ class UserAccessRow(BaseModel):
     command: Literal["C", "U", "D"] = Field(..., alias="Command")
     access_id: Optional[int] = Field(None, alias="AccessID")
     user_id: Optional[int] = Field(None, alias="UserID")
-    scope: Optional[Literal["Admin", "Customer", "Product", "Opportunity"]] = Field(None, alias="Scope")
+    scope: Optional[Literal["Admin", "Customer", "Product", "Opportunity", "Packaging", "PackagingManager", "RawMaterial"]] = Field(None, alias="Scope")
     row_version: Optional[str] = Field(None, alias="RowVersion")
 
     class Config:

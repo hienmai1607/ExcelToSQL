@@ -1,4 +1,4 @@
-.grade-dialog{width:min(1100px,94vw);max-width:94vw;max-height:90vh;overflow:auto}.grade-version-bar,.grade-navigation{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin:1rem 0}.grade-version-bar label,.grade-navigation label{display:flex;gap:.5rem;align-items:center}.grade-navigation select{max-width:420px}.grade-dialog table{width:100%}.grade-dialog td:nth-child(3){min-width:240px}.grade-dialog td:nth-child(3) input{width:100%}.grade-dialog td:nth-child(4) input{width:110px}.grade-total{padding:1rem;text-align:right}.grade-dialog .actions{margin-top:1rem}.grade-dialog input[readonly]{border-color:transparent;background:transparent}.grade-entry-action{display:flex;align-items:center;gap:.6rem;margin:.5rem 0 1rem}
+.grade-dialog{width:min(1600px,96vw);max-width:96vw;max-height:90vh;overflow:auto}.grade-version-bar,.grade-navigation{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin:1rem 0}.grade-version-bar label,.grade-navigation label{display:flex;gap:.5rem;align-items:center}.grade-navigation select{max-width:420px}.grade-dialog table{width:100%}.grade-dialog td:nth-child(3){min-width:240px}.grade-dialog td:nth-child(3) input{width:100%}.grade-dialog td:nth-child(4) input{width:110px}.grade-total{padding:1rem;text-align:right}.grade-dialog .actions{margin-top:1rem}.grade-dialog input[readonly]{border-color:transparent;background:transparent}.grade-entry-action{display:flex;align-items:center;gap:.6rem;margin:.5rem 0 1rem}
 .grade-view-switch{display:flex;gap:.5rem;margin:1rem 0}.grade-view-switch button[aria-pressed=true]{font-weight:700;box-shadow:inset 0 -3px 0 currentColor}.grade-groups{display:grid;gap:1rem}.grade-group-heading{display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;padding:1rem}.grade-group-heading h3{margin:0}.grade-group-heading span{overflow-wrap:anywhere}.grade-row-actions{display:flex;gap:.4rem}.grade-group table{table-layout:fixed;min-width:640px}.grade-group th:nth-child(1){width:17%}.grade-group th:nth-child(2){width:7%}.grade-group th:nth-child(4){width:16%}.grade-group th:nth-child(5){width:100px}.grade-group td{overflow-wrap:anywhere}
 
 /* Compact, aligned controls with a live structural summary. */
@@ -26,3 +26,46 @@
 @media(max-width:650px){.grade-summary{width:100%;border-left:0;border-top:1px solid var(--border,#d7e0d9);padding:12px 0 0;justify-content:space-between;gap:12px}.grade-version-bar{width:100%;gap:8px}.grade-version-bar select{width:150px}.grade-dialog{padding:18px}}
 
 .mix-table{table-layout:fixed;min-width:680px}.mix-table th:first-child{width:40%}.mix-table th:last-child{width:64px}.grade-dialog .mix-table td:nth-child(3){min-width:0}.mix-table td:nth-child(2),.mix-table td:nth-child(4){font-variant-numeric:tabular-nums}.mix-help{font-size:12px}.master-fields input[type=checkbox]{width:18px;height:18px}
+
+/* Horizontal hierarchy. Scroll locally instead of widening the dialog. */
+.grade-view-switch{flex-wrap:wrap}
+.grade-tree-scroll{overflow:auto;max-height:58vh;padding:8px 8px 18px;overscroll-behavior:contain}
+.grade-tree-canvas{width:max-content;min-width:100%;--grade-card-width:210px;--grade-tree-gap:36px;--grade-line:#91aaa0}
+.grade-tree-levels{display:flex;gap:var(--grade-tree-gap);margin-bottom:14px}
+.grade-tree-levels h3{width:var(--grade-card-width);flex:none;padding:8px 12px;border-bottom:2px solid var(--grade-line)}
+.grade-tree-branches{list-style:none;margin:0;padding:0}
+.grade-tree-branches li{display:flex;align-items:center;position:relative;padding:8px 0}
+.grade-tree-node{width:var(--grade-card-width);flex:none;padding:8px;border:1px solid var(--border,#d7e0d9);border-radius:8px;background:var(--surface,#fff);position:relative;overflow-wrap:anywhere}
+.grade-tree-node strong{display:block;white-space:normal}
+.grade-tree-ratio{display:flex;align-items:baseline;gap:6px;margin-top:8px;font-weight:600;font-variant-numeric:tabular-nums}
+.grade-tree-ratio small{font-weight:400}
+.grade-tree-branches .grade-tree-branches{margin-left:var(--grade-tree-gap);position:relative}
+.grade-tree-branches .grade-tree-branches::before{content:'';position:absolute;left:calc(-1 * var(--grade-tree-gap));top:50%;width:calc(var(--grade-tree-gap) / 2);border-top:1px solid var(--grade-line)}
+.grade-tree-branches .grade-tree-branches>li::before{content:'';position:absolute;left:calc(-1 * var(--grade-tree-gap) / 2);top:50%;width:calc(var(--grade-tree-gap) / 2);border-top:1px solid var(--grade-line)}
+.grade-tree-branches .grade-tree-branches>li::after{content:'';position:absolute;left:calc(-1 * var(--grade-tree-gap) / 2);top:0;bottom:0;border-left:1px solid var(--grade-line)}
+.grade-tree-branches .grade-tree-branches>li:first-child::after{top:50%}
+.grade-tree-branches .grade-tree-branches>li:last-child::after{bottom:50%}
+.grade-tree-branches .grade-tree-branches>li:only-child::after{display:none}
+[data-theme=dark] .grade-tree-canvas{--grade-line:#6d9989}
+
+.grade-tree-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.grade-tree-node fieldset{display:grid;grid-template-columns:minmax(0,1fr) 68px;gap:8px;border:0;padding:0;margin:6px 0;min-width:0}
+.grade-tree-node label{min-width:0;gap:4px;font-size:11px}.grade-tree-node label+label{margin-top:0}
+.grade-tree-node input{min-width:0;width:100%;height:32px;padding:5px 6px;font-size:12px}
+.grade-tree-actions{display:flex;gap:4px;flex-shrink:0}.grade-tree-actions .icon-button{min-width:28px;min-height:28px;padding:4px}
+.grade-tree-total{font-variant-numeric:tabular-nums}
+.grade-tree-unbalanced{color:#a64c25;font-weight:600}
+[data-theme=dark] .grade-tree-unbalanced{color:#ffb28b}
+
+.grade-tree-node-heading{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.grade-tree-node-heading>small{min-width:0;margin:0;font-size:10px}
+.grade-tree-node>small{font-size:11px;margin-top:3px}
+.grade-tree-readonly-fields{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:baseline;margin:6px 0}
+.grade-tree-readonly-fields .grade-tree-ratio{margin:0;white-space:nowrap}
+@media(pointer:coarse){.grade-tree-actions .icon-button{min-width:36px;min-height:36px}}
+
+.grade-tree-node select{width:100%;min-width:0;height:32px;padding:4px 6px;font-size:12px;}
+
+.raw-pricing-scroll{max-width:100%;overflow:auto;margin:12px 0}.raw-pricing-scroll table{min-width:1900px;width:100%;border-collapse:collapse}.raw-pricing-scroll th,.raw-pricing-scroll td{padding:10px;text-align:left;border-bottom:1px solid var(--border,#d7e0d9);white-space:nowrap}.raw-pricing-scroll th{white-space:normal;min-width:100px}
+
+.grade-view-tabs{display:flex;justify-content:flex-start;align-items:center;gap:8px;margin:12px 0;flex-wrap:wrap}.grade-view-tabs button[aria-pressed="true"]{font-weight:600;border-color:var(--accent,#35765d)}

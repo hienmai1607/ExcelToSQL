@@ -80,3 +80,9 @@ python tests/python/product_grades_contract.py --sql
 This applies the migration and fixtures inside test transactions and rolls them
 back. Identity/sequence counters may advance. The browser tests are in
 `webapp/tests/product-grades.spec.ts`.
+
+## Tree-only grade interface
+
+Product Grade entry uses the horizontal tree for root/child creation, name and ratio edits, and confirmed branch removal. All levels and By level selectors are removed. Active and inactive versions remain read-only; use New version to revise. Existing per-parent 100% validation and save confirmation still apply.
+
+For Product Mix, the Grade tab shows a separate read-only tree for each child Product in the selected saved mix version, using that child's current active grade version. Grade maintenance remains on the child Product.

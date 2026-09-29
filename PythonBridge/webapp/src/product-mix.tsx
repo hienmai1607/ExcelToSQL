@@ -1,3 +1,4 @@
+import {GradeTree} from './grade-tree';
 import {decimalDisplay} from './number-format';
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {ApiError,call,type Row} from './api';
@@ -30,7 +31,7 @@ function MixChildGrades({product,tabs,onClose}:{product:Row;tabs:ReactNode;onClo
    const grades=rows.filter(r=>Number(r.ProductID)===id),first=grades[0];
    return <section className="panel grade-group" key={id} aria-label={'Child grades '+first.ProductCode}>
     <header className="grade-group-heading"><h3>{String(first.ProductCode)} · {String(first.ProductName)}</h3><span>Quantity {String(first.UnitQuantity)}</span>{first.GradeVersion!=null&&<Badge value={'Grade version '+first.GradeVersion+' · Active'}/>}</header>
-    {first.GradeVersion==null?<p className="empty">No active grade version for this child Product.</p>:<div className="table-wrap"><table><thead><tr><th>Parent ID</th><th>ID</th><th>Grade</th><th>Ratio %</th></tr></thead><tbody>{grades.map(g=><tr key={String(g.ParentID)+'/'+g.ID}><td>{String(g.ParentID)}</td><td>{String(g.ID)}</td><td>{String(g.Grade)}</td><td>{String(g.RatioPct)}</td></tr>)}</tbody></table></div>}
+    {first.GradeVersion==null?<p className="empty">No active grade version for this child Product.</p>:<GradeTree items={grades.map(g=>({ParentID:String(g.ParentID),ID:Number(g.ID),Grade:String(g.Grade??''),RatioPct:String(g.RatioPct??'')}))} busy={false} readonly disabled onAdd={()=>{}} onRemove={()=>{}} onChange={()=>{}}/>}
    </section>;
   })}</div>}
   <div className="actions"><button onClick={onClose}>Close</button></div>

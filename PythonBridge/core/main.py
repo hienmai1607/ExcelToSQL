@@ -19,6 +19,8 @@ from packaging_excel_api import router as packaging_excel_router
 from packaging_master_excel_api import router as packaging_master_excel_router
 from workbench_api import router as workbench_router
 from packaging_master_api import router as packaging_master_router
+from raw_material_api import router as raw_material_router
+from unit_conversion_api import router as unit_conversion_router
 from customer_sort import parse_sort
 from opportunity_views import sorted_grid
 from packaging_fields import enriched_batch
@@ -57,6 +59,8 @@ app.include_router(packaging_excel_router)
 app.include_router(packaging_master_excel_router)
 app.include_router(packaging_router)
 app.include_router(workbench_router)
+app.include_router(unit_conversion_router)
+app.include_router(raw_material_router)
 app.include_router(packaging_master_router)
 app.include_router(preferences_router)
 app.include_router(attachments_router)
