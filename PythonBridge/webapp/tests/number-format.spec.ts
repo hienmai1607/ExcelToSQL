@@ -7,21 +7,34 @@ test('money uses two decimals without losing large decimal precision',()=>{
  expect(numberDisplay('PMCost','0')).toBe('0.00');
  expect(numberDisplay('ShelfPrice','-1.235')).toBe('-1.24');
 });
-test('numbers use at most three decimals and preserve null',()=>{
+test('ordinary numbers use three decimals; annual units retain four decimals and preserve null',()=>{
  expect(numberDisplay('WeightGrams','10.1235')).toBe('10.124');
  expect(numberDisplay('ExchangeRateToUSD','25000.0000000000')).toBe('25,000');
  expect(numberDisplay('QuantityFrom','0.0000')).toBe('0');
  expect(numberDisplay('QuantityTo',null)).toBeNull();
- expect(numberDisplay('AnnualUnit','999.9999')).toBe('1,000');
+ expect(numberDisplay('AnnualUnit','999.9999')).toBe('999.9999');
 });
 test('codes are not parsed as numbers',()=>{
  expect(numberDisplay('ProductCode','001.23456')).toBe('001.23456');
  expect(numberDisplay('BaseUoM','1000')).toBe('1000');
 });
+test('efficiency percentages display exactly two decimals without rounding raw values',()=>{
+ const raw='93.888889';
+ for(const key of ['RelativeCartonEfficiencyPct','PalletUtilizationPct','PalletHeightEfficiencyPct']){
+  expect(numberDisplay(key,raw)).toBe('93.89');
+  expect(numberDisplay(key,'44.9908')).toBe('44.99');
+  expect(numberDisplay(key,'100')).toBe('100.00');
+  expect(numberDisplay(key,'0')).toBe('0.00');
+  expect(numberDisplay(key,null)).toBeNull();
+  expect(numberDisplay(key,'')).toBeNull();
+ }
+ expect(raw).toBe('93.888889');
+ expect(numberDisplay('CartonEfficiencyKGM3','1.234567')).toBe('1.234567');
+});
 
 test('grouping uses commas with decimal point and handles negative amounts',()=>{
  expect(numberDisplay('UnitPrice','10000000')).toBe('10,000,000.00');
- expect(numberDisplay('AnnualUnit','10000000.1234')).toBe('10,000,000.123');
+ expect(numberDisplay('AnnualUnit','10000000.1234')).toBe('10,000,000.1234');
  expect(numberDisplay('Cost','-1234567.895')).toBe('-1,234,567.90');
 });
 

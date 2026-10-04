@@ -34,7 +34,8 @@ export const api={
  session:()=>call<Session>('/api/workbench/session'),
  opportunities:(page:number,size:number,filters:Record<string,string>)=>call<Page>('/api/opportunity/grid?'+query({page,page_size:size,...filters})),
  requests:(page:number,size:number,search:string,status:string,sort?:string)=>call<Page>('/api/workbench/requests?'+query({page,page_size:size,search,status,sort})),
- requestItems:(id:number,page:number,size=200,sort?:string)=>call<Page>('/api/packaging/requests?'+query({request_id:id,page,page_size:size,sort})),
+ // Explicit empty sorting selects the snapshot-aware read for editor callers too.
+ requestItems:(id:number,page:number,size=200,sort='[]')=>call<Page>('/api/packaging/requests?'+query({request_id:id,page,page_size:size,sort})),
  pics:()=>call<{rows:Row[]}>('/api/workbench/pics'),
  create:(payload:RequestPayload)=>call<{header:Row;items:Row[];replayed:boolean}>('/api/packaging/manual',payload),
  assign:(item:Row,pic:number)=>call<{result:Row}>('/api/packaging/items/'+item.ItemID+'/assign',{PICUserID:pic,ExpectedRowVersion:item.ItemRowVersion}),

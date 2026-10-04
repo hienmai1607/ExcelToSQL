@@ -1,49 +1,65 @@
 import {numberDisplay,isNumericField} from './number-format';
+import {palletCapacityLabels,palletCapacityKeys} from './pallet-capacities';
+import {supplierLabels} from './supplier-geometry';
 import {timestamp} from './datetime';
 import type {Row} from './api';
-export type MasterEntity='materials'|'prices'|'raw-materials'|'raw-prices'|'raw-grades'|'products'|'vendors'|'uoms';
+export type MasterEntity='materials'|'prices'|'raw-materials'|'raw-prices'|'raw-grades'|'products'|'vendors'|'uoms'|'pallets'|'packaging-types';
 export const productRequiredColumns=['CustomerName','ProductName','Category','WeightGrams'];
-export function requiredMasterColumns(entity:MasterEntity){return entity==='raw-grades'?['GradeName']:entity==='uoms'?['UoMCode']:entity==='vendors'?['VendorName']:entity==='products'?productRequiredColumns:(entity==='materials'||entity==='raw-materials')?['MaterialName','UnitOfMeasure']:['MaterialCode','CurrencyCode','BaseUoM','QuantityFrom','UnitPrice','EffectiveFrom']}
+export function requiredMasterColumns(entity:MasterEntity){return entity==='packaging-types'?['PackagingOrder','PackagingType','PriceBasis','Shipping']:entity==='pallets'?['UnitOfMeasure','Width','Length']:entity==='raw-grades'?['GradeName']:entity==='uoms'?['UoMCode']:entity==='vendors'?['VendorName']:entity==='products'?productRequiredColumns:(entity==='materials'||entity==='raw-materials')?['MaterialName','UnitOfMeasure']:['MaterialCode','CurrencyCode','BaseUoM','QuantityFrom','UnitPrice','EffectiveFrom']}
 export function enforceMasterColumns(entity:MasterEntity,layout:MasterLayout):MasterLayout{
  if((entity==='prices'||entity==='raw-prices'))layout={...layout,columns:[...new Set(layout.columns.map(c=>c==='PriceBasis'?'BaseUoM':c))],sort:layout.sort.map(r=>({...r,column:r.column==='PriceBasis'?'BaseUoM':r.column}))};
- const retired=entity==='products'?['Grade','MixRatioPct']:[];
- layout={...layout,columns:layout.columns.filter(c=>!retired.includes(c)),sort:layout.sort.filter(s=>!retired.includes(s.column))};
+ const retired=entity==='materials'?['Description']:entity==='products'?['Grade','MixRatioPct']:entity==='raw-grades'?['MaterialAssign','ParentMaterialCode','MaterialCode','MaterialName']:entity==='packaging-types'?['TareWeight']:[];
+ layout={...layout,columns:layout.columns.filter(c=>!retired.includes(c)),sort:layout.sort.filter(s=>!retired.includes(s.column)),column_widths:Object.fromEntries(Object.entries(layout.column_widths||{}).filter(([key])=>!retired.includes(key)))};
  return {...layout,columns:[...layout.columns,...requiredMasterColumns(entity).filter(c=>!layout.columns.includes(c))]};
 }
 export type MasterRule={column:string;direction:'asc'|'desc'};
 export type MasterLayout={column_widths?:Record<string,number>;columns:string[];filters:string[];values:Record<string,string>;sort:MasterRule[];page_size:number};
-export type Field={key:string;label:string;kind?:'rawgrade'|'uom'|'boolean'|'decimal'|'date'|'material'|'vendor'|'customer'|'currency'|'status'|'unit'|'text';required?:boolean;max?:number;initial?:string};
+export type Field={key:string;label:string;kind?:'supplierdimension'|'orders'|'packagingtype'|'choice'|'rawgrade'|'uom'|'boolean'|'decimal'|'date'|'material'|'vendor'|'customer'|'currency'|'status'|'unit'|'text';required?:boolean;max?:number;initial?:string;options?:string[]};
 const audit={CreatedAt:'Created at',CreatedByName:'Created by',UpdatedAt:'Updated at',UpdatedByName:'Updated by'};
 const baseMasterConfig={
+ 'packaging-types':{title:'Packaging Type Master',singular:'packaging type',endpoint:'type',
+ columns:{ParentType:'Parent Type',PackagingOrder:'Order',PackagingType:'Packaging Type',PriceBasis:'Price Basis',Shipping:'Shipping',Status:'Status',...audit} as Record<string,string>,
+ defaults:['PackagingOrder','PackagingType','ParentType','PriceBasis','Shipping','Status'],filters:['search','status','created_by'],
+ fields:[{key:'ParentTypeID',label:'Parent Type',kind:'packagingtype'},{key:'PackagingOrders',label:'Order',kind:'orders',required:true,options:['Primary','Secondary','Tertiary']},{key:'PackagingType',label:'Packaging Type',required:true,max:100},{key:'PriceBasis',label:'Price Basis',kind:'choice',required:true,options:['Count','Square meter','Volume']},{key:'Shipping',label:'Shipping',kind:'boolean',initial:'false'}] as Field[]},
+ pallets:{title:'Pallet Master',singular:'pallet',endpoint:'pallet',
+ columns:{UnitOfMeasure:'UoM',Width:'Width',Length:'Length',PalletAreaMM2:'Pallet area (mm²)',PalletSize:'Pallet size',...palletCapacityLabels,ConversionStatus:'Conversion status',Status:'Status',...audit} as Record<string,string>,
+ defaults:['UnitOfMeasure','Width','Length','PalletAreaMM2','PalletSize',...palletCapacityKeys,'Status'],filters:['search','status','created_by'],
+ fields:[{key:'UnitOfMeasure',label:'UoM',kind:'uom',required:true},{key:'Width',label:'Width',kind:'decimal',required:true},{key:'Length',label:'Length',kind:'decimal',required:true},...Object.entries(palletCapacityLabels).map(([key,label])=>({key,label,kind:'decimal'}))] as Field[]},
  'raw-grades':{title:'Raw Grade Master',singular:'raw grade',endpoint:'grade',
- columns:{MaterialAssign:'Material assign',ParentGradeName:'Parent grade',ParentMaterialCode:'Parent Raw Material',GradeName:'Grade name',MaterialCode:'Raw Material',MaterialName:'Raw Material name',Status:'Status',...audit} as Record<string,string>,
- defaults:['GradeName','MaterialAssign','MaterialCode','MaterialName','ParentGradeName','Status'],filters:['search','status','created_by'],
- fields:[{key:'ParentGradeID',label:'Parent grade',kind:'rawgrade'},{key:'GradeName',label:'Grade name',required:true,max:100},{key:'MaterialAssign',label:'Material assign',kind:'boolean',initial:'false'},{key:'MaterialID',label:'Raw Material',kind:'material',required:true}] as Field[]},
+ columns:{ParentGradeName:'Parent grade',GradeName:'Grade name',Status:'Status',...audit} as Record<string,string>,
+ defaults:['GradeName','ParentGradeName','Status'],filters:['search','status','created_by'],
+ fields:[{key:'ParentGradeID',label:'Parent grade',kind:'rawgrade'},{key:'GradeName',label:'Grade name',required:true,max:100}] as Field[]},
  uoms:{title:'Units of Measure',singular:'UoM',endpoint:'uom',columns:{UoMCode:'UoM code',UoMName:'UoM name',Status:'Status',...audit} as Record<string,string>,
  defaults:['UoMCode','UoMName','Status'],filters:['search','status','created_by'],
  fields:[{key:'UoMCode',label:'UoM code',required:true,max:40},{key:'UoMName',label:'UoM name',max:500}] as Field[]},
  vendors:{title:'Vendors',singular:'vendor',endpoint:'vendor',columns:{VendorName:'Vendor name',Address:'Address',CurrencyCode:'Currency',Status:'Status',...audit} as Record<string,string>,
  defaults:['VendorName','Address','CurrencyCode','Status'],filters:['search','status','created_by'],
  fields:[{key:'VendorName',label:'Vendor name',required:true,max:200},{key:'Address',label:'Address',max:500},{key:'CurrencyID',label:'Currency',kind:'currency'}] as Field[]},
- products:{title:'Products',singular:'product',endpoint:'product',columns:{IsMix:'Product Mix',CustomerName:'Customer',ProductCode:'Product code',ProductName:'Product name',Category:'Category',WeightGrams:'Net Weight (g)',WeightOz:'Net Weight (oz)',Status:'Status',...audit} as Record<string,string>,
- defaults:['IsMix','CustomerName','ProductCode','ProductName','Category','WeightGrams','WeightOz','Status'],filters:['search','status','created_by'],
- fields:[{key:'IsMix',label:'Product Mix',kind:'boolean',initial:'false'},{key:'CustomerID',label:'Customer',kind:'customer',required:true},{key:'ProductName',label:'Product name',required:true,max:200},{key:'Category',label:'Category',max:100},{key:'WeightValue',label:'Weight',kind:'decimal',required:true},{key:'WeightUnit',label:'Weight unit',kind:'unit',required:true,initial:'g'}] as Field[]},
- materials:{title:'Packaging Material',singular:'material',endpoint:'material',columns:{MaterialCode:'Material code',MaterialName:'Material name',Description:'Description',UnitOfMeasure:'Base UoM',Status:'Status',...audit} as Record<string,string>,
- defaults:['MaterialCode','MaterialName','UnitOfMeasure','Status'],filters:['search','status','created_by'],
- fields:[{key:'MaterialName',label:'Material name',required:true,max:200},{key:'Description',label:'Description',max:500},{key:'UnitOfMeasure',label:'Base UoM',kind:'uom',required:true,max:20}] as Field[]},
+ products:{title:'Products',singular:'product',endpoint:'product',columns:{IsMix:'Product Mix',CustomerName:'Customer',ProductCode:'Product code',ProductName:'Product name',Category:'Category',WeightGrams:'Net Weight (g)',WeightOz:'Net Weight (oz)',ShelfLifeDays:'Shelf life (days)',Status:'Status',...audit} as Record<string,string>,
+ defaults:['IsMix','CustomerName','ProductCode','ProductName','Category','WeightGrams','WeightOz','ShelfLifeDays','Status'],filters:['search','status','created_by'],
+ fields:[{key:'IsMix',label:'Product Mix',kind:'boolean',initial:'false'},{key:'CustomerID',label:'Customer',kind:'customer',required:true},{key:'ProductName',label:'Product name',required:true,max:200},{key:'Category',label:'Category',max:100},{key:'WeightValue',label:'Weight',kind:'decimal',required:true},{key:'WeightUnit',label:'Weight unit',kind:'unit',required:true,initial:'g'},{key:'ShelfLifeDays',label:'Shelf life (days)',kind:'decimal'}] as Field[]},
+ materials:{title:'Packaging Material',singular:'material',endpoint:'material',columns:{PackagingType:'Packaging Type',MaterialCode:'Material code',MaterialName:'Material name',UnitOfMeasure:'Base UoM',Status:'Status',...audit} as Record<string,string>,
+ defaults:['MaterialCode','MaterialName','PackagingType','UnitOfMeasure','Status'],filters:['search','status','created_by'],
+ fields:[{key:'PackagingTypeID',label:'Packaging Type',kind:'packagingtype'},{key:'MaterialName',label:'Material name',required:true,max:200},{key:'UnitOfMeasure',label:'Base UoM',kind:'uom',required:true,max:20}] as Field[]},
  prices:{title:'Packaging Material Pricing',singular:'price',endpoint:'price',columns:{MaterialBaseUoM:'Material Base UoM',ConversionFactor:'Conversion factor',BaseUnitPrice:'Base unit price (Vendor currency)',BaseUnitUSDPrice:'Base unit USD price',ConversionStatus:'Conversion status',VendorName:'Vendor',MaterialCode:'Material',MaterialName:'Material name',CurrencyCode:'Vendor currency',ExchangeRateToUSD:'Exchange rate (Vendor currency per USD)',UnitUSDPrice:'Unit USD price',BaseUoM:'Price UoM',QuantityFrom:'Quantity from',QuantityTo:'Quantity to',UnitPrice:'Unit price (Vendor currency)',EffectiveFrom:'Effective from',EffectiveTo:'Effective to',Status:'Status',...audit} as Record<string,string>,
  defaults:['MaterialCode','VendorName','CurrencyCode','BaseUoM','QuantityFrom','QuantityTo','UnitPrice','ExchangeRateToUSD','UnitUSDPrice','EffectiveFrom','EffectiveTo','Status'],filters:['search','material_id','currency_id','as_of','status','created_by'],
  fields:[{key:'VendorID',label:'Vendor',kind:'vendor'},{key:'MaterialID',label:'Material',kind:'material',required:true},{key:'CurrencyID',label:'Vendor currency',kind:'currency',required:true},{key:'BaseUoM',label:'Price UoM',kind:'uom',required:true},{key:'QuantityFrom',label:'Quantity from (inclusive)',kind:'decimal',required:true,initial:'0'},{key:'QuantityTo',label:'Quantity to (exclusive)',kind:'decimal'},{key:'UnitPrice',label:'Unit price (Vendor currency)',kind:'decimal',required:true},{key:'ExchangeRateToUSD',label:'Exchange rate (Vendor currency per USD)',kind:'decimal'},{key:'EffectiveFrom',label:'Effective from',kind:'date',required:true},{key:'EffectiveTo',label:'Effective to',kind:'date'}] as Field[]}
 };
 export const masterConfig={...baseMasterConfig,
- 'raw-materials':{...baseMasterConfig.materials,title:'Raw Material',singular:'raw material',endpoint:'material'},
- 'raw-prices':{...baseMasterConfig.prices,title:'Raw Material Pricing',singular:'raw material price',endpoint:'price'}
+ 'raw-materials':{...baseMasterConfig.materials,title:'Raw Material',singular:'raw material',endpoint:'material',
+ columns:{...Object.fromEntries(Object.entries(baseMasterConfig.materials.columns).filter(([key])=>key!=='PackagingType')),Description:'Description',GradeName:'Grade'} as Record<string,string>,defaults:['MaterialCode','MaterialName','GradeName','UnitOfMeasure','Status'],
+ fields:[...baseMasterConfig.materials.fields.filter(f=>f.key!=='PackagingTypeID'),{key:'Description',label:'Description',max:500},{key:'GradeID',label:'Grade',kind:'rawgrade'} as Field]},
+ 'raw-prices':{...baseMasterConfig.prices,title:'Raw Material Pricing',singular:'raw material price',endpoint:'price'},
+ prices:{...baseMasterConfig.prices,columns:{...baseMasterConfig.prices.columns,...supplierLabels},
+  defaults:[...baseMasterConfig.prices.defaults.slice(0,4),'SupplierAreaPerPriceUnit',...baseMasterConfig.prices.defaults.slice(4)],
+  fields:[...baseMasterConfig.prices.fields,{key:'SupplierDimensionID',label:'Supplier dimension definition',kind:'supplierdimension' as const},
+   ...['D1','D2','D3'].map(k=>({key:'Supplier'+k,label:'Supplier '+k,kind:'decimal' as const}))] as Field[]}
 };
 export const filterLabels:Record<string,string>={search:'Search',status:'Status',created_by:'Created by',material_id:'Material',currency_id:'Currency',as_of:'Effective on'};
-export type Lookups={rawGrades?:Row[];uoms?:Row[];vendors?:Row[];customers?:Row[];materials:Row[];currencies:Row[];creators:Row[]};
+export type Lookups={supplierDimensions?:Row[];packagingTypes?:Row[];rawGrades?:Row[];uoms?:Row[];vendors?:Row[];customers?:Row[];materials:Row[];currencies:Row[];creators:Row[]};
 export const lookupLabel=(r:Row,kind:'material'|'currency'|'customer'|'vendor')=>kind==='vendor'?String(r.VendorName):kind==='customer'?String(r.CustomerName):kind==='material'?String(r.MaterialCode)+' — '+String(r.MaterialName):String(r.CurrencyCode)+(r.CurrencyName?' — '+r.CurrencyName:'');
-export function defaultLayout(entity:MasterEntity):MasterLayout{const c=masterConfig[entity];return {columns:c.defaults,filters:(entity!=='prices'&&entity!=='raw-prices')?['search','status']:['search','material_id','currency_id','status'],values:{},sort:[{column:entity==='raw-grades'?'GradeName':entity==='uoms'?'UoMCode':entity==='vendors'?'VendorName':entity==='products'?'ProductCode':'MaterialCode',direction:'asc'}],page_size:25}}
-export function displayValue(row:Row,key:string):string|null{const v=row[key];if(key==='IsMix'||key==='MaterialAssign')return v?'Yes':'No';if(v===null||v===undefined||v==='')return null;if(key.endsWith('At'))return timestamp(v);if(key.startsWith('Effective'))return String(v).slice(0,10);const formatted=numberDisplay(key,v);
+export function defaultLayout(entity:MasterEntity):MasterLayout{const c=masterConfig[entity];return {columns:c.defaults,filters:(entity!=='prices'&&entity!=='raw-prices')?['search','status']:['search','material_id','currency_id','status'],values:{},sort:entity==='packaging-types'?[{column:'PackagingOrder',direction:'asc'},{column:'PackagingType',direction:'asc'}]:[{column:entity==='pallets'?'PalletSize':entity==='raw-grades'?'GradeName':entity==='uoms'?'UoMCode':entity==='vendors'?'VendorName':entity==='products'?'ProductCode':'MaterialCode',direction:'asc'}],page_size:25}}
+export function displayValue(row:Row,key:string):string|null{const v=row[key];if(key==='Shipping')return row.ParentTypeID!=null?null:v?'True':'False';if(key==='PackagingOrder'&&row.ParentTypeID!=null)return null;if(key==='PackagingOrder'&&Array.isArray(row.PackagingOrders))return row.PackagingOrders.join(', ');if(key==='IsMix'||key==='MaterialAssign')return v?'Yes':'No';if(v===null||v===undefined||v==='')return null;if(key.endsWith('At'))return timestamp(v);if(key.startsWith('Effective'))return String(v).slice(0,10);const formatted=numberDisplay(key,v);
  const currency=String(row.CurrencyCode??'').trim();
  if(key==='UnitUSDPrice'||key==='BaseUnitUSDPrice')return formatted+' USD';
  if((key==='UnitPrice'||key==='BaseUnitPrice')&&currency)return formatted+' '+currency;

@@ -20,17 +20,21 @@ class PackagingExcelSQL(unittest.TestCase):
   for module in (packaging_api,packaging_fields):
    mock=patch.object(module,"get_raw_cursor",cursor);mock.start();self.addCleanup(mock.stop)
   self.ctx=AccessContext(self.actor,self.username,frozenset({"Admin"}))
+  from uuid import uuid4
+  self.primary="Excel bag-"+uuid4().hex[:12]
+  self.cur.execute("SET QUOTED_IDENTIFIER ON")
+  self.cur.execute("INSERT dbo.PackagingType(PackagingOrder,PackagingType,PriceBasis,TareWeight,CreatedBy) VALUES('Primary',?,'Count',0,?)",self.primary,self.actor)
   self.reqitem=self.request()
   self.req=self.cur.execute("SELECT RequestID FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",self.reqitem).fetchval()
  def edit(self,changes):
   source=excel.load_sources(self.ctx,[self.req])[self.reqitem]
   return dict(row=3,request_id=self.req,item_id=self.reqitem,version=source["ItemRowVersion"],changes=changes)
  def test_response_update_and_log(self):
-  result=excel.save(excel.Batch(rows=[self.edit({"FirstPMType":"Excel bag","FirstPMMOQ":"0"})]),self.ctx)
+  result=excel.save(excel.Batch(rows=[self.edit({"FirstPMType":self.primary,"FirstPMMOQ":"0"})]),self.ctx)
   self.assertEqual(result["results"][0]["status"],"OK",result)
-  self.assertEqual(self.cur.execute("SELECT FirstPMType FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",self.reqitem).fetchval(),"Excel bag")
+  self.assertEqual(self.cur.execute("SELECT FirstPMType FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",self.reqitem).fetchval(),self.primary)
   changes=self.cur.execute("SELECT NewValue,ChangedBy FROM dbo.PackagingRequestChangeLog WHERE ItemID=? AND FieldName='FirstPMType' ORDER BY ID",self.reqitem).fetchall()
-  self.assertTrue(any(r.NewValue=="Excel bag" and r.ChangedBy==self.username for r in changes))
+  self.assertTrue(any(r.NewValue==self.primary and r.ChangedBy==self.username for r in changes))
  def test_assigned_pic_can_save_but_another_pic_cannot(self):
   from uuid import uuid4
   names=["xl-pic-"+uuid4().hex[:12],"xl-other-"+uuid4().hex[:12]]
@@ -41,7 +45,7 @@ class PackagingExcelSQL(unittest.TestCase):
    self.cur.execute("INSERT dbo.UserAccess(UserID,Scope) VALUES(?,'Packaging')",id)
    actors.append(AccessContext(id,name,frozenset({"Packaging"})))
   self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET PICUserID=? WHERE ID=?",actors[0].user_id,self.reqitem)
-  edit=self.edit({"FirstPMType":"PIC bag"})
+  edit=self.edit({"FirstPMType":self.primary})
   denied=excel.save(excel.Batch(rows=[edit]),actors[1])
   self.assertEqual(denied["results"][0]["status"],"ERROR")
   allowed=excel.save(excel.Batch(rows=[edit]),actors[0])

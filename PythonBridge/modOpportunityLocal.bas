@@ -87,7 +87,7 @@ Private Function CellValue(ByVal r As Long, ByVal c As Long) As Variant
 End Function
 Private Function SameValue(ByVal a As Variant, ByVal b As Variant, ByVal key As String) As Boolean
     If Len(S(a)) = 0 And Len(S(b)) = 0 Then SameValue = True: Exit Function
-    If InStr("|AnnualUnit|EstPctAwarded|ShelfPrice|ExchangeRateToVND|ExchangeRateVNDPerUSD|ExchangeRateCustomerCurrencyPerUSD|MaxPalletHeightM|ShelfLifeDays|", "|" & key & "|") > 0 Then
+    If InStr("|AnnualUnit|MixUnitQuantity|EstPctAwarded|ShelfPrice|ExchangeRateToVND|ExchangeRateVNDPerUSD|ExchangeRateCustomerCurrencyPerUSD|MaxPalletHeightM|ShelfLifeDays|", "|" & key & "|") > 0 Then
         If IsNumeric(a) And IsNumeric(b) Then SameValue = (CDbl(a) = CDbl(b)): Exit Function
     End If
     SameValue = (StrComp(S(a), S(b), vbBinaryCompare) = 0)
@@ -108,6 +108,11 @@ Private Function Changes(ByVal r As Long, ByVal level As String, Optional ByVal 
         If cmd = "C" Then
             If Editable(key, level) And Not IsNull(value) Then d(key) = value
         ElseIf Not SameValue(value, old, key) Then
+            If level = "Item" And before.Exists("ParentItemID") Then
+                If Len(S(before("ParentItemID"))) > 0 And InStr("|ProductCode|ItemDescription|AnnualUnit|EstPctAwarded|ShelfPrice|PalletSize|PalletStacking|MaxPalletHeightM|ContainerRequest|", "|" & key & "|") > 0 Then
+                    If validate Then Err.Raise 5, , "Row " & r & ": Mix child Product info and Annual units are display only; Pallet and Container requirements belong to the parent."
+                End If
+            End If
             If key = "OpportunityNumber" And Len(S(WS.Cells(r, FieldColumn("_OpportunityID")).Value2)) = 0 Then
                 ' New group keys link unsaved header/item rows.
             Else

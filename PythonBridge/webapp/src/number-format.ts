@@ -1,6 +1,8 @@
 // Display only: never use rounded values as save payloads.
+import {palletCapacityKeys} from './pallet-capacities';
 const money=new Set(['BaseUnitPrice','BaseUnitUSDPrice','UnitPrice','UnitUSDPrice','ShelfPrice','Cost','PMCost']);
-const numeric=new Set(['Factor','ConversionFactor','QuantityFrom','QuantityTo','WeightGrams','WeightOz','WeightValue','AnnualUnit','EstPctAwarded','MixRatioPct','RatioPct','UnitQuantity','ExchangeRateVNDPerUSD','ExchangeRateCustomerCurrencyPerUSD','ExchangeRateToUSD','ExchangeRateToVND','SourceExchangeRateToVND','MaxPalletHeightM','HeightMM','WidthMM','LengthMM','ShelfLifeDays','UnitsPerCarton','FirstPMMOQ','SecondPMMOQ','CartonsPerLayer','LayersPerPallet','PacksPerPallet','CartonsPerContainer','ItemCount','Unassigned']);
+const efficiencyNumbers=new Set(['PalletHeightMM','CartonEfficiencyKGM3','RelativeCartonEfficiencyPct','PalletUtilizationPct','PalletHeightEfficiencyPct']);
+const numeric=new Set(['Factor','ConversionFactor','QuantityFrom','QuantityTo','WeightGrams','WeightOz','WeightValue','AnnualUnit','EstPctAwarded','MixRatioPct','RatioPct','UnitQuantity','ExchangeRateVNDPerUSD','ExchangeRateCustomerCurrencyPerUSD','ExchangeRateToUSD','ExchangeRateToVND','SourceExchangeRateToVND','MaxPalletHeightM','MaxPalletHeightMM','HeightMM','WidthMM','LengthMM','ShelfLifeDays','UnitsPerTertiary','UnitsPerCarton','FirstPMMOQ','SecondPMMOQ','CartonsPerLayer','LayersPerPallet','PacksPerPallet','UnitsPerPallet','ResponseMaxPalletHeightMM','CartonsPerContainer','LayersPerContainer','PalletsPerContainer','CartonsPerContainerFloor','ItemCount','Unassigned']);
 export function decimalDisplay(value:unknown,places:number,fixed=false):string|null{
  if(value===null||value===undefined||value==='')return null;
  const raw=String(value),match=/^(-?)(\d+)(?:\.(\d*))?$/.exec(raw);
@@ -14,13 +16,26 @@ export function decimalDisplay(value:unknown,places:number,fixed=false):string|n
  return (sign&&amount!==0n?'-':'')+(amount/scale).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',')+(decimal?'.'+decimal:'');
 }
 export function numberDisplay(key:string,value:unknown):string|null{
+ if(['SupplierD1','SupplierD2','SupplierD3'].includes(key))return decimalDisplay(value,6);
+ if(key==='SupplierAreaPerPriceUnit')return decimalDisplay(value,9);
+ if(palletCapacityKeys.includes(key))return decimalDisplay(value,0);
+ if(['RelativeCartonEfficiencyPct','PalletUtilizationPct','PalletHeightEfficiencyPct'].includes(key))return decimalDisplay(value,2,true);
+ if(efficiencyNumbers.has(key))return decimalDisplay(value,6);
+ if(['PrimaryPricePerUnit','SecondaryPricePerUnit','TertiaryPricePerUnit'].includes(key))return decimalDisplay(value,9);
+ if(['RequestedLayerCount','ResponseLayerCount','NumberOfPrimary','NumberOfSecondary','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','ThirdPMMOQ','CalculatedCartonsPerContainer'].includes(key))return decimalDisplay(value,0);
+ if(['PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','NetWeightPerContainerKG','NetWeightPerContainerFloorKG'].includes(key))return decimalDisplay(value,3);
+ if(key==='NutDensity'||key==='UsedVolumeML')return decimalDisplay(value,6);
+ if(key==='TareWeight')return decimalDisplay(value,3);
+ if(key==='Width'||key==='Length')return decimalDisplay(value,4);
+ if(key==='PalletAreaMM2')return decimalDisplay(value,8);
+ if(key==='AnnualUnit'||key==='MixUnitQuantity')return decimalDisplay(value,4);
  if(key==='Factor'||key==='ConversionFactor')return decimalDisplay(value,9);
  if(money.has(key))return decimalDisplay(value,2,true);
  if(numeric.has(key))return decimalDisplay(value,3);
  return value===null||value===undefined||value===''?null:String(value);
 }
 
-export function isNumericField(key:string){return money.has(key)||numeric.has(key)}
+export function isNumericField(key:string){return ['SupplierDimensionID','SupplierD1','SupplierD2','SupplierD3','SupplierAreaPerPriceUnit'].includes(key)||palletCapacityKeys.includes(key)||efficiencyNumbers.has(key)||['NutDensity','UsedVolumeML','TareWeight','Width','Length','PalletAreaMM2','PrimaryPricePerUnit','SecondaryPricePerUnit','TertiaryPricePerUnit','RequestedLayerCount','ResponseLayerCount','NumberOfPrimary','NumberOfSecondary','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','ThirdPMMOQ','CalculatedCartonsPerContainer','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','NetWeightPerContainerKG','NetWeightPerContainerFloorKG'].includes(key)||money.has(key)||numeric.has(key)}
 export function opportunityDisplay(row:Record<string,unknown>,key:string):string|null{
  const value=numberDisplay(key,row[key]);
  if(value===null)return null;

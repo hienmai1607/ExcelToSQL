@@ -92,7 +92,7 @@ test('column position persists and determines export order; compact icon tasks',
  await page.getByRole('button',{name:'Move Currency left',exact:true}).click();
  await page.getByRole('button',{name:'Move Currency left',exact:true}).click();
  await page.getByRole('button',{name:'Save layout to profile'}).click();await expect(page.getByRole('status')).toContainText('saved to your profile');
- await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('columnheader').first()).toHaveText('Currency');
+ await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('columnheader').nth(1)).toHaveText('Currency');
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Export current page to Excel'}).click();await download;
  expect(state.exported().columns[0]).toBe('CurrencyCode');
  await page.getByRole('button',{name:'Collapse navigation'}).click();await page.setViewportSize({width:390,height:844});

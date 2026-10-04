@@ -2,6 +2,8 @@ import {newId} from './id';
 import {useEffect,useRef,useState} from 'react';
 import {text,type Row} from './api';
 import './attachments.css';
+import {Modal} from './ui';
+import {IconButton} from './icons';
 
 export const allowed='.pdf,.png,.jpg,.jpeg,.docx,.xlsx,.pptx,.txt,.csv,.eml,.msg';
 export interface PickedFile {id:string;file:File}
@@ -49,7 +51,7 @@ export function AttachmentQueue({user}:{user:string}){
  if(!rows.length&&!error)return null;
  return <section className="notice pending" aria-label="Attachment upload queue"><strong>{busy?'Uploading attachments…':'Attachment upload queue'}</strong><p>Files are retained in this browser until uploaded. Request creation is not repeated.</p>{rows.map(j=><div className="file-name" key={j.id}><span>{j.file.name} · {j.itemID?'Request item '+j.itemID:'Waiting for request creation'}{j.error&&<small role="alert">{j.error}</small>}</span>{j.error&&<button disabled={busy} onClick={()=>{if(window.confirm('Remove this file from the local retry queue? A previously completed server upload is not deleted.'))void save([],[j.id])}}>Remove from queue</button>}</div>)}{error&&<p role="alert">{error}</p>}<button disabled={busy||!rows.some(r=>r.itemID)} onClick={()=>void upload()}>Retry attachments</button></section>
 }
-export function ItemAttachments({item,user,canUpload}:{item:Row;user:string;canUpload:boolean}){
+export function ItemAttachments({item,user,canUpload,compact=false}:{item:Row;user:string;canUpload:boolean;compact?:boolean}){
  const [opened,setOpened]=useState(false);
  const [rows,setRows]=useState<Row[]>([]),[error,setError]=useState(''),[picked,setPicked]=useState<PickedFile[]>([]),[saving,setSaving]=useState(false);
  const itemID=Number(item.ItemID);
@@ -57,5 +59,7 @@ export function ItemAttachments({item,user,canUpload}:{item:Row;user:string;canU
  useEffect(()=>{if(!opened)return;void refresh();const listener=()=>void refresh();window.addEventListener('attachments-updated',listener);return()=>window.removeEventListener('attachments-updated',listener)},[itemID,opened]);
  async function download(row:Row){try{const response=await fetch('/api/packaging/items/'+itemID+'/attachments/'+row.ID+'/download',{headers:headers(),credentials:'same-origin'});if(!response.ok)await failure(response);const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download=String(row.OriginalName);a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(e){setError((e as Error).message)}}
  async function add(){setSaving(true);try{await save(picked.map(p=>({id:p.id,user,creationKey:'existing',sourceID:0,itemID,file:p.file})));setPicked([])}catch(e){setError((e as Error).message)}finally{setSaving(false)}}
- return <details className="item-attachments" onToggle={e=>setOpened(e.currentTarget.open)}><summary>Attachments{opened?' ('+rows.length+')':''}</summary>{rows.map(r=><div key={String(r.ID)}><button className="link" onClick={()=>void download(r)}>{text(r.OriginalName)}</button><small>{text(r.UploadedByName)} · {Math.ceil(Number(r.SizeBytes)/1024)} KB</small></div>)}{canUpload&&['Assigned','Working','Returned'].includes(String(item.ItemStage))&&<><FilePicker files={picked} onChange={setPicked} disabled={saving} label={'Attach to item '+itemID}/><button disabled={saving||!picked.length} onClick={()=>void add()}>Upload files</button></>}{error&&<small role="alert">{error}</small>}</details>
+ const content=<>{rows.map(r=><div key={String(r.ID)}><button className="link" onClick={()=>void download(r)}>{text(r.OriginalName)}</button><small>{text(r.UploadedByName)} · {Math.ceil(Number(r.SizeBytes)/1024)} KB</small></div>)}{canUpload&&['Assigned','Working','Returned'].includes(String(item.ItemStage))&&<><FilePicker files={picked} onChange={setPicked} disabled={saving} label={'Attach to item '+itemID}/><button disabled={saving||!picked.length} onClick={()=>void add()}>Upload files</button></>}{error&&<small role="alert">{error}</small>}</>;
+ if(compact)return <><IconButton icon="attachment" label={'Attachments for item '+itemID} onClick={()=>setOpened(true)}/>{opened&&<Modal label={'Attachments for item '+itemID} onClose={()=>setOpened(false)}><header className="copy-dialog-heading"><h2>Attachments</h2><IconButton icon="close" label="Close attachments" onClick={()=>setOpened(false)}/></header><div className="item-attachments">{content}{!rows.length&&!error&&<p>No attachments found.</p>}</div></Modal>}</>;
+ return <details className="item-attachments" onToggle={e=>setOpened(e.currentTarget.open)}><summary>Attachments{opened?' ('+rows.length+')':''}</summary>{content}</details>;
 }

@@ -1,12 +1,16 @@
 """Allow-listed packaging master layouts shared by profile and read endpoints."""
 from typing import Literal, Annotated
+from pallet_fields import PALLET_CAPACITY_LABELS
+from supplier_geometry import SUPPLIER_FIELDS
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-Entity=Literal["materials","prices","raw-materials","raw-prices","raw-grades","products","vendors","uoms"]
+Entity=Literal["materials","prices","raw-materials","raw-prices","raw-grades","products","vendors","uoms","pallets","packaging-types"]
 AUDIT={"CreatedAt":"Created at","CreatedByName":"Created by","UpdatedAt":"Updated at","UpdatedByName":"Updated by"}
 COLUMNS={
+ "packaging-types":{"ParentType":"Parent Type","PackagingOrder":"Order","PackagingType":"Packaging Type","PriceBasis":"Price Basis","Shipping":"Shipping","Status":"Status",**AUDIT},
+ "pallets":{"UnitOfMeasure":"UoM","Width":"Width","Length":"Length","PalletAreaMM2":"Pallet area (mm²)","PalletSize":"Pallet size",**PALLET_CAPACITY_LABELS,"ConversionStatus":"Conversion status","Status":"Status",**AUDIT},
  "uoms":{"UoMCode":"UoM code","UoMName":"UoM name","Status":"Status",**AUDIT},
  "vendors":{"VendorName":"Vendor name","Address":"Address","CurrencyCode":"Currency","Status":"Status",**AUDIT},
- "products":{"IsMix":"Product Mix","CustomerName":"Customer","Category":"Category","ProductCode":"Product code","ProductName":"Product name","WeightGrams":"Weight (g)","WeightOz":"Weight (oz)","Status":"Status",**AUDIT},
+ "products":{"IsMix":"Product Mix","CustomerName":"Customer","Category":"Category","ProductCode":"Product code","ProductName":"Product name","WeightGrams":"Weight (g)","WeightOz":"Weight (oz)","ShelfLifeDays":"Shelf life (days)","Status":"Status",**AUDIT},
  "materials":{"MaterialCode":"Material code","MaterialName":"Material name","Description":"Description","UnitOfMeasure":"Base UoM","Status":"Status",**AUDIT},
  "prices":{"VendorName":"Vendor","MaterialCode":"Material","MaterialName":"Material name","CurrencyCode":"Vendor currency","ExchangeRateToUSD":"Exchange rate (Vendor currency per USD)","UnitUSDPrice":"Unit USD price","BaseUoM":"Price UoM","QuantityFrom":"Quantity from","QuantityTo":"Quantity to","UnitPrice":"Unit price (Vendor currency)","EffectiveFrom":"Effective from","EffectiveTo":"Effective to","Status":"Status",**AUDIT},
 }
@@ -22,10 +26,18 @@ for raw, original in (("raw-materials","materials"),("raw-prices","prices")):
  COLUMNS[raw]=dict(COLUMNS[original])
  FILTERS[raw]=set(FILTERS[original])
  MASTER_REQUIRED_COLUMNS[raw]=MASTER_REQUIRED_COLUMNS[original]
+COLUMNS["prices"].update(SUPPLIER_FIELDS, SupplierAreaPerPriceUnit="Supplier conversion / Price UoM")
 
-COLUMNS["raw-grades"]={"MaterialAssign":"Material assign","ParentGradeName":"Parent grade","ParentMaterialCode":"Parent Raw Material","GradeName":"Grade name","MaterialCode":"Raw Material","MaterialName":"Raw Material name","Status":"Status",**AUDIT}
+COLUMNS["raw-materials"]["GradeName"]="Grade"
+COLUMNS["materials"]["PackagingType"]="Packaging Type"
+COLUMNS["materials"].pop("Description",None)
+COLUMNS["raw-grades"]={"ParentGradeName":"Parent grade","GradeName":"Grade name","Status":"Status",**AUDIT}
 FILTERS["raw-grades"]={"search","status","created_by"}
 MASTER_REQUIRED_COLUMNS["raw-grades"]=("GradeName",)
+FILTERS["pallets"]={"search","status","created_by"}
+MASTER_REQUIRED_COLUMNS["pallets"]=("UnitOfMeasure","Width","Length")
+FILTERS["packaging-types"]={"search","status","created_by"}
+MASTER_REQUIRED_COLUMNS["packaging-types"]=("PackagingOrder","PackagingType","PriceBasis","Shipping")
 
 class MasterSort(BaseModel):
  model_config=ConfigDict(extra="forbid")
@@ -41,10 +53,23 @@ class MasterLayout(BaseModel):
  sort:list[MasterSort]=Field(default_factory=list,max_length=8)
  page_size:int=Field(25,ge=1,le=500)
 def check_layout(entity,layout):
+ if entity=="materials":
+  layout.columns=[c for c in layout.columns if c!="Description"]
+  layout.sort=[s for s in layout.sort if s.column!="Description"]
+  layout.column_widths={k:v for k,v in layout.column_widths.items() if k!="Description"}
  # Upgrade saved profiles and existing download layouts when fields are retired.
+ if entity=="packaging-types":
+  layout.columns=[c for c in layout.columns if c!="TareWeight"]
+  layout.sort=[s for s in layout.sort if s.column!="TareWeight"]
+  layout.column_widths={k:v for k,v in layout.column_widths.items() if k!="TareWeight"}
  if entity=="products":
   layout.columns=[c for c in layout.columns if c not in ("Grade","MixRatioPct")]
   layout.sort=[s for s in layout.sort if s.column not in ("Grade","MixRatioPct")]
+ if entity=="raw-grades":
+  retired={"MaterialAssign","ParentMaterialCode","MaterialCode","MaterialName"}
+  layout.columns=[c for c in layout.columns if c not in retired]
+  layout.sort=[s for s in layout.sort if s.column not in retired]
+  layout.column_widths={k:v for k,v in layout.column_widths.items() if k not in retired}
  if entity in ("prices","raw-prices"):
   layout.columns=list(dict.fromkeys("BaseUoM" if c=="PriceBasis" else c for c in layout.columns))
   for rule in layout.sort:

@@ -4,7 +4,7 @@ async function setup(page:Page,scopes=['Opportunity']){
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',user_id:10,scopes,is_admin:scopes.includes('Admin')}});
   if(path==='/api/opportunity/grid')return route.fulfill({json:{rows:[],total:0,page:1}});
-  if(path==='/api/opportunity/lookups')return route.fulfill({json:{currencies:[{ID:1,CurrencyCode:'VND',CurrencyName:'Vietnamese Dong'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2}],products:[{ID:2,ProductCode:'Almonds',CustomerID:1},{ID:3,ProductCode:'Cashews',CustomerID:1}]}});
+  if(path==='/api/opportunity/lookups')return route.fulfill({json:{packagingTypes:[{ID:11,PackagingOrder:'Primary',PackagingType:'Pouch',ParentTypeID:null,Status:'Active'},{ID:12,PackagingOrder:'Primary',PackagingType:'Bag',ParentTypeID:null,Status:'Active'}],pallets:[{ID:1,PalletSize:"1.1x1.1M"},{ID:2,PalletSize:"1200x1000MM"}],currencies:[{ID:1,CurrencyCode:'VND',CurrencyName:'Vietnamese Dong'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1},{ID:3,ProductCode:'Cashews',ProductName:'Cashew mix',CustomerID:1}]}});
   if(path==='/api/workbench/preferences')return route.fulfill({json:{settings:{dark:false,nav_hidden:false,columns:['CustomerName'],filters:[],sort:[],page_size:25},version:0}});
   if(path==='/api/customer')return route.fulfill({json:{rows:[],total:0,page:1}});
   if(path==='/api/customer/lookups')return route.fulfill({json:{markets:[],currencies:[]}});
@@ -26,10 +26,49 @@ async function fill(page:Page){
  await form.getByLabel('Bid close *').fill('2026-10-01');
  const item=form.getByRole('region',{name:'Item 1',exact:true});
  await item.getByLabel('Product *').selectOption('2');
- await item.getByLabel('Item description *').fill('Roasted almonds');
  await item.getByLabel('Annual units *').fill('1000');
  return form;
 }
+test('Product Info replaces item description with read-only master net weight',async({page})=>{
+ await setup(page);let payload:any;
+ await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1,WeightGrams:150.25},{ID:3,ProductCode:'Cashews',ProductName:'Cashew mix',CustomerID:1,WeightGrams:450}]}}));
+ await page.route('**/api/opportunity/batch',r=>{payload=r.request().postDataJSON();return r.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-NEW'}],item_results:payload.item_rows.map((x:any)=>({RowNum:x.RowNum,Status:'OK'}))}})});
+ const form=await fill(page),item=form.getByRole('region',{name:'Item 1',exact:true});
+ await expect(item.getByLabel('Item description *')).toHaveCount(0);
+ await expect(item.getByLabel('Net weight (g)',{exact:true})).toHaveValue('150.25');
+ await expect(item.getByLabel('Net weight (g)',{exact:true})).toHaveAttribute('readonly','');
+ await item.getByLabel('Product *',{exact:true}).selectOption('3');
+ await expect(item.getByLabel('Net weight (g)',{exact:true})).toHaveValue('450');
+ await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(payload.item_rows[0].ProductID).toBe(3);
+ for(const key of ['ItemDescription','WeightGrams','ProductNetWeightGrams'])expect(payload.item_rows[0]).not.toHaveProperty(key);
+});
+test('pallet size is selected from Pallet Master and saved as the displayed size',async({page})=>{
+ await setup(page);let payload:any;
+ await page.route('**/api/opportunity/batch',route=>{payload=route.request().postDataJSON();return route.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-NEW'}],item_results:payload.item_rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})});
+ const form=await fill(page),item=form.getByRole('region',{name:'Item 1',exact:true});
+ await item.getByText('Packaging requirements',{exact:true}).click();
+ await item.getByLabel('Configuration request',{exact:true}).selectOption('Pallet load');
+ const select=item.getByRole('combobox',{name:'Pallet size',exact:true});
+ await expect(select.locator('option')).toHaveText(['Choose pallet size','1.1x1.1M','1200x1000MM']);
+ await expect(item.getByRole('textbox',{name:'Pallet size',exact:true})).toHaveCount(0);
+ await select.selectOption('1.1x1.1M');await expect(select).toHaveValue('1.1x1.1M');
+ await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('created');
+ expect(payload.item_rows[0].PalletSize).toBe('1.1x1.1M');
+});
+
+test('empty pallet master shows guidance but pallet size remains optional',async({page})=>{
+ await setup(page);
+ await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1}],pallets:[]}}));
+ const form=await fill(page);await form.getByText('Packaging requirements',{exact:true}).click();
+ await form.getByLabel('Configuration request',{exact:true}).selectOption('Pallet load');
+ await expect(form.getByLabel('Pallet size',{exact:true}).locator('option')).toHaveCount(1);
+ await expect(form.getByText('No active pallets. Admin or Packaging must add records in Pallet Master.')).toBeVisible();
+ await form.getByRole('button',{name:'Review & save'}).click();
+ await expect(page.getByRole('dialog',{name:'Confirm Opportunity save'})).toBeVisible();
+});
+
 test('creates one header with multiple items only after confirmation',async({page})=>{
  await setup(page);let payload:any;
  await page.route('**/api/opportunity/batch',route=>{
@@ -41,13 +80,13 @@ test('creates one header with multiple items only after confirmation',async({pag
  expect(bounds!.width).toBeGreaterThan(page.viewportSize()!.width*0.9);
  const first=form.getByRole('region',{name:'Item 1',exact:true});
  await first.getByText('Packaging requirements',{exact:true}).click();
- await first.getByLabel('Packaging type',{exact:true}).fill('Pouch');
- await first.getByLabel('Max pallet height (m)',{exact:true}).fill('1.25');
- await first.getByLabel('Shelf life (days)',{exact:true}).fill('365');
+ await first.getByLabel('Primary Type',{exact:true}).selectOption('11');
+ await first.getByLabel('Configuration request',{exact:true}).selectOption('Pallet load');
+ await first.getByLabel('Max pallet height (mm)',{exact:true}).fill('1250');
+ await expect(first.getByLabel('Shelf life (days)',{exact:true}).first()).toHaveAttribute('readonly','');
  await form.getByRole('button',{name:'Add item',exact:true}).click();
  const item=form.getByRole('region',{name:'Item 2',exact:true});
  await item.getByLabel('Product *').selectOption('3');
- await item.getByLabel('Item description *').fill('Cashew mix');
  await item.getByLabel('Annual units *').fill('0');
  await item.getByLabel('Estimated award %').fill('0');
  await item.getByLabel('Shelf price').fill('12.50');
@@ -56,7 +95,8 @@ test('creates one header with multiple items only after confirmation',async({pag
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('OPP-2026-12345 created');
  expect(payload.header_rows[0]).toMatchObject({ExchangeRateVNDPerUSD:'25000',ExchangeRateCustomerCurrencyPerUSD:'1'});
- expect(payload.item_rows[0]).toMatchObject({PackagingType:'Pouch',MaxPalletHeightM:'1.25',ShelfLifeDays:'365'});
+ expect(payload.item_rows[0]).toMatchObject({PrimaryTypeID:'11',MaxPalletHeightMM:'1250'});
+ expect(payload.item_rows[0].ShelfLifeDays).toBeUndefined();
  expect(payload.header_rows).toHaveLength(1);expect(payload.item_rows).toHaveLength(2);
  expect(payload.item_rows.every((x:any)=>x.OpportunityNumber===payload.header_rows[0].OpportunityNumber)).toBeTruthy();
  expect(payload.item_rows[0].EstPctAwarded).toBeNull();expect(payload.item_rows[0].ShelfPrice).toBeNull();
@@ -69,8 +109,9 @@ test('entry controls align and packaging fields use a compact grid',async({page}
  await setup(page);const form=await fill(page);
  const selectors=['Customer *','Bid open *','Bid close *','Customer currency','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
  const boxes=await Promise.all(selectors.map(name=>form.getByLabel(name,{exact:true}).boundingBox()));
- for(const box of boxes)expect(box!.height).toBe(38);
+ for(const box of boxes)expect(box!.height).toBe(32);
  await form.getByText('Packaging requirements',{exact:true}).click();
+ await form.getByLabel('Configuration request',{exact:true}).selectOption('Both');
  const pallet=await form.getByLabel('Pallet size',{exact:true}).boundingBox();
  const stacking=await form.getByLabel('Pallet stacking',{exact:true}).boundingBox();
  expect(Math.abs(pallet!.width-stacking!.width)).toBeLessThan(2);
@@ -81,16 +122,17 @@ test('entry controls align and packaging fields use a compact grid',async({page}
 
 test('product choices follow Customer and clear selections when Customer changes',async({page})=>{
  await setup(page);
- await page.route('**/api/opportunity/lookups',route=>route.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2},{ID:2,CustomerName:'Southstar'}],products:[{ID:2,ProductCode:'North product',CustomerID:1},{ID:3,ProductCode:'South product',CustomerID:2},{ID:4,ProductCode:'Unassigned',CustomerID:null}],currencies:[]}}));
+ await page.route('**/api/opportunity/lookups',route=>route.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2},{ID:2,CustomerName:'Southstar'}],products:[{ID:2,ProductCode:'PROD-NORTH',ProductName:'North product',CustomerID:1},{ID:3,ProductCode:'PROD-SOUTH',ProductName:'South product',CustomerID:2},{ID:4,ProductCode:'PROD-NONE',ProductName:'Unassigned',CustomerID:null}],currencies:[]}}));
  await page.getByRole('button',{name:'New Opportunity',exact:true}).click();
  const form=page.getByRole('dialog',{name:'New Opportunity',exact:true}),product=form.getByLabel('Product *',{exact:true});
  await expect(product).toBeDisabled();
  await form.getByLabel('Customer *',{exact:true}).selectOption('1');
- await expect(product.locator('option')).toHaveText(['Choose product','North product']);
+ await expect(product.locator('option')).toHaveText(['Choose product','PROD-NORTH \u2014 North product']);
  await product.selectOption('2');
+ await expect(product.locator('option:checked')).toHaveText('PROD-NORTH \u2014 North product');
  await form.getByLabel('Customer *',{exact:true}).selectOption('2');
  await expect(product).toHaveValue('');
- await expect(product.locator('option')).toHaveText(['Choose product','South product']);
+ await expect(product.locator('option')).toHaveText(['Choose product','PROD-SOUTH \u2014 South product']);
 });
 test('validates numeric limits, dates and keeps at least one item',async({page})=>{
  await setup(page);const form=await fill(page);

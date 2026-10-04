@@ -38,10 +38,10 @@ test('edit retains input on row-level conflict and sends original version',async
  await expect(page.getByRole('dialog').getByLabel('Customer name *')).toHaveValue('Changed name');
  expect(writes[0].rows[0]).toMatchObject({Command:'U',ID:7,RowVersion:customer.RowVersion});
 });
-test('edit uses icon and no longer has a Block section',async({page})=>{
+test('customer ID opens edit without a redundant Edit icon or Block section',async({page})=>{
  const writes=await setup(page);
  const edit=page.getByRole('button',{name:'Edit Northstar Foods'});
- await expect(edit.locator('svg')).toHaveCount(1);await edit.click();
+ await expect(edit.locator('svg')).toHaveCount(0);await expect(edit).toHaveText('#7');await edit.click();
  await expect(page.getByRole('heading',{name:'Block this customer'})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'Block customer',exact:true})).toHaveCount(0);
  expect(writes).toHaveLength(0);

@@ -1,6 +1,7 @@
 """Real SQL adapter tests, local test database only, fixtures rolled back."""
 import sys
 import unittest
+from decimal import Decimal
 from contextlib import contextmanager
 from unittest.mock import patch
 from packaging_field_foundation_contract import PackagingFoundation, ROOT
@@ -35,7 +36,7 @@ class OpportunityExcelSQL(unittest.TestCase):
   self.assertEqual(self.cur.execute("SELECT PalletSize FROM dbo.OpportunityItem WHERE ID=?",self.item).fetchval(),"Test pallet")
   changes=self.cur.execute("SELECT EntityLevel,FieldName,NewValue,ChangedBy FROM dbo.OpportunityChangeLog WHERE OpportunityID=?",self.opp).fetchall()
   self.assertTrue(any(r.EntityLevel=="Header" and r.FieldName=="OpportunityDesc" and r.NewValue=="Excel header change" and r.ChangedBy==self.username for r in changes))
-  self.assertTrue(any(r.EntityLevel=="Item" and r.FieldName=="AnnualUnit" and r.NewValue=="321" and r.ChangedBy==self.username for r in changes))
+  self.assertTrue(any(r.EntityLevel=="Item" and r.FieldName=="AnnualUnit" and r.NewValue is not None and Decimal(r.NewValue)==321 and r.ChangedBy==self.username for r in changes))
  def test_create_multiple_items(self):
   source=excel.document_rows(self.ctx,self.opp)[0]
   self.cur.execute("INSERT dbo.Product(ProductCode,ProductName,WeightGrams,CreatedBy,CustomerID) VALUES('R-'+LEFT(CONVERT(VARCHAR(36),NEWID()),16),'Rate test '+CONVERT(VARCHAR(36),NEWID()),100,?,?)",self.actor,self.customer)

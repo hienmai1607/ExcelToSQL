@@ -15,7 +15,7 @@ from typing import Literal
 from auth import AccessContext, get_access_context
 from packaging_api import require, execute
 from opportunity_views import OpportunityViews, OpportunityView, HEADER_COLUMNS, ITEM_COLUMNS, sorted_grid
-from packaging_fields import OPPORTUNITYITEM_FIELDS
+from packaging_fields import OPPORTUNITYITEM_FIELDS, PARENT_LOGISTICS_FIELDS
 from product_excel_api import sheet, header_styles
 from schemas import OpportunityBatchRequest
 
@@ -29,12 +29,12 @@ META=["_OpportunityID","_ItemID","_HeaderVersion","_ItemVersion","_Original"]
 AUTH="""IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID
 WHERE u.UserName=? AND u.IsActive=1 AND a.Scope IN('Admin','Opportunity'))
 THROW 52744,'Opportunity access is required for this action.',1; """
-LABELS={"OpportunityNumber":"Opportunity / new group key","CustomerName":"Customer","OpportunityDesc":"Description",
+LABELS={"ItemNumber":"Item number","MixUnitQuantity":"Mix component quantity","OpportunityNumber":"Opportunity / new group key","CustomerName":"Customer","OpportunityDesc":"Description",
 "BidOpen":"Bid open","BidClose":"Bid close","HeaderStage":"Stage","CustomerCurrencyCode":"Customer currency",
 "ExchangeRateVNDPerUSD":"Exchange rate VND per USD","ExchangeRateCustomerCurrencyPerUSD":"Exchange rate Customer Currency per USD","ItemCount":"Items","ProductCode":"Product code",
 "ItemDescription":"Description","AnnualUnit":"Annual units","EstPctAwarded":"Estimated award %",
 "ShelfPrice":"Shelf price","ItemStage":"Stage","WeightGrams":"Net weight (g)","MaxPalletHeightM":"Max pallet height (m)",
-"ShelfLifeDays":"Shelf life (days)"}
+"ShelfLifeDays":"Shelf life (days)","FirstPMType":"Primary Type","SecondPMType":"Secondary Type"}
 
 class View(BaseModel):
  model_config=ConfigDict(extra="forbid")
@@ -47,13 +47,14 @@ class View(BaseModel):
   if self.views.items is None:self.views.items=OpportunityView(columns=sorted(ITEM_COLUMNS))
   for view,required in ((self.views.header,HEADER_REQUIRED),(self.views.items,ITEM_REQUIRED)):
    if view is not None:view.columns=[*view.columns,*[k for k in required if k not in view.columns]]
+  if "ItemNumber" not in self.views.items.columns:self.views.items.columns.insert(0,"ItemNumber")
   return self
 
 def workbook_row(row):
  row={k:str(v) if isinstance(v,(Decimal,date,datetime)) else v for k,v in row.items()}
  values={**row,"HeaderCommand":"N","ItemCommand":"N","_OpportunityID":row.get("OpportunityID"),
  "_ItemID":row.get("ItemID"),"_HeaderVersion":row.get("HeaderRowVersion"),"_ItemVersion":row.get("ItemRowVersion")}
- values["_Original"]=json.dumps({k:row.get(k) for k in HEADER_COLUMNS|ITEM_COLUMNS},default=str,ensure_ascii=False)
+ values["_Original"]=json.dumps({k:row.get(k) for k in HEADER_COLUMNS|ITEM_COLUMNS|{"ParentItemID"}},default=str,ensure_ascii=False)
  return values
 
 def read_page(body,ctx):
@@ -84,7 +85,9 @@ def read_page(body,ctx):
    return (a.get("ItemID",0)>b.get("ItemID",0))-(a.get("ItemID",0)<b.get("ItemID",0))
   groups={}
   for r in data["rows"]:groups.setdefault(r["OpportunityID"],[]).append(r)
-  data["rows"]=[r for group in groups.values() for r in sorted(group,key=cmp_to_key(compare))]
+  data["rows"]=[r for group in groups.values()
+   for parent in sorted([r for r in group if not r.get("ParentItemID")],key=cmp_to_key(compare))
+   for r in [parent,*sorted([c for c in group if c.get("ParentItemID")==parent.get("ItemID")],key=lambda c:c["MixChildNumber"])]]
  data["rows"]=[workbook_row(r) for r in data["rows"]]
  return data
 
@@ -230,6 +233,10 @@ def prepare(group,ctx):
   if command!="C" and not row.item_id:raise ValueError("New item requires Item Command C.")
   if row.item_id and row.item_version!=original["ItemRowVersion"]:raise ValueError("Item changed. Refresh before saving.")
   if original and (original["ItemStage"]!="Draft" or original.get("HasOpenPackagingRequest")):raise ValueError("Item is processing or not Draft.")
+  if original.get("ParentItemID") and (command!="U" or set(row.item_changes)-set(OPPORTUNITYITEM_FIELDS)):
+   raise ValueError("Mix child Product and Annual units are read-only; only Packaging requirements can be edited.")
+  if original.get("ParentItemID") and set(row.item_changes)&PARENT_LOGISTICS_FIELDS:
+   raise ValueError("Pallet and Container requirements belong to the parent item only.")
   value={**original,**row.item_changes}
   if command!="D":
    for k in ITEM_REQUIRED:

@@ -16,22 +16,31 @@ from auth import AccessContext, get_access_context
 from master_models import MasterLayout, COLUMNS, MASTER_REQUIRED_COLUMNS, check_layout
 from packaging_master_api import read as master_read, require_entity, master_auth
 from packaging_api import execute, require, MaterialBatch, PriceBatch, material_save, price_save, VendorBatch, vendor_save, UoMBatch, uom_save
+from packaging_api import PackagingPriceBatch
+from supplier_geometry import SUPPLIER_FIELDS
 from product_excel_api import sheet, header_styles
 
-from raw_material_api import material_save as raw_material_save, price_save as raw_price_save
-Entity=Literal["materials","prices","raw-materials","raw-prices","vendors","uoms"]
+from raw_material_api import RawMaterialBatch, material_save as raw_material_save, price_save as raw_price_save
+from pallet_api import PalletBatch, pallet_save
+from pallet_fields import PALLET_CAPACITY_LABELS
+from packaging_type_api import PackagingTypeBatch, packaging_type_save
+Entity=Literal["materials","prices","raw-materials","raw-prices","vendors","uoms","pallets","packaging-types"]
 router=APIRouter(prefix="/api/workbench/master-excel",tags=["Packaging Master Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Packaging_Master_Local_Update.xlsm"
 CONFIG={
+ "packaging-types":dict(table="PackagingType",filename="Packaging_Type_Local_Update.xlsm",title="Packaging Type Master",editable={"ParentType","PackagingOrder","PackagingType","PriceBasis","Shipping","Status"}),
+ "pallets":dict(table="v_PalletMaster",filename="Pallet_Master_Local_Update.xlsm",title="Pallet Master",editable={"UnitOfMeasure","Width","Length","Status",*PALLET_CAPACITY_LABELS}),
  "uoms":dict(table="UoM",filename="UoM_Local_Update.xlsm",title="UoM",editable={"UoMCode","UoMName","Status"}),
  "vendors":dict(table="Vendor",filename="Vendor_Local_Update.xlsm",title="Vendor",editable={"VendorName","Address","Status","CurrencyCode"}),
  "materials":dict(table="PackagingMaterial",filename="Packaging_Material_Local_Update.xlsm",title="Packaging Material",
-  editable={"MaterialName","Description","UnitOfMeasure","Status"}),
+  editable={"MaterialName","UnitOfMeasure","Status","PackagingType"}),
  "prices":dict(table="PackagingPrice",filename="Packaging_Pricing_Local_Update.xlsm",title="Packaging Pricing",
   editable={"ExchangeRateToUSD","VendorName","MaterialCode","CurrencyCode","BaseUoM","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"})
 }
-CONFIG["raw-materials"]={**CONFIG["materials"],"table":"RawMaterial","filename":"Raw_Material_Local_Update.xlsm","title":"Raw Material"}
+CONFIG["raw-materials"]={**CONFIG["materials"],"table":"RawMaterial","filename":"Raw_Material_Local_Update.xlsm","title":"Raw Material",
+ "editable":{*(CONFIG["materials"]["editable"]-{"PackagingType"}),"Description","GradeName"}}
 CONFIG["raw-prices"]={**CONFIG["prices"],"table":"RawMaterialPrice","filename":"Raw_Material_Pricing_Local_Update.xlsm","title":"Raw Material Pricing"}
+CONFIG["prices"]["editable"] = CONFIG["prices"]["editable"] | set(SUPPLIER_FIELDS)
 AUTH="DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT; "
 META=["_ID","_RowVersion","_Original"]
 class View(BaseModel):
@@ -59,6 +68,7 @@ def normalize_row(entity,row):
    value=value.astimezone(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %I:%M %p")
   elif isinstance(value,(date,Decimal)):value=str(value)
   result[key]=value
+ if entity=='packaging-types':result['Shipping']=None if row.get('ParentTypeID') is not None else 'True' if row.get('Shipping') else 'False'
  result.update(Command="N",_ID=row["ID"],_RowVersion=row["RowVersion"])
  result["_Original"]=json.dumps({k:result.get(k) for k in COLUMNS[entity]},ensure_ascii=False)
  return result
@@ -172,6 +182,43 @@ def prepare(entity,edit,source,ctx):
  values={**source,**edit.changes}
  fields=CONFIG[entity]["editable"] if entity not in ("prices","raw-prices") else {"ExchangeRateToUSD","VendorID","MaterialID","CurrencyID","PriceBasis","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"}
  data={k:values.get(k) for k in fields}
+ if entity=="prices":
+  data.update({k:values.get(k) for k in SUPPLIER_FIELDS})
+  definition_id=data.get("SupplierDimensionID")
+  if definition_id:
+   definition=execute(master_auth(entity)+"SELECT RowVersion FROM dbo.PackagingDimension WHERE ID=?",[ctx.username,int(definition_id)])[0]
+   data["SupplierDimensionRowVersion"]=definition[0]["RowVersion"] if definition else None
+  # Old workbooks editing unrelated fields must not reinterpret supplier formulas.
+  if not set(SUPPLIER_FIELDS).intersection(edit.changes) and edit.command!="C":
+   for k in (*SUPPLIER_FIELDS,"SupplierDimensionRowVersion"): data.pop(k,None)
+ if entity=="packaging-types":
+  data.pop("ParentType",None)
+  shipping=values.get('Shipping',False)
+  if isinstance(shipping,str) and shipping.strip().lower() in ('true','false'):shipping=shipping.strip().lower()=='true'
+  if not isinstance(shipping,bool):raise ValueError('Shipping must be True or False.')
+  data['Shipping']=shipping
+  if edit.command!="D" and ("ParentType" in edit.changes or edit.command=="C"):
+   name=str(values.get("ParentType") or "").strip()
+   if name:
+    matches=execute(master_auth(entity)+"""SELECT ID FROM dbo.PackagingType
+     WHERE (CONCAT(PackagingOrder,N' / ',PackagingType)=? OR PackagingType=?) AND Status='Active'""",[ctx.username,name,name])[0]
+    if len(matches)!=1:raise ValueError("Choose an active Parent Type using Order / Packaging Type; the value is missing or ambiguous.")
+    data["ParentTypeID"]=matches[0]["ID"]
+   else:data["ParentTypeID"]=None
+  if data.get('ParentTypeID',source.get('ParentTypeID')) is not None:
+   if 'Shipping' in edit.changes and shipping:raise ValueError('Shipping applies only to root Packaging Types.')
+   data['Shipping']=False
+ if entity=="materials":
+  data.pop("PackagingType",None)
+  if "PackagingType" in edit.changes or edit.command=="C":
+   name=str(values.get("PackagingType") or "").strip()
+   if name:
+    matches=execute(master_auth(entity)+"""SELECT ID FROM dbo.PackagingType
+     WHERE (CONCAT(PackagingOrder,N' / ',PackagingType)=? OR PackagingType=?) AND Status='Active' AND ParentTypeID IS NOT NULL
+      AND NOT EXISTS(SELECT 1 FROM dbo.PackagingType child WHERE child.ParentTypeID=PackagingType.ID)""",[ctx.username,name,name])[0]
+    if len(matches)!=1:raise ValueError("Choose an active child Packaging Type using Order / Packaging Type; the value is missing or ambiguous.")
+    data["PackagingTypeID"]=matches[0]["ID"]
+   else:data["PackagingTypeID"]=None
  if entity in ("prices","raw-prices") and "BaseUoM" in edit.changes:data["PriceBasis"]=edit.changes["BaseUoM"]
  if entity=="vendors":
   data.pop("CurrencyCode",None)
@@ -179,6 +226,17 @@ def prepare(entity,edit,source,ctx):
   if "CurrencyCode" in edit.changes:
    code=edit.changes["CurrencyCode"]
    data["CurrencyID"]=resolve(ctx,"Currency","CurrencyCode",code,entity) if code else None
+ if entity=="raw-materials":
+  data.pop("GradeName",None)
+  data["GradeID"]=source.get("GradeID")
+  if "GradeName" in edit.changes or edit.command=="C":
+   name=str(values.get("GradeName") or "").strip()
+   if name:
+    matches=execute(master_auth(entity)+"""SELECT g.ID FROM dbo.RawGrade g WHERE g.GradeName=?
+     AND g.Status='Active' AND NOT EXISTS(SELECT 1 FROM dbo.RawGrade child WHERE child.ParentGradeID=g.ID)""",[ctx.username,name])[0]
+    if len(matches)!=1:raise ValueError("Grade name was not found, is a parent grade, or is ambiguous.")
+    data["GradeID"]=matches[0]["ID"]
+   else:data["GradeID"]=None
  if edit.command!="D":
   if entity in ("prices","raw-prices"):
    if "VendorName" in edit.changes or edit.command=="C":
@@ -199,12 +257,12 @@ def prepare(entity,edit,source,ctx):
      # Reject bare Excel serials at the API; VBA converts real date cells to ISO.
      if not isinstance(data[key],date):data[key]=date.fromisoformat(str(data[key]))
    required=("MaterialID","CurrencyID","PriceBasis","QuantityFrom","UnitPrice","EffectiveFrom")
-  else:required=MASTER_REQUIRED_COLUMNS[entity]
+  else:required=tuple(k for k in MASTER_REQUIRED_COLUMNS[entity] if k!="Shipping")
   for key in required:
    if data.get(key) is None or str(data[key]).strip()=="":raise ValueError(key+" is required.")
  if edit.command=="C" and not data.get("Status"):data["Status"]="Active"
  data.update(RowNum=edit.row,Command=edit.command,ID=edit.id,RowVersion=edit.version)
- return (UoMBatch if entity=="uoms" else VendorBatch if entity=="vendors" else MaterialBatch if entity in ("materials","raw-materials") else PriceBatch)(rows=[data])
+ return (PackagingTypeBatch if entity=="packaging-types" else PalletBatch if entity=="pallets" else UoMBatch if entity=="uoms" else VendorBatch if entity=="vendors" else RawMaterialBatch if entity=="raw-materials" else MaterialBatch if entity=="materials" else PackagingPriceBatch if entity=="prices" else PriceBatch)(rows=[data])
 
 @router.post("/{entity}/save")
 def save(entity:Entity,body:Batch,ctx:AccessContext=Depends(get_access_context)):
@@ -214,7 +272,7 @@ def save(entity:Entity,body:Batch,ctx:AccessContext=Depends(get_access_context))
  for edit in body.rows:
   try:
    payload=prepare(entity,edit,source.get(edit.id,{}),ctx)
-   result=(raw_material_save if entity=="raw-materials" else raw_price_save if entity=="raw-prices" else uom_save if entity=="uoms" else vendor_save if entity=="vendors" else material_save if entity in ("materials","raw-materials") else price_save)(payload,ctx)["results"]
+   result=(packaging_type_save if entity=="packaging-types" else pallet_save if entity=="pallets" else raw_material_save if entity=="raw-materials" else raw_price_save if entity=="raw-prices" else uom_save if entity=="uoms" else vendor_save if entity=="vendors" else material_save if entity in ("materials","raw-materials") else price_save)(payload,ctx)["results"]
    results.extend(result)
   except (ValueError,HTTPException) as exc:
    if isinstance(exc,HTTPException) and exc.status_code>=500:raise

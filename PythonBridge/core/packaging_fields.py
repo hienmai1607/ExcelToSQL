@@ -2,14 +2,31 @@
 import json
 import re
 from decimal import Decimal
-from pydantic import BaseModel, Field, model_validator
-from product_grades import InitialGrade
+from pydantic import BaseModel, Field, model_validator, field_validator
+from product_grades import InitialGrade, OpportunityGradeTree
 from fastapi import HTTPException
 from db import get_raw_cursor
+from typing import Literal
 
-PRODUCT_FIELDS = ["Category"]
+ContainerType = Literal["20DC", "40DC", "40HC", "20RC", "40RHC"]
+
+class ContainerLoadProfile(BaseModel):
+    model_config = {"extra": "forbid"}
+    LayersPerContainer: int | None = Field(None, ge=0, le=2147483647)
+    PalletsPerContainer: int | None = Field(None, ge=0, le=2147483647)
+    CartonsPerContainerFloor: int | None = Field(None, ge=1, le=2147483647)
+
+    @field_validator("LayersPerContainer", "PalletsPerContainer", "CartonsPerContainerFloor", mode="before")
+    @classmethod
+    def whole_count(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("Container counts must be whole numbers, not True/False.")
+        return value
+
+PRODUCT_FIELDS = ["Category", "ShelfLifeDays"]
 class ProductFields(BaseModel):
     Category: str | None = Field(None, max_length=100)
+    ShelfLifeDays: int | None = Field(None, ge=0, le=2147483647)
     GradeVersion: InitialGrade | None = None
 
     @model_validator(mode="before")
@@ -26,8 +43,33 @@ class HeaderFields(BaseModel):
     CurrencyID: int | None = Field(None, ge=1)
     ExchangeRateToVND: Decimal | None = Field(None, max_digits=19, decimal_places=6, gt=0, allow_inf_nan=False)
 
-OPPORTUNITYITEM_FIELDS = ["PalletSize","PalletStacking","MaxPalletHeightM","ContainerRequest","ConfigurationRequest","PackagingType","RecyclableRequirement","RecycledContent","Transparency","MetalizedAluminum","BarrierRequirement","ShelfLifeDays","SpecialComments"]
+PARENT_LOGISTICS_FIELDS = {"PalletSize","PalletStacking","MaxPalletHeightM","ContainerRequest"}
+OPPORTUNITYITEM_FIELDS = ["PalletSize","PalletStacking","MaxPalletHeightM","ContainerRequest","ConfigurationRequest","PackagingType","RecyclableRequirement","RecycledContent","Transparency","MetalizedAluminum","SpecialComments"]
+# Web-only extensions: keep existing Layout and Excel field lists unchanged.
+WEB_ITEM_FIELDS = ["PrimaryTypeID", "SecondaryTypeID", "SecondaryTransparency", "NumberOfPrimary", "WebPackagingRequirements",
+                  "PackagingLayerCount", "TertiaryTypeID", "TertiaryTransparency", "NumberOfSecondary"]
+WEB_ITEM_FIELDS += ["MaxPalletHeightMM","ProductGradeSnapshot","SecondaryRecyclableRequirement","SecondaryRecycledContent","SecondaryMetalizedAluminum","SecondarySpecialComments","TertiaryRecyclableRequirement","TertiaryRecycledContent","TertiaryMetalizedAluminum","TertiarySpecialComments"]
+PARENT_LOGISTICS_FIELDS.add("MaxPalletHeightMM")
 class ItemFields(BaseModel):
+    MaxPalletHeightMM: int | None = Field(None, ge=1, le=999999999)
+    ProductGradeSnapshot: OpportunityGradeTree | None = None
+    SecondaryRecyclableRequirement: str | None = Field(None, max_length=200)
+    SecondaryRecycledContent: str | None = Field(None, max_length=200)
+    SecondaryMetalizedAluminum: str | None = Field(None, max_length=100)
+    SecondarySpecialComments: str | None = Field(None, max_length=1000)
+    TertiaryRecyclableRequirement: str | None = Field(None, max_length=200)
+    TertiaryRecycledContent: str | None = Field(None, max_length=200)
+    TertiaryMetalizedAluminum: str | None = Field(None, max_length=100)
+    TertiarySpecialComments: str | None = Field(None, max_length=1000)
+    PackagingLayerCount: int | None = Field(None,ge=1,le=3)
+    TertiaryTypeID: int | None = Field(None,ge=1,le=2147483647)
+    TertiaryTransparency: str | None = Field(None,max_length=100)
+    NumberOfSecondary: int | None = Field(None,ge=1,le=2147483647)
+    PrimaryTypeID: int | None = Field(None, ge=1, le=2147483647)
+    SecondaryTypeID: int | None = Field(None, ge=1, le=2147483647)
+    SecondaryTransparency: str | None = Field(None, max_length=100)
+    NumberOfPrimary: int | None = Field(None, ge=1, le=2147483647)
+    WebPackagingRequirements: bool = False
     PalletSize: str | None = Field(None, max_length=100)
     PalletStacking: str | None = Field(None, max_length=100)
     MaxPalletHeightM: Decimal | None = Field(None, max_digits=9, decimal_places=3, gt=0, allow_inf_nan=False)
@@ -38,28 +80,58 @@ class ItemFields(BaseModel):
     RecycledContent: str | None = Field(None, max_length=200)
     Transparency: str | None = Field(None, max_length=100)
     MetalizedAluminum: str | None = Field(None, max_length=100)
-    BarrierRequirement: str | None = Field(None, max_length=500)
-    ShelfLifeDays: int | None = Field(None, ge=0)
     SpecialComments: str | None = Field(None, max_length=1000)
 
-PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS = ["FirstPMType","SecondPMType","UnitsPerCarton","PackagingDescription","FirstPMMOQ","SecondPMMOQ","PalletType","CartonsPerLayer","LayersPerPallet","PacksPerPallet","CartonsPerContainer"]
+    @model_validator(mode="before")
+    @classmethod
+    def retired_requirements(cls, values):
+        if isinstance(values, dict) and any(k in values for k in ("BarrierRequirement", "ShelfLifeDays")):
+            raise ValueError("Barrier requirement is retired. Shelf life is read-only from Product Master. Download a fresh workbook.")
+        return values
+
+RETIRED_RESPONSE_COLUMNS = {"BarrierRequirement", "PalletType", "PMCost", "PMCostCurrencyCode"}
+PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS = ["FirstPMType","SecondPMType","UnitsPerCarton","PackagingDescription","FirstPMMOQ","SecondPMMOQ","CartonsPerLayer","LayersPerPallet","PacksPerPallet","CartonsPerContainer"]
+WEB_RESPONSE_FIELDS = ["NutDensity","ResponseLayerCount","ThirdPMType","ThirdPMMOQ","UnitsPerTertiary",
+                       "LayersPerContainer","PalletsPerContainer","CartonsPerContainerFloor",
+                       "ResponsePalletSize","ResponsePalletStacking","ResponseMaxPalletHeightMM","HeightMM"]
+WEB_RESPONSE_FIELDS += ["SelectedContainerType", "ContainerLoadProfiles"]
 class ResponseFields(BaseModel):
+    SelectedContainerType: ContainerType | None = None
+    ContainerLoadProfiles: dict[ContainerType, ContainerLoadProfile] | None = None
+    ResponsePalletSize: str | None = Field(None, max_length=100)
+    ResponsePalletStacking: str | None = Field(None, max_length=100)
+    ResponseMaxPalletHeightMM: int | None = Field(None, ge=1, le=999999999)
+    LayersPerContainer: int | None = Field(None, ge=0, le=2147483647)
+    PalletsPerContainer: int | None = Field(None, ge=0, le=2147483647)
+    CartonsPerContainerFloor: int | None = Field(None, ge=1, le=2147483647)
+    ResponseLayerCount: int | None = Field(None,ge=1,le=3)
+    ThirdPMType: str | None = Field(None,max_length=100)
+    ThirdPMMOQ: Decimal | None = Field(None,max_digits=18,decimal_places=4,ge=0,allow_inf_nan=False)
+    UnitsPerTertiary: int | None = Field(None,ge=1,le=2147483647)
+    NutDensity: Decimal | None = Field(None, max_digits=18, decimal_places=6, gt=0, allow_inf_nan=False)
     FirstPMType: str | None = Field(None, max_length=100)
     SecondPMType: str | None = Field(None, max_length=100)
-    UnitsPerCarton: int | None = Field(None, ge=1)
+    UnitsPerCarton: int | None = Field(None, ge=1, le=2147483647)
     PackagingDescription: str | None = Field(None, max_length=500)
     FirstPMMOQ: Decimal | None = Field(None, max_digits=18, decimal_places=4, ge=0, allow_inf_nan=False)
     SecondPMMOQ: Decimal | None = Field(None, max_digits=18, decimal_places=4, ge=0, allow_inf_nan=False)
-    PalletType: str | None = Field(None, max_length=100)
-    CartonsPerLayer: int | None = Field(None, ge=1)
-    LayersPerPallet: int | None = Field(None, ge=1)
+    CartonsPerLayer: int | None = Field(None, ge=1, le=2147483647)
+    LayersPerPallet: int | None = Field(None, ge=1, le=2147483647)
     PacksPerPallet: int | None = Field(None, ge=1)
     CartonsPerContainer: int | None = Field(None, ge=1)
 
+    @model_validator(mode="after")
+    def legacy_pallet_count(self):
+        if self.PalletsPerContainer == 0 and not self.SelectedContainerType:
+            raise ValueError("Select a container type for a zero Pallet Master capacity.")
+        if self.LayersPerContainer == 0 and not self.SelectedContainerType:
+            raise ValueError("Select a container type for a calculated zero layer count.")
+        return self
+
 
 FIELDS = {"Product": PRODUCT_FIELDS, "Opportunity": OPPORTUNITY_FIELDS,
-          "OpportunityItem": OPPORTUNITYITEM_FIELDS,
-          "PackagingConfigurationRequestItem": PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS}
+          "OpportunityItem": [*OPPORTUNITYITEM_FIELDS, *WEB_ITEM_FIELDS],
+          "PackagingConfigurationRequestItem": [*PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS, *WEB_RESPONSE_FIELDS]}
 
 def additional(row, kind):
     values = row.model_dump(mode="json", by_alias=True, exclude_unset=True)
@@ -97,6 +169,20 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
     with get_raw_cursor() as cursor:
         cursor.execute("SET XACT_ABORT ON; BEGIN TRANSACTION")
         try:
+            child_results = []
+            if kinds == ["Opportunity","OpportunityItem"]:
+                for model in models[1]:
+                    if model.command=="U" and model.product_id and "ProductGradeSnapshot" not in model.model_fields_set:
+                        old=cursor.execute("SELECT ProductID FROM dbo.OpportunityItem WITH(UPDLOCK,HOLDLOCK) WHERE ID=?",model.id).fetchval()
+                        if old is not None and old!=model.product_id:
+                            model.ProductGradeSnapshot=None
+                from opportunity_mix import split_child_edits
+                normal, child_results = split_child_edits(cursor, models[1], scalar_params[0])
+                nums = {r.row_num for r in normal}
+                groups = [groups[0], [r for r in groups[1] if r[0] in nums]]
+                models_for_save = [models[0], normal]
+            else:
+                models_for_save = models
             placeholders=",".join("?" for _ in range(len(groups)+len(scalar_params)))
             cursor.execute("{CALL "+proc+" ("+placeholders+")}", *groups, *scalar_params)
             sets=consume(cursor)
@@ -112,14 +198,26 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                     for r in s:
                         if r.get("Status")=="OK":
                             r.update(Status="ERROR",Message="Document rolled back because another row failed.",NewID=None,NewRowVersion=None)
+                if child_results:
+                    sets[1].extend(dict(r,Status="ERROR",Message="Document rolled back because another row failed.",
+                                        NewID=None,NewRowVersion=None) for r in child_results)
                 return sets
-            for rows,source,kind in zip(sets,models,kinds):
+            for rows,source,kind in zip(sets,models_for_save,kinds):
                 by_num={r.row_num:r for r in source}
                 for result in rows:
                     model=by_num[result["RowNum"]]
                     if model.command=="D":
                         continue
                     extra=additional(model,kind)
+                    if kind=="OpportunityItem":
+                        if model.command=="C" and "ProductGradeSnapshot" not in extra:
+                            extra["ProductGradeSnapshot"]=None
+                        if extra.get("ProductGradeSnapshot") is not None:
+                            from opportunity_grade_snapshot import validate_snapshot
+                            validate_snapshot(cursor,extra["ProductGradeSnapshot"])
+                    if kind=="OpportunityItem" and (model.command=="C" or model.MixChildren or model.MixVersionID):
+                        from opportunity_mix import save_new_child_requirements
+                        save_new_child_requirements(cursor, model, result, scalar_params[0])
                     if not extra and not (kind=="Product" and model.command=="C"):
                         continue
                     cursor.execute("EXEC dbo.usp_"+kind+"_Fields_Save ?,?,?,?,?",
@@ -132,11 +230,18 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                             result["NewID"],scalar_params[0],result["NewRowVersion"],grade.Status,
                             json.dumps([i.model_dump(mode="json") for i in grade.items]))
                         result["NewRowVersion"]=consume(cursor)[0][0]["ProductRowVersion"]
+            if kinds == ["Opportunity","OpportunityItem"]:
+                sets[1].extend(child_results)
+                for result in sets[1]:
+                    if result.get("NewID") and result.get("NewRowVersion"):
+                        cursor.execute("SELECT RowVersion FROM dbo.OpportunityItem WHERE ID=?", result["NewID"])
+                        result["NewRowVersion"] = cursor.fetchval()
+                sets[1].sort(key=lambda r:r["RowNum"])
             cursor.execute("COMMIT TRANSACTION")
             return sets
         except Exception as exc:
             cursor.execute("IF @@TRANCOUNT>0 ROLLBACK TRANSACTION")
-            message=sql_error(exc)
+            message=str(exc) if isinstance(exc, ValueError) else sql_error(exc)
             if message:
                 return [[dict(RowNum=r.row_num,Status="ERROR",Message=message,NewID=None,NewRowVersion=None)
                          for r in source] for source in models]
@@ -151,25 +256,86 @@ def enriched_response(payload, ctx):
         docs.append(doc)
     if len({r.ID for r in payload.rows})!=len(payload.rows) or len({r.RowNum for r in payload.rows})!=len(payload.rows):
         raise HTTPException(422,"Duplicate response IDs or row numbers.")
+    documents_by_id = {d["ID"]: d for d in docs}
+    prepared = {row.ID:row for row in payload.rows}
     with get_raw_cursor() as cursor:
-        cursor.execute("SET XACT_ABORT ON; BEGIN TRANSACTION")
+        owns_transaction=cursor.execute('SELECT @@TRANCOUNT').fetchval()==0
+        cursor.execute('SET XACT_ABORT ON; '+('BEGIN TRANSACTION' if owns_transaction else 'SAVE TRANSACTION ResponseCalculation'))
         try:
+            # Retired cost columns must survive unrelated response edits. Lock the
+            # original rows in ID order; SQL still enforces version, stage and PIC.
+            cursor.execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Read',@Actor OUTPUT;", ctx.username)
+            consume(cursor)
+            for row in sorted(payload.rows, key=lambda r: r.ID):
+                cursor.execute("SELECT Cost,CurrencyID,CostBasis,FirstPMMOQ,FirstPMType,SecondPMMOQ,SecondPMType,ThirdPMMOQ,ThirdPMType,ResponseLayerCount,RequestedLayerCount,HeightMM FROM dbo.PackagingConfigurationRequestItem WITH(UPDLOCK,HOLDLOCK) WHERE ID=?", row.ID)
+                original = cursor.fetchone()
+                if original is not None:
+                    if 'HeightMM' not in row.model_fields_set:
+                        documents_by_id[row.ID]['HeightMM']=str(original[11]) if original[11] is not None else None
+                    for key, value in zip(("Cost", "CurrencyID", "CostBasis"), original[:3]):
+                        if key in row.model_fields_set and getattr(row, key) != value:
+                            raise HTTPException(422, "PM cost and Cost basis are retired. Download a fresh workbook.")
+                        documents_by_id[row.ID][key] = str(value) if isinstance(value, Decimal) else value
+                    layers=(row.ResponseLayerCount if 'ResponseLayerCount' in row.model_fields_set else original[9]) or original[10]
+                    # A null-height legacy row has no geometry to clear; preserve its old count.
+                    updates={}
+                    if row.HeightMM is None and original[11] is None:
+                        row=row.model_copy()
+                        row.model_fields_set.discard('HeightMM')
+                    for level,(order,moq_field,type_field,index) in enumerate((('Primary','FirstPMMOQ','FirstPMType',3),('Secondary','SecondPMMOQ','SecondPMType',5),('Tertiary','ThirdPMMOQ','ThirdPMType',7)),1):
+                        calculation=next((p for p in row.PricingCalculations or [] if p.PackagingOrder==order),None)
+                        if calculation and (level>layers or (calculation.LayerCount is not None and calculation.LayerCount!=layers)):
+                            raise HTTPException(422,'Calculator order/layers must match the confirmed response layers.')
+                        if level>layers:
+                            if original[index] is not None or moq_field in row.model_fields_set:
+                                updates[moq_field]=None
+                            if original[index+1] is not None or type_field in row.model_fields_set:
+                                updates[type_field]=None
+                            continue
+                        if calculation:
+                            from pkg_pricing_api import calculate
+                            try:
+                                result=calculate(cursor,ctx,row.ID,calculation,True,rv(row.RowVersion))
+                            except ValueError as exc:
+                                raise HTTPException(422,str(exc)) from exc
+                            if calculation.Fingerprint!=result['Fingerprint']:
+                                raise HTTPException(409,'Pricing inputs or master data changed. Recalculate before saving.')
+                            if moq_field in row.model_fields_set and getattr(row,moq_field)!=Decimal(result['FinalMOQ']):
+                                raise HTTPException(422,order+' MOQ unit is calculator-controlled.')
+                            updates[moq_field]=Decimal(result['FinalMOQ'])
+                            if result.get('FinalLayerHeightMM') is not None:
+                                height=Decimal(result['FinalLayerHeightMM'])
+                                if 'HeightMM' in row.model_fields_set and row.HeightMM is not None and row.HeightMM!=height:
+                                    raise HTTPException(422,'Height (mm) must match the last Shipping layer pricing D3.')
+                                updates['HeightMM']=height
+                                documents_by_id[row.ID]['HeightMM']=str(height)
+                        else:
+                            if moq_field in row.model_fields_set and getattr(row,moq_field)!=original[index]:
+                                raise HTTPException(422,order+' MOQ unit is calculator-controlled. Apply a pricing calculation.')
+                            if type_field in row.model_fields_set and getattr(row,type_field)!=original[index+1]:
+                                updates[moq_field]=None
+                    prepared[row.ID]=row.model_copy(update=updates)
             cursor.execute(tvp_sql("PackagingResponseBatchType",RESPONSE)+"EXEC dbo.usp_PackagingResponse_Batch @Rows,?;",json.dumps(docs),ctx.username)
             result=consume(cursor)[0]
-            by_num={r.RowNum:r for r in payload.rows}
+            by_num={r.RowNum:prepared[r.ID] for r in payload.rows}
             for saved in result:
                 row=by_num[saved["RowNum"]]
                 extra=additional(row,"PackagingConfigurationRequestItem")
+                if extra.get('HeightMM') is not None:
+                    # Decimal validation permits trailing zeros beyond the stored scale.
+                    extra['HeightMM']=format(Decimal(extra['HeightMM']).quantize(Decimal('0.01')),'f')
                 if extra:
                     cursor.execute("EXEC dbo.usp_PackagingConfigurationRequestItem_Fields_Save ?,?,?,?,0",
                         ctx.username,saved["NewID"],saved["NewRowVersion"],json.dumps(extra))
                     saved["NewRowVersion"]=consume(cursor)[0][0]["RowVersion"]
                 from db import bytes_to_b64
+                from pkg_pricing_api import save_calculations
+                save_calculations(cursor, ctx, row, saved["NewRowVersion"])
                 saved["NewRowVersion"]=bytes_to_b64(saved["NewRowVersion"])
-            cursor.execute("COMMIT TRANSACTION")
+            if owns_transaction: cursor.execute("COMMIT TRANSACTION")
             return {"results":result}
         except Exception as exc:
-            cursor.execute("IF @@TRANCOUNT>0 ROLLBACK TRANSACTION")
+            cursor.execute('IF @@TRANCOUNT>0 '+('ROLLBACK TRANSACTION' if owns_transaction else 'BEGIN IF XACT_STATE()=1 ROLLBACK TRANSACTION ResponseCalculation; ELSE ROLLBACK TRANSACTION; END'))
             message=sql_error(exc)
             if message:
                 raise HTTPException(422,message) from exc

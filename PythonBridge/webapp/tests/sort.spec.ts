@@ -26,7 +26,7 @@ test('multi-sort headers, priorities, pagination and profile persistence',async(
  await expect(page.getByRole('status')).toContainText('saved to your profile');
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Customers',exact:true}).click();
  await expect.poll(()=>requests.at(-1)?.sort).toEqual(profile.settings.sort);
- await expect(page.getByRole('columnheader').first()).toHaveAttribute('aria-sort','descending');
+ await expect(page.getByRole('columnheader').nth(1)).toHaveAttribute('aria-sort','descending');
  await page.getByRole('button',{name:'Sort options'}).click();await page.getByRole('button',{name:'Remove sort 2'}).click();
  await page.getByRole('button',{name:'Remove sort 1'}).click();
  await expect.poll(()=>requests.at(-1)?.sort).toEqual([]);

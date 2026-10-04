@@ -34,7 +34,7 @@ function MixChildGrades({product,tabs,onClose}:{product:Row;tabs:ReactNode;onClo
     {first.GradeVersion==null?<p className="empty">No active grade version for this child Product.</p>:<GradeTree items={grades.map(g=>({ParentID:String(g.ParentID),ID:Number(g.ID),Grade:String(g.Grade??''),RatioPct:String(g.RatioPct??'')}))} busy={false} readonly disabled onAdd={()=>{}} onRemove={()=>{}} onChange={()=>{}}/>}
    </section>;
   })}</div>}
-  <div className="actions"><button onClick={onClose}>Close</button></div>
+
  </Modal>;
 }
 
@@ -81,7 +81,7 @@ function ProductMix({product,tabs,onClose,onSaved}:{product:Row;tabs:ReactNode;o
   {lines.map((l,i)=><tr key={i}><td>{readonly?<span>{String(child(l.ProductID)?.ProductCode||l.ProductID)} · {String(child(l.ProductID)?.ProductName||'')}</span>:<select aria-label={'Child Product '+(i+1)} disabled={busy||uncertain} value={l.ProductID} onChange={e=>change(i,'ProductID',e.target.value)}><option value="">Choose Product</option>{l.ProductID&&!data?.choices.some(p=>String(p.ID)===l.ProductID)&&<option value={l.ProductID}>{String(child(l.ProductID)?.ProductCode||l.ProductID)} (unavailable)</option>}{data?.choices.map(p=><option value={String(p.ID)} key={String(p.ID)} disabled={lines.some((x,j)=>i!==j&&x.ProductID===String(p.ID))}>{p.ProductCode} · {p.ProductName}</option>)}</select>}</td><td>{decimalDisplay(child(l.ProductID)?.WeightGrams,3)??'—'}</td><td><input aria-label={'Unit quantity '+(i+1)} readOnly={readonly} disabled={busy||uncertain} inputMode="decimal" value={l.UnitQuantity} onChange={e=>change(i,'UnitQuantity',e.target.value)}/></td><td>{decimalDisplay(Number(child(l.ProductID)?.WeightGrams||0)*Number(l.UnitQuantity||0),3)}</td><td>{!readonly&&<IconButton icon="close" label={'Remove mix item '+(i+1)} disabled={busy||uncertain} onClick={()=>setLines(xs=>xs.filter((_,j)=>j!==i))}/>}</td></tr>)}
   {!lines.length&&<tr><td colSpan={5} className="empty">{busy?'Loading…':'Add child Products to configure this mix.'}</td></tr>}
   </tbody></table></div></section>
-  <div className="actions"><button disabled={busy} onClick={close}>Close</button>{!readonly&&<button className="primary" disabled={busy||uncertain||!data} onClick={review}>Review & save</button>}</div>
+  {!readonly&&<div className="actions"><button className="primary" disabled={busy||uncertain||!data} onClick={review}>Review & save</button></div>}
   {confirm&&<Modal label="Confirm mix save" onClose={()=>{if(!busy)setConfirm(false)}}><h2>Save Product Mix?</h2><p>{lines.length} child Products · {status} · {decimalDisplay(total,3)} g</p>{status==='Active'&&<p>The previous active version will become Inactive and the Product net weight will be recalculated.</p>}<div className="actions"><button disabled={busy} onClick={()=>setConfirm(false)}>Back</button><button className="primary" disabled={busy} onClick={save}>Confirm save</button></div></Modal>}
  </Modal>;
 }

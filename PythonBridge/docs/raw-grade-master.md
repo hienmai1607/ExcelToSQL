@@ -1,5 +1,41 @@
 # Raw Grade Master
 
+## Current assignment model (migration 45)
+
+Raw Grade Master maintains Grade name, optional Parent grade and Status only.
+Raw Material Master owns the optional Grade selection. A Raw Material may select
+only an active leaf grade (one with no children); multiple materials may select
+the same leaf grade. A grade assigned to a material cannot later become a parent
+until its materials are reassigned. Raw Pricing now finds materials through
+`RawMaterial.GradeID`, and Product Grade still selects grades by ID.
+
+Migration `sql/45_raw_material_grade_assignment.sql` runs after 44. It
+backfills existing links and retires the old Raw Grade material assignment.
+It stops with a clear error if a material had multiple grades or a linked
+grade has children; resolve those records before applying it on the VM.
+The backfill changes Raw Material RowVersions, so refresh open editors and
+download fresh Excel Local Update workbooks after deployment. Deploy core,
+complete webapp/dist and the updated workbook adapter together, then restart
+the API. The old material-on-grade SQL tests are skipped; the new
+`tests/python/raw_material_grade_assignment_sql_contract.py` suite covers
+the current assignment flow. The sections below document earlier migrations and are superseded
+where they describe material assignment on Raw Grade.
+
+## Product Grade child Raw Material (migration 46)
+
+Child nodes in the Product Grade tree may select one active Raw Material
+assigned to their selected Raw Grade. The choice is optional and stored on
+the Product Grade version item; changing the grade clears the choice. Root
+nodes cannot select a material. Read-only versions show the saved choice.
+Raw Pricing displays only the chosen material's current price tiers. For
+older items without a choice, it continues to show all materials currently
+assigned to that grade. SQL validates the grade-material relationship on
+every new save.
+
+Run `sql/46_product_grade_raw_material.sql` after 45 on the VM, then deploy
+the updated core and complete webapp/dist together. Migration 46 was applied
+and rerun successfully on the local test database; the VM is not updated.
+
 Each Raw Grade optionally belongs to one Raw Material. RawMaterial users and Admin can
 maintain Grade name, Raw Material and Active/Block status in Raw Grade Master.
 The same grade name may be used for different materials; duplicate names within

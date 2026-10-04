@@ -21,6 +21,10 @@ from workbench_api import router as workbench_router
 from packaging_master_api import router as packaging_master_router
 from raw_material_api import router as raw_material_router
 from unit_conversion_api import router as unit_conversion_router
+from pallet_api import router as pallet_router
+from packaging_dimension_api import router as packaging_dimension_router
+from pkg_pricing_api import router as pkg_pricing_router
+from packaging_type_api import router as packaging_type_router
 from customer_sort import parse_sort
 from opportunity_views import sorted_grid
 from packaging_fields import enriched_batch
@@ -53,6 +57,8 @@ app.include_router(opportunity_changes_router)
 app.include_router(packaging_changes_router)
 app.include_router(product_excel_router)
 app.include_router(product_grades_router)
+from opportunity_grade_snapshot import router as opportunity_grade_snapshot_router
+app.include_router(opportunity_grade_snapshot_router)
 app.include_router(product_mix_router)
 app.include_router(opportunity_excel_router)
 app.include_router(packaging_excel_router)
@@ -60,6 +66,10 @@ app.include_router(packaging_master_excel_router)
 app.include_router(packaging_router)
 app.include_router(workbench_router)
 app.include_router(unit_conversion_router)
+app.include_router(pallet_router)
+app.include_router(packaging_dimension_router)
+app.include_router(pkg_pricing_router)
+app.include_router(packaging_type_router)
 app.include_router(raw_material_router)
 app.include_router(packaging_master_router)
 app.include_router(preferences_router)
@@ -547,12 +557,18 @@ def opportunity_lookups_read(
     def load_lookups() -> dict:
         customers = run_read_query("dbo.usp_OpportunityCustomerLookup_Read", [username])
         products = run_read_query("dbo.usp_OpportunityProductLookup_Read", [username])
+        children = run_read_query("dbo.usp_OpportunityMixLookup_Read", [username])
         return {
             "customers": [{"ID": row["ID"], "CustomerName": row["CustomerName"], "CurrencyID": row.get("CurrencyID"), "CustomerCurrencyCode": row.get("CustomerCurrencyCode")} for row in customers],
-            "products": [{"ID": row["ID"], "ProductCode": row["ProductCode"], "ProductName": row["ProductName"], "CustomerID": row["CustomerID"]} for row in products],
+            "products": [{"ID": row["ID"], "ProductCode": row["ProductCode"], "ProductName": row["ProductName"], "CustomerID": row["CustomerID"], "WeightGrams": row.get("WeightGrams"), "ShelfLifeDays": row.get("ShelfLifeDays")} for row in products],
+            "mix_children": children,
             "currencies": run_read_query("dbo.usp_OpportunityCurrencyLookup_Read", [username]),
         }
-    return cached("opportunity_master_lookups", ttl_seconds=60, loader=load_lookups)
+    from packaging_orders import decode_orders
+    # Pallet and type choices stay fresh when Packaging changes the masters.
+    return {**cached("opportunity_master_lookups", ttl_seconds=60, loader=load_lookups),
+            "pallets": run_read_query("dbo.usp_OpportunityPalletLookup_Read", [username]),
+            "packagingTypes": decode_orders(run_read_query("dbo.usp_OpportunityPackagingTypeLookup_Read", [username]))}
 
 
 @app.get("/api/opportunity/grid")
@@ -570,15 +586,8 @@ def opportunity_grid_read(
     scopes: frozenset[str] = Depends(get_user_scopes),
 ):
     _require_scope(is_admin, scopes, "Opportunity")
-    if sort is not None:
-        return sorted_grid(username, page, page_size, sort, opportunity_number,
-                           customer_name, stage, bid_open_from, bid_open_to)
-    rows = run_read_query(
-        "dbo.usp_Opportunity_Grid_Read",
-        [username, int(is_admin), page, page_size, opportunity_number,
-         customer_name, stage, bid_open_from, bid_open_to],
-    )
-    return _paged_response(rows, page, page_size)
+    return sorted_grid(username, page, page_size, sort or "[]", opportunity_number,
+                       customer_name, stage, bid_open_from, bid_open_to)
 
 
 @app.get("/api/opportunity/{opportunity_number}/items")

@@ -20,6 +20,7 @@ class WebFields(PackagingFoundation):
     def setUp(self):
         super().setUp()
         sql=(ROOT/"sql/23_packaging_field_writes.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/27_product_grade_versions.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/28_product_customer.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/29_product_mix.sql").read_text(encoding="utf-8")
+        sql+="\n"+(ROOT/"sql/46_product_grade_raw_material.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/48_product_shelf_life_packaging_scope.sql").read_text(encoding="utf-8")
         for batch in re.split(r"^GO\s*$",sql,flags=re.M|re.I):
             if batch.strip():
                 self.cur.execute(batch)
@@ -36,8 +37,10 @@ class WebFields(PackagingFoundation):
 
     def test_product_create_roundtrip(self):
         code="P-"+uuid4().hex[:16]
+        name="Grade "+code
+        grade=self.cur.execute("INSERT dbo.RawGrade(GradeName,CreatedBy) VALUES(?,?);SELECT CONVERT(INT,SCOPE_IDENTITY())",name,self.actor).fetchval()
         result=main.product_batch(ProductBatchRequest(rows=[dict(RowNum=1,Command="C",
-            CustomerID=self.customer,ProductName="Fields "+code,WeightValue=100,WeightUnit="g",Category="Nuts",GradeVersion=dict(items=[dict(ParentID="0",ID=1,Grade="A",RatioPct=100)]))]),
+            CustomerID=self.customer,ProductName="Fields "+code,WeightValue=100,WeightUnit="g",Category="Nuts",GradeVersion=dict(items=[dict(ParentID="0",ID=1,Grade=name,RatioPct=100,RawGradeID=grade,RawMaterialID=None)]))]),
             self.username,True,frozenset())
         self.assertEqual(result["results"][0]["Status"],"OK",result)
         row=self.cur.execute("SELECT Category,ProductCode FROM dbo.Product WHERE ID=?",result["results"][0]["NewID"]).fetchone()
@@ -62,14 +65,14 @@ class WebFields(PackagingFoundation):
             RowVersion=bytes_to_b64(header[1]),CurrencyID=currency,ExchangeRateToVND="1")],
             item_rows=[dict(RowNum=2,Command="U",ID=self.item,OpportunityNumber=header[0],ProductID=self.product,
             ItemDescription="New details",AnnualUnit=101,RowVersion=bytes_to_b64(version),
-            PackagingType='Pouch "premium"',MaxPalletHeightM="1.250",ShelfLifeDays=365,RecycledContent="30%")])
+            PackagingType='Pouch "premium"',MaxPalletHeightM="1.250",RecycledContent="30%")])
         result=main.opportunity_batch(body,self.username,True,frozenset())
         self.assertEqual(result["header_results"][0]["Status"],"OK",result)
         self.assertEqual(result["item_results"][0]["Status"],"OK",result)
         values=self.cur.execute("SELECT PackagingType,MaxPalletHeightM,ShelfLifeDays,RowVersion FROM dbo.OpportunityItem WHERE ID=?",self.item).fetchone()
         self.assertEqual(values[0],'Pouch "premium"')
         self.assertEqual(str(values[1]),"1.250")
-        self.assertEqual(values[2],365)
+        self.assertIsNone(values[2])  # Shelf life is no longer writable on an item.
         self.assertEqual(bytes_to_b64(values[3]),result["item_results"][0]["NewRowVersion"])
         self.assertEqual(self.cur.execute("SELECT COUNT(*) FROM dbo.OpportunityChangeLog WHERE ItemID=? AND FieldName='PackagingType' AND ChangedBy=? AND Source='User'",self.item,self.username).fetchval(),1)
 
@@ -90,10 +93,12 @@ class WebFields(PackagingFoundation):
         version=self.cur.execute("SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",req).fetchval()
         body=packaging_api.ResponseBatch(rows=[dict(RowNum=1,ID=req,RowVersion=bytes_to_b64(version),
             FirstPMType="Film",SecondPMType="Carton",UnitsPerCarton=12,PackagingDescription="Test pack",
-            FirstPMMOQ=0,SecondPMMOQ=50,LayersPerPallet=4)])
+            LayersPerPallet=4)])
         ctx=AccessContext(username=self.username,user_id=self.actor,scopes=frozenset({"Admin"}))
         result=packaging_api.response_save(body,ctx)
         self.assertEqual(result["results"][0]["Status"],"OK")
+        # Historical response fixture: primary MOQ is no longer entered manually.
+        self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET FirstPMMOQ=0,SecondPMMOQ=50 WHERE ID=?",req)
         version=self.cur.execute("SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",req).fetchval()
         self.cur.execute("EXEC dbo.usp_PackagingRequestItem_Transition ?,?,?,'Pending Review',NULL",self.username,req,version)
         rows=packaging_fields.consume(self.cur)
@@ -109,6 +114,13 @@ class WebFields(PackagingFoundation):
                 self.cur.execute(batch)
                 while self.cur.nextset(): pass
         self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET FirstPMType='Film' WHERE ID=?",req)
+        # Apply the current read-schema migration inside this fixture transaction.
+        for name in ("56_web_packaging_requirement_sections.sql","66_packaging_type_orders.sql",
+                     "67_packaging_layers.sql","71_packaging_request_layer_details.sql"):
+            for batch in re.split(r"^GO\s*$",(ROOT/"sql"/name).read_text(encoding="utf-8"),flags=re.M|re.I):
+                if batch.strip():
+                    self.cur.execute(batch)
+                    while self.cur.nextset():pass
         opportunity=sorted_grid(self.username,1,500,"[]",opportunity_number=self.cur.execute("SELECT OpportunityNumber FROM dbo.Opportunity WHERE ID=?",self.opp).fetchval())
         self.assertEqual(len(opportunity["rows"]),1)
         self.assertEqual(opportunity["rows"][0]["FirstPMType"],"Film")

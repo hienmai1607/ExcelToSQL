@@ -1,44 +1,51 @@
 import {useEffect,useState,useRef} from 'react';
 import {call,type Row} from './api';
-import {Modal,ErrorNote} from './ui';
+import {Modal,ErrorNote,InfoTip,Notification} from './ui';
+import {ResponseSections,responseChange} from './response-sections';
 import {IconButton} from './icons';
-import {responseFields,fieldValues,fieldPayload} from './packaging-fields';
+import {webResponseFields as responseFields,fieldValues,fieldPayload,responseFieldActive} from './packaging-fields';
+import {useResponseTypes,responseTypeError,responseValues} from './response-input';
+import {numericEntryError} from './numeric-input';
+import {pricingResponseValues,type PricingCalculation} from './pkg-pricing';
+import {containerProfileError} from './container-loading';
 
 export function PackagingResponse({row,onClose,onSaved}:{row:Row;onClose:()=>void;onSaved:()=>void}){
- const [values,setValues]=useState(()=>fieldValues(row,responseFields));
- const [cost,setCost]=useState(row.Cost==null?'':String(row.Cost)),[basis,setBasis]=useState(String(row.CostBasis||''));
- const [vnd,setVnd]=useState<number|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false);
+ const [values,setValues]=useState(()=>responseValues(row));
+ const [pricing,setPricing]=useState<Record<string,PricingCalculation>>({});
+
+ const responseTypes=useResponseTypes(),[error,setError]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false);
  const [uncertain,setUncertain]=useState(false);
  const guard=useRef(false);
- const dirty=JSON.stringify(values)!==JSON.stringify(fieldValues(row,responseFields))||cost!==(row.Cost==null?'':String(row.Cost))||basis!==String(row.CostBasis||'');
+ const dirty=Object.keys(pricing).length>0||JSON.stringify(values)!==JSON.stringify(fieldValues(row,responseFields));
+ function change(key:string,value:string){const next=responseChange(values,pricing,key,value,responseTypes.pallets,row.ConfigurationRequest);setValues(next.values);setPricing(next.pricing)}
  function close(){if(!busy&&(!dirty||window.confirm('Discard unsaved response?')))onClose()}
- useEffect(()=>{let active=true;call<{currencies:Row[]}>('/api/packaging/lookups').then(x=>{if(active)setVnd(Number(x.currencies.find(c=>c.CurrencyCode==='VND')?.ID)||null)}).catch(e=>{if(active)setError(e.message)});return()=>{active=false}},[]);
+
  useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirty||busy){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn)},[dirty,busy]);
  function review(){
-  for(const f of responseFields){const v=values[f.key];if(v&&f.numeric&&(!/^\d+(\.\d{1,4})?$/.test(v)||(f.integer&&(!/^\d+$/.test(v)||Number(v)<=0)))){setError('Check '+f.label+'.');return}}
-  if(cost&&(!/^\d{1,14}(\.\d{1,4})?$/.test(cost)||!basis.trim()||!vnd)){setError('For PM cost, enter a nonnegative amount, a cost basis, and maintain VND in Currency master.');return}
-  if(cost&&row.PMCostCurrencyCode&&row.PMCostCurrencyCode!=='VND'&&cost===String(row.Cost)){setError('The existing cost is not VND. Enter a reviewed VND amount; no automatic conversion is applied.');return}
+  const profileError=containerProfileError(values);if(profileError){setError(profileError);return}
+  for(const f of responseFields){if(f.readOnly||!responseFieldActive(f.key,values,row.ConfigurationRequest))continue;const v=values[f.key];const typeError=responseTypeError(f.key,v,row[f.key],responseTypes.types,values.ResponseLayerCount,row.ResponseLayerCount??row.RequestedLayerCount);if(typeError){setError(typeError);return}if(v&&f.numeric&&((numericEntryError(f.key,v))||(f.integer&&(!/^\d+$/.test(v)||Number(v)<=0)))){setError('Check '+f.label+'.');return}}
+
+
   setError('');setConfirm(true);
  }
  async function save(){
   if(guard.current)return;guard.current=true;setBusy(true);setError('');
   try{
-   const existing=Object.fromEntries(['MaterialID','HeightMM','WidthMM','LengthMM','ResponseNotes'].map(k=>[k,row[k]??null]));
-   const reply=await call<{results:Row[]}>('/api/packaging/response/batch',{rows:[{...existing,...fieldPayload(values,responseFields),RowNum:1,ID:row.ItemID,RowVersion:row.ItemRowVersion,Cost:cost||null,CurrencyID:cost?vnd:null,CostBasis:cost?basis.trim():null}]});
+   const existing=Object.fromEntries(['MaterialID','WidthMM','LengthMM','ResponseNotes'].map(k=>[k,row[k]??null]));
+   const reply=await call<{results:Row[]}>('/api/packaging/response/batch',{rows:[{...existing,...fieldPayload(values,responseFields,row.ConfigurationRequest),RowNum:1,ID:row.ItemID,RowVersion:row.ItemRowVersion,...(Object.keys(pricing).length?{PricingCalculations:Object.values(pricing)}:{})}]});
    if(reply.results?.length!==1||reply.results[0].Status!=='OK')throw new Error(String(reply.results?.[0]?.Message||'Save outcome unknown. Close and refresh before retrying.'));
    onSaved();onClose();
   }catch(e){setError((e as Error).message);if(!(e as {status?:number}).status||(e as {status:number}).status>=500)setUncertain(true)}
   finally{setBusy(false);guard.current=false;setConfirm(false)}
  }
- return <Modal label="Packaging response" className="dialog opportunity-editor" onClose={close}>
-  <div className="customer-editor-heading"><h2>Packaging response — {row.ProductCode}</h2><IconButton icon="close" label="Close response" disabled={busy} onClick={close}/></div>
-  <ErrorNote value={error}/>
-  <form onSubmit={e=>{e.preventDefault();review()}}>
-   <fieldset disabled={busy||uncertain}><div className="master-fields">{responseFields.map(f=><label key={f.key}>{f.label}<input maxLength={f.max||24} inputMode={f.numeric?'decimal':undefined} value={values[f.key]||''} onChange={e=>setValues({...values,[f.key]:e.target.value})}/></label>)}
-   <label>PM cost (VND)<input inputMode="decimal" value={cost} onChange={e=>setCost(e.target.value)}/></label>
-   <label>Cost basis<input maxLength={40} placeholder="Specify basis if entering a cost" value={basis} onChange={e=>setBasis(e.target.value)}/></label></div></fieldset>
-   <p className="muted">You can save an incomplete response. Both PM types, Unit / CTN, packaging description and both MOQs are required before submission.</p>
-   <div className="actions"><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="primary" disabled={busy||uncertain||!dirty}>Review & save</button></div>
+ return <Modal label="Packaging response" className="dialog opportunity-editor record-dialog" onClose={close}>
+  <div className="customer-editor-heading"><h2>Packaging response — {row.ProductCode}<InfoTip text="You can save an incomplete response. Type and calculated MOQ are required for every confirmed layer before submission. Packing Way needs the unit count for every non-final layer; the final layer is fixed at 1."/></h2><IconButton icon="close" label="Close response" disabled={busy} onClick={close}/></div>
+
+  <form className="record-dialog-form" onSubmit={e=>{e.preventDefault();review()}}>
+   <div className="record-dialog-content"><ErrorNote value={error||responseTypes.error}/>
+   <fieldset disabled={busy||uncertain}><ResponseSections values={values} requestedLayers={row.RequestedLayerCount} netWeight={row.WeightGrams} configuration={row.ConfigurationRequest} product={row} onChange={change} types={responseTypes.types} pallets={responseTypes.pallets} loading={responseTypes.loading} itemID={Number(row.ItemID)} pricing={pricing} onPricingApply={(input,result)=>{setPricing(xs=>({...xs,[input.PackagingOrder]:input}));setValues(xs=>({...xs,...pricingResponseValues(input,result)}))}}/></fieldset>
+
+   </div><div className="actions record-action-bar"><button className="primary" disabled={busy||uncertain||!dirty}>Review & save</button></div>
   </form>
   {confirm&&<Modal label="Confirm response save" onClose={()=>{if(!busy)setConfirm(false)}}><h2>Save this response?</h2><div className="actions"><button disabled={busy} onClick={()=>setConfirm(false)}>Back</button><button className="primary" disabled={busy} onClick={save}>Confirm save</button></div></Modal>}
  </Modal>

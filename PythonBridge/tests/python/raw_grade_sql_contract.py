@@ -8,6 +8,7 @@ from product_grades import GradeSave
 from auth import AccessContext
 from fastapi import HTTPException
 
+@unittest.skip("Legacy V3 material-on-grade contracts; superseded by raw_material_grade_assignment_sql_contract after migration 45.")
 class RawGrades(BaseSQL):
  def setUp(self):
   super().setUp()

@@ -13,18 +13,19 @@ from pydantic import ValidationError
 class MixContracts(unittest.TestCase):
  def test_mix_cannot_save_own_grade(self):
   with self.assertRaisesRegex(pyodbc.Error,"cannot maintain its own grades"):
-   self.c.execute("EXEC dbo.usp_ProductGrade_Save ?,?,NULL,NULL,?,'Active',?",self.parent,self.user,self.token(self.parent),json.dumps([dict(ParentID="0",ID=1,Grade="Invalid parent grade",RatioPct=100)]))
+   self.c.execute("EXEC dbo.usp_ProductGrade_Save ?,?,NULL,NULL,?,'Active',?",self.parent,self.user,self.token(self.parent),json.dumps(self.grade("Invalid parent grade")))
  def test_child_grade_read_is_active_only(self):
   self.save()
-  self.c.execute("EXEC dbo.usp_ProductGrade_Save ?,?,NULL,NULL,?,'Active',?",self.child,self.user,self.token(self.child),json.dumps([dict(ParentID="0",ID=1,Grade="Child active grade",RatioPct=100)]))
+  active=self.grade("Child active grade")
+  self.c.execute("EXEC dbo.usp_ProductGrade_Save ?,?,NULL,NULL,?,'Active',?",self.child,self.user,self.token(self.child),json.dumps(active))
   consume(self.c)
-  self.c.execute("EXEC dbo.usp_ProductGrade_Save ?,?,NULL,NULL,?,'Draft',?",self.child,self.user,self.token(self.child),json.dumps([dict(ParentID="0",ID=1,Grade="Hidden draft",RatioPct=100)]))
+  self.c.execute("EXEC dbo.usp_ProductGrade_Save ?,?,NULL,NULL,?,'Draft',?",self.child,self.user,self.token(self.child),json.dumps(self.grade("Hidden draft")))
   consume(self.c)
   self.c.execute("EXEC dbo.usp_ProductMix_Grades_Read ?,?",self.parent,self.user)
   sets=consume(self.c)
   self.assertEqual(len(sets[2]),1)
   self.assertEqual(sets[2][0]["ProductID"],self.child)
-  self.assertEqual(sets[2][0]["Grade"],"Child active grade")
+  self.assertEqual(sets[2][0]["Grade"],active[0]["Grade"])
  def test_child_without_active_grades_is_still_returned(self):
   self.save()
   self.c.execute("EXEC dbo.usp_ProductMix_Grades_Read ?,?",self.parent,self.user)
@@ -52,6 +53,10 @@ class MixContracts(unittest.TestCase):
   return self.c.fetchval()
  def token(self,id):
   return self.c.execute("SELECT RowVersion FROM dbo.Product WHERE ID=?",id).fetchval()
+ def grade(self,name):
+  name=name+" "+uuid4().hex[:12]
+  id=self.c.execute("INSERT dbo.RawGrade(GradeName,CreatedBy) VALUES(?,?);SELECT CONVERT(INT,SCOPE_IDENTITY())",name,self.actor).fetchval()
+  return [dict(ParentID="0",ID=1,Grade=name,RatioPct=100,RawGradeID=id,RawMaterialID=None)]
  def save(self,status="Active",version=None,items=None):
   body=items or [dict(ProductID=self.child,UnitQuantity="2.5",RowVersion="0x"+self.token(self.child).hex())]
   self.c.execute("EXEC dbo.usp_ProductMix_Save ?,?,?,?,?,?,?",self.parent,self.user,version["ID"] if version else None,version["RowVersion"] if version else None,self.token(self.parent),status,json.dumps(body))

@@ -33,13 +33,14 @@ export function RawPricing({items}:{items:GradeItem[]}){
  return <section aria-label="Raw Pricing">
  <div className="grade-tree-toolbar"><p>Current Raw Material Pricing Master values{data?' as of '+data.as_of+' (UTC)':''}. Read only.</p>
  <IconButton icon="refresh" label="Refresh prices" disabled={busy} onClick={()=>setRefresh(n=>n+1)}/></div>
- <p>Only material-assigned grades are shown, with all current vendors and quantity tiers. Quantity ranges use Price UoM. Prices are not historical version snapshots or a calculated Product cost.</p>
+ <p>Selected child Raw Materials are shown with all current vendors and quantity tiers. Where no material was selected, all currently assigned materials are shown. Quantity ranges use Price UoM. Prices are not historical version snapshots or a calculated Product cost.</p>
  <ErrorNote value={error}/>
- {busy?<p role="status">Loading raw prices...</p>:!error&&(!data?.rows.length?<p>No material-assigned grades in this selection.</p>:
+ {busy?<p role="status">Loading raw prices...</p>:!error&&(!data?.rows.length&&!items.some(i=>i.RawMaterialID)?<p>No material-assigned grades in this selection.</p>:
  <div className="raw-pricing-scroll" role="region" aria-label="Raw pricing table" tabIndex={0}><table>
  <thead><tr><th>Grade path</th><th>Grade</th><th>Raw Material</th>{columns.map(([key,label])=><th key={key}>{label}</th>)}</tr></thead>
  <tbody>{items.flatMap(item=>{
- const matches=data?.rows.filter(r=>Number(r.RawGradeID)===item.RawGradeID)||[];
+ const matches=data?.rows.filter(r=>Number(r.RawGradeID)===item.RawGradeID&&(!item.RawMaterialID||Number(r.MaterialID)===item.RawMaterialID))||[];
+ if(item.RawMaterialID&&!matches.length)return [<tr key={item.ParentID+'/'+item.ID+'/unavailable'}><td>{item.ParentID+'/'+item.ID}</td><td>{item.Grade}</td><td>Raw Material #{item.RawMaterialID}</td><td colSpan={columns.length}>Selected Raw Material is no longer assigned to this grade or is unavailable.</td></tr>];
  const rows:Row[]=matches;
  return rows.map((row,index)=><tr key={item.ParentID+'/'+item.ID+'/'+index}>
  <td>{item.ParentID+'/'+item.ID}</td><td>{item.Grade||String(row.GradeName||'Unselected grade')}</td>

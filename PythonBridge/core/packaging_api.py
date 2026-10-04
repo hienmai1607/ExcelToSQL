@@ -9,10 +9,11 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, computed_field
 from auth import AccessContext, get_access_context
 from db import get_raw_cursor
 from packaging_fields import ResponseFields, enriched_response, sql_error
+from pkg_pricing import Calculation
 
 router = APIRouter(prefix='/api/packaging', tags=['Packaging'])
 log = logging.getLogger(__name__)
@@ -32,6 +33,14 @@ class MaterialRow(MasterRow):
     Description: str | None = Field(None, max_length=500)
     UnitOfMeasure: str | None = Field(None, max_length=20)
     Status: Literal['Active', 'Block'] | None = None
+
+class PackagingMaterialRow(MaterialRow):
+    PackagingTypeID: int | None = Field(None, ge=1)
+
+    @computed_field
+    @property
+    def PackagingTypeSet(self) -> bool:
+        return "PackagingTypeID" in self.model_fields_set
 
 class UoMRow(MasterRow):
     UoMCode: str | None = Field(None, max_length=40)
@@ -65,6 +74,15 @@ class PriceRow(MasterRow):
     Status: Literal['Active', 'Block'] | None = None
 
 class ResponseRow(Input, ResponseFields):
+    PricingCalculations: list[Calculation] | None = Field(None, max_length=3)
+
+    @field_validator('PricingCalculations')
+    @classmethod
+    def distinct_pricing_orders(cls, value):
+        if value and len({c.PackagingOrder for c in value}) != len(value):
+            raise ValueError('Only one calculation per packaging order is allowed.')
+        return value
+
     RowNum: int = Field(ge=1)
     ID: int = Field(ge=1)
     MaterialID: int | None = Field(None, ge=1)
@@ -78,10 +96,20 @@ class ResponseRow(Input, ResponseFields):
     RowVersion: str
 
 class MaterialBatch(Input):
-    rows: list[MaterialRow] = Field(min_length=1, max_length=500)
+    rows: list[PackagingMaterialRow] = Field(min_length=1, max_length=500)
 
 class PriceBatch(Input):
     rows: list[PriceRow] = Field(min_length=1, max_length=500)
+
+class PackagingPriceRow(PriceRow):
+    SupplierDimensionID: int | None = Field(None, ge=1)
+    SupplierDimensionRowVersion: str | None = None
+    SupplierD1: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
+    SupplierD2: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
+    SupplierD3: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
+
+class PackagingPriceBatch(Input):
+    rows: list[PackagingPriceRow] = Field(min_length=1, max_length=500)
 
 class ResponseBatch(Input):
     rows: list[ResponseRow] = Field(min_length=1, max_length=500)
@@ -181,10 +209,10 @@ SELECTION = [('OpportunityItemID','INT'),('ExpectedRowVersion','VARCHAR(18)'),('
 
 def tvp_sql(type_name, fields):
     columns = ','.join(f'[{name}] {kind}' for name, kind in fields)
-    values = ','.join(f'CONVERT(VARBINARY(8),[{name}],1)' if name in ('RowVersionB64','ExpectedRowVersion') else f'[{name}]' for name, _ in fields)
+    values = ','.join(f'CONVERT(VARBINARY(8),[{name}],1)' if name in ('RowVersionB64','ExpectedRowVersion','SupplierDimensionRowVersion') else f'[{name}]' for name, _ in fields)
     return f'DECLARE @Rows dbo.{type_name}; INSERT @Rows SELECT {values} FROM OPENJSON(?) WITH ({columns}); '
 
-def batch(payload, ctx, type_name, proc, fields, scope="Packaging"):
+def batch(payload, ctx, type_name, proc, fields, scope="Packaging", document_extra=None):
     require(ctx, scope)
     documents = []
     seen = set()
@@ -198,6 +226,8 @@ def batch(payload, ctx, type_name, proc, fields, scope="Packaging"):
         if getattr(r, 'Command', 'U') != 'C' and r.ID is None:
             raise HTTPException(422, 'Update/block requires ID.')
         data['RowVersionB64'] = '0x'+version.hex() if version else None
+        if document_extra:
+            data.update(document_extra.get(r.RowNum, {}))
         documents.append(data)
     if len({r.RowNum for r in payload.rows}) != len(payload.rows):
         raise HTTPException(422, 'Duplicate RowNum values.')
@@ -206,10 +236,11 @@ def batch(payload, ctx, type_name, proc, fields, scope="Packaging"):
 
 @router.post('/material/batch')
 def material_save(payload: MaterialBatch, ctx: AccessContext = Depends(get_access_context)):
-    return batch(payload,ctx,'PackagingMaterialBatchType','usp_PackagingMaterial_Batch',MATERIAL)
+    return batch(payload,ctx,'PackagingMaterialBatchTypeV2','usp_PackagingMaterial_BatchV2',
+                 MATERIAL+[('PackagingTypeID','INT'),('PackagingTypeSet','BIT')])
 
 @router.post('/price/batch')
-def price_save(payload: PriceBatch, ctx: AccessContext = Depends(get_access_context)):
+def price_save(payload: PackagingPriceBatch, ctx: AccessContext = Depends(get_access_context)):
     require(ctx,'Packaging')
     for row in payload.rows:
         if 'BaseUoM' in row.model_fields_set:
@@ -229,7 +260,44 @@ def price_save(payload: PriceBatch, ctx: AccessContext = Depends(get_access_cont
         for row in payload.rows:
             if row.ID in existing and 'ExchangeRateToUSD' not in row.model_fields_set and row.CurrencyID==existing[row.ID]['CurrencyID']:
                 row.ExchangeRateToUSD=existing[row.ID]['ExchangeRateToUSD']
-    return batch(payload,ctx,'PackagingPriceBatchTypeV3','usp_PackagingPrice_BatchV3',PRICE+[('VendorID','INT'),('ExchangeRateToUSD','DECIMAL(18,10)')])
+    from supplier_geometry import SUPPLIER_FIELDS, supplier_area
+    extra = {}
+    for row in payload.rows:
+        supplied = bool((set(SUPPLIER_FIELDS) | {'SupplierDimensionRowVersion'}) & row.model_fields_set)
+        extra[row.RowNum] = {'SupplierSet': supplied}
+        if row.Command == 'D' or not supplied:
+            continue
+        dimension_id = getattr(row, 'SupplierDimensionID', None)
+        measurements = {k: getattr(row, 'Supplier'+k, None) for k in ('D1','D2','D3')}
+        if dimension_id is None:
+            if any(v is not None for v in measurements.values()) or getattr(row, 'SupplierDimensionRowVersion', None):
+                raise HTTPException(422, 'Supplier measurements require a child dimension definition.')
+            continue
+        definitions = execute("""DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT;
+            SELECT d.*,d.EffectiveSquareMeterFormula,
+             u1.Status AS D1UnitStatus,u2.Status AS D2UnitStatus,u3.Status AS D3UnitStatus
+            FROM dbo.v_PackagingDimensionWeb d JOIN dbo.PackagingMaterial m ON m.PackagingTypeID=d.PackagingTypeID
+            JOIN dbo.PackagingType t ON t.ID=d.PackagingTypeID
+            JOIN dbo.PackagingDimension parent ON parent.ID=d.ParentDimensionID
+            JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID LEFT JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID
+            WHERE d.ID=? AND m.ID=? AND d.Status='Active' AND parent.Status='Active'
+             AND t.Status='Active' AND t.ParentTypeID IS NOT NULL;""", [ctx.username, dimension_id, row.MaterialID])[0]
+        if not definitions:
+            raise HTTPException(422, 'Choose an active child dimension belonging to the selected material.')
+        definition = definitions[0]
+        version = rv(getattr(row, 'SupplierDimensionRowVersion', None), True)
+        if definition['RowVersion'] != base64.b64encode(version).decode('ascii'):
+            raise HTTPException(409, 'Supplier formula changed. Refresh pricing before saving.')
+        try:
+            area = supplier_area(definition, measurements)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        extra[row.RowNum].update(SupplierDimensionRowVersion='0x'+version.hex(), SupplierAreaPerPriceUnit=str(area))
+    supplier_columns = [('SupplierDimensionID','INT'),('SupplierDimensionRowVersion','VARCHAR(18)'),
+        ('SupplierD1','DECIMAL(18,6)'),('SupplierD2','DECIMAL(18,6)'),('SupplierD3','DECIMAL(18,6)'),
+        ('SupplierAreaPerPriceUnit','DECIMAL(28,9)'),('SupplierSet','BIT')]
+    return batch(payload,ctx,'PackagingPriceBatchTypeV4','usp_PackagingPrice_BatchV5',
+        PRICE+[('VendorID','INT'),('ExchangeRateToUSD','DECIMAL(18,10)')]+supplier_columns, document_extra=extra)
 
 @router.post('/response/batch')
 def response_save(payload: ResponseBatch, ctx: AccessContext = Depends(get_access_context)):
@@ -275,7 +343,11 @@ def manual_read(page: int = Query(1,ge=1), page_size: int = Query(200,ge=1,le=50
 def lookups(ctx: AccessContext = Depends(get_access_context)):
     require(ctx,'Packaging','PackagingManager','Admin')
     results=execute('EXEC dbo.usp_PackagingWorkbookLookup_Read ?', [ctx.username])
-    return {'materials':results[0],'currencies':results[1]}
+    types=execute('EXEC dbo.usp_PackagingResponseTypeLookup_Read ?', [ctx.username])[0]
+    from packaging_orders import decode_orders
+    decode_orders(types)
+    pallets=execute("SELECT p.ID,p.PalletSize,p.PalletAreaMM2,c.PalletsPer20DC,c.PalletsPer40DC,c.PalletsPer40HC,c.PalletsPer20RC,c.PalletsPer40RHC FROM dbo.v_PalletMaster p JOIN dbo.Pallet c ON c.ID=p.ID JOIN dbo.UoM u ON u.ID=p.UoMID WHERE p.Status='Active' AND u.Status='Active' ORDER BY p.PalletSize,p.ID",[])[0]
+    return {'materials':results[0],'currencies':results[1],'packagingTypes':types,'pallets':pallets}
 
 @router.post('/manual')
 def manual_create(payload: ManualRequest, ctx: AccessContext = Depends(get_access_context)):
@@ -294,7 +366,7 @@ def manual_create(payload: ManualRequest, ctx: AccessContext = Depends(get_acces
         data=r.model_dump(mode='json')
         data['ExpectedRowVersion']='0x'+rv(r.ExpectedRowVersion).hex()
         documents.append(data)
-    sql=tvp_sql('PackagingRequestSelectionType',SELECTION)+'EXEC dbo.usp_PackagingRequest_Create @Username=?,@OpportunityID=?,@ExpectedRowVersion=?,@CreationKey=?,@ResponseDue=?,@Items=@Rows,@RequestNotes=?;'
+    sql='EXEC dbo.usp_PackagingRequest_CreateJson ?,?,?,?,?,?,?'
     results=execute(sql,[json.dumps(documents),ctx.username,payload.OpportunityID,rv(payload.ExpectedRowVersion),str(payload.CreationKey),payload.ResponseDue,payload.RequestNotes])
     return {'header':results[0][0],'items':results[1],'replayed':False}
 

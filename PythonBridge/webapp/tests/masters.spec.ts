@@ -1,12 +1,49 @@
 import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
+test('supplier dimensions are entered per one Price UoM and saved with the child formula version',async({page})=>{
+ const state=await setup(page);
+ await page.route('**/api/workbench/masters/lookups?**',r=>r.fulfill({json:{
+  materials:[{ID:1,MaterialCode:'BOX',MaterialName:'Film',PackagingTypeID:70,PriceBasis:'Square meter',Status:'Active'}],
+  currencies:[{ID:2,CurrencyCode:'USD'}],vendors:[],creators:[],uoms:[{ID:1,UoMCode:'m',Status:'Active'}],
+  supplierDimensions:[{ID:9,PackagingTypeID:70,PackagingType:'Film',D1Name:'Length',D2Name:'Width',D1Unit:'mm',D2Unit:'mm',ConvertFromSupplierFormula:'D1*D2/1000000',RowVersion:rv,Status:'Active'}]
+ }}));
+ await page.getByRole('button',{name:'Packaging Material Pricing',exact:true}).click();
+ await page.getByRole('button',{name:'New price',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New price',exact:true});
+ await form.getByLabel('Material',{exact:true}).selectOption('1');
+ await form.getByLabel('Price UoM',{exact:true}).selectOption('m');
+ await expect(form.getByLabel('Supplier dimension definition',{exact:true})).toHaveValue('9');
+ await expect(form.getByLabel('Supplier D3',{exact:true})).toHaveCount(0);
+ await form.getByLabel('Vendor currency',{exact:true}).selectOption('2');
+ await form.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('10000');
+ await form.getByLabel('Effective from',{exact:true}).fill('2026-10-01');
+ await form.getByRole('button',{name:'Review & save'}).click();
+ expect(state.writes).toHaveLength(0);await expect(page.getByRole('dialog',{name:'Confirm master save'})).toHaveCount(0);
+ await form.getByLabel('Supplier D1',{exact:true}).fill('1000');
+ await form.getByLabel('Supplier D2',{exact:true}).fill('500.123456');
+ await expect(form.getByText(/dimensions describe exactly 1 m/)).toBeVisible();
+ await page.setViewportSize({width:390,height:844});
+ expect(await form.evaluate(el=>el.scrollWidth<=el.clientWidth+2)).toBeTruthy();
+ await form.getByRole('button',{name:'Review & save'}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(form).toHaveCount(0);
+ expect(state.writes[0].rows[0]).toMatchObject({SupplierDimensionID:9,SupplierDimensionRowVersion:rv,SupplierD1:'1000',SupplierD2:'500.123456',SupplierD3:null});
+ expect(state.writes[0].rows[0]).not.toHaveProperty('SupplierAreaPerPriceUnit');
+});
+
+test('raw pricing does not acquire supplier dimension fields',async({page})=>{
+ await setup(page,'RawMaterial');
+ await page.getByRole('button',{name:'Raw Material Pricing',exact:true}).click();
+ await page.getByRole('button',{name:'New raw material price',exact:true}).click();
+ await expect(page.getByLabel('Supplier dimension definition',{exact:true})).toHaveCount(0);
+});
 async function setup(page:Page,scope='Admin'){
  const writes:any[]=[];let profile:any={settings:{columns:['CustomerName'],filters:[],customer_name:'',market_id:'',status:'',page_size:25,dark:false,nav_hidden:false,masters:{}},version:0};
  await page.route('**/api/**',async route=>{
   const u=new URL(route.request().url()),p=u.pathname;
   if(p.endsWith('/session'))return route.fulfill({json:{user_id:1,username:'Tester',scopes:[scope],is_admin:scope==='Admin'}});
   if(p.endsWith('/preferences')){if(route.request().method()==='POST')profile={settings:route.request().postDataJSON().settings,version:profile.version+1};return route.fulfill({json:profile})}
-  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{rawGrades:[{ID:21,GradeName:'Whole kernels',MaterialCode:'RAW-1',Status:'Active',MaterialStatus:'Active',ParentGradeID:null}],uoms:[{ID:4,UoMCode:"EA",UoMName:"Each",Status:"Active"},{ID:1,UoMCode:"Each",UoMName:"Each",Status:"Active"},{ID:2,UoMCode:"Per box",Status:"Active"},{ID:3,UoMCode:"Changed basis",Status:"Active"}],vendors:[{ID:7,VendorName:'Local supplier',Status:'Active',CurrencyID:2}],materials:[{ID:1,MaterialCode:'BOX',MaterialName:'Cardboard box',Status:'Active'}],currencies:[{ID:2,CurrencyCode:'USD',CurrencyName:'US Dollar'}],creators:[{ID:1,UserName:'Tester'}]}});
+  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{packagingTypes:[{ID:70,PackagingOrder:'Primary',PackagingType:'Pouch',ParentTypeID:60,Status:'Active'},{ID:71,PackagingOrder:'Secondary',PackagingType:'Carton',ParentTypeID:61,Status:'Active'},{ID:72,PackagingOrder:'Primary',PackagingType:'Old bag',ParentTypeID:62,Status:'Block'}],rawGrades:[{ID:21,GradeName:'Whole kernels',Status:'Active',ParentGradeID:null,HasChildren:true},{ID:22,GradeName:'W320',ParentGradeName:'Whole kernels',Status:'Active',ParentGradeID:21,HasChildren:false}],uoms:[{ID:4,UoMCode:"EA",UoMName:"Each",Status:"Active"},{ID:1,UoMCode:"Each",UoMName:"Each",Status:"Active"},{ID:2,UoMCode:"Per box",Status:"Active"},{ID:3,UoMCode:"Changed basis",Status:"Active"}],vendors:[{ID:7,VendorName:'Local supplier',Status:'Active',CurrencyID:2}],materials:[{ID:1,MaterialCode:'BOX',MaterialName:'Cardboard box',Status:'Active'}],currencies:[{ID:2,CurrencyCode:'USD',CurrencyName:'US Dollar'}],creators:[{ID:1,UserName:'Tester'}]}});
   if(p==='/api/workbench/masters/materials')return route.fulfill({json:{rows:[{ID:3,MaterialCode:'BAG',MaterialName:'Paper bag',Description:null,UnitOfMeasure:'EA',Status:'Active',RowVersion:rv}],total:1,page:1}});
   if(p==='/api/workbench/masters/prices')return route.fulfill({json:{rows:[{ID:4,MaterialID:1,MaterialCode:'BOX',MaterialName:'Cardboard box',CurrencyID:2,CurrencyCode:'USD',BaseUoM:'Each',QuantityFrom:'0.0000',QuantityTo:null,UnitPrice:'12345678901234.1234',EffectiveFrom:'2026-09-20',EffectiveTo:null,Status:'Active',RowVersion:rv}],total:1,page:1}});
   if(p.endsWith('/batch')){const payload=route.request().postDataJSON();writes.push({path:p,...payload});return route.fulfill({json:{results:payload.rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
@@ -26,7 +63,76 @@ test('material uses stacked batch sections and confirmation',async({page})=>{
  await page.getByRole('button',{name:'Review & save'}).click();expect(state.writes).toHaveLength(0);
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
  expect(state.writes[0].path).toBe('/api/packaging/material/batch');expect(state.writes[0].rows).toHaveLength(2);
- expect(state.writes[0].rows[0]).toMatchObject({Command:'C',Description:null,MaterialName:'New box'});
+ expect(state.writes[0].rows[0]).toMatchObject({Command:'C',MaterialName:'New box'});
+});
+
+test('material type dropdown includes only leaves, including blocked-child parents exclusion',async({page})=>{
+ const state=await setup(page);
+ await page.route('**/api/workbench/masters/lookups?**',route=>route.fulfill({json:{materials:[],currencies:[],creators:[],uoms:[{ID:1,UoMCode:'EA',Status:'Active'}],packagingTypes:[
+  {ID:70,PackagingOrder:'Primary',PackagingType:'Group',Status:'Active',HasChildren:true},{ID:73,PackagingType:'Empty root',PackagingOrder:'Primary',ParentTypeID:null,HasChildren:false,Status:'Active'},
+  {ID:71,PackagingOrder:'Primary',PackagingOrders:['Primary','Secondary','Tertiary'],PackagingType:'Leaf film',ParentTypeID:70,Status:'Active',HasChildren:false}
+ ]}}));
+ await page.getByRole('button',{name:'Packaging Material',exact:true}).click();await page.getByRole('button',{name:'New material',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New material',exact:true}),type=form.getByLabel('Packaging Type',{exact:true});
+ await expect(type.locator('option[value="70"]')).toHaveCount(0);
+ await expect(type.locator('option[value="73"]')).toHaveCount(0);
+ await expect(form.getByLabel('Description',{exact:true})).toHaveCount(0);
+ await expect(type.locator('option[value="71"]')).toHaveText('Leaf film');
+ await type.selectOption('71');await form.getByLabel('Material name',{exact:true}).fill('Leaf material');await form.getByLabel('Base UoM',{exact:true}).selectOption('EA');
+ await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[0].rows[0].PackagingTypeID).toBe(71);
+});
+test('material packaging type dropdown assigns an active master ID',async({page})=>{
+ const state=await setup(page,'Packaging');await page.getByRole('button',{name:'Packaging Material',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Sort by Packaging Type',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'New material',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New material',exact:true});
+ const type=form.getByLabel('Packaging Type',{exact:true});
+ await expect(type.locator('option')).toHaveText(['No packaging type','Pouch','Carton']);
+ await type.selectOption('71');await form.getByLabel('Material name',{exact:true}).fill('Typed carton');
+ await form.getByLabel('Base UoM',{exact:true}).selectOption('EA');
+ await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);
+ expect(state.writes[0].rows[0]).toMatchObject({Command:'C',PackagingTypeID:71});
+});
+test('blocked existing packaging type is preserved and can be cleared',async({page})=>{
+ const state=await setup(page);
+ await page.route('**/api/workbench/masters/materials?**',r=>r.fulfill({json:{rows:[{ID:3,MaterialCode:'BAG',MaterialName:'Old bag',UnitOfMeasure:'EA',Status:'Active',RowVersion:rv,PackagingTypeID:72,PackagingType:'Primary / Old bag'}],total:1,page:1}}));
+ await page.getByRole('button',{name:'Packaging Material',exact:true}).click();await page.getByRole('button',{name:'Edit material 3'}).click();
+ const form=page.getByRole('dialog',{name:'Edit material',exact:true}),type=form.getByLabel('Packaging Type',{exact:true});
+ await expect(type).toHaveValue('72');await expect(type.locator('option[value="72"]')).toHaveAttribute('disabled','');
+ await form.getByLabel('Material name',{exact:true}).fill('Renamed bag');
+ await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[0].rows[0].PackagingTypeID).toBe(72);
+ await page.getByRole('button',{name:'Edit material 3'}).click();
+ await page.getByLabel('Packaging Type',{exact:true}).selectOption('');
+ await page.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[1].rows[0].PackagingTypeID).toBeNull();
+});
+test('raw material does not inherit packaging type assignment',async({page})=>{
+ await setup(page);await page.getByRole('button',{name:'Raw Material',exact:true}).click();
+ await page.getByRole('button',{name:'New raw material',exact:true}).click();
+ await expect(page.getByRole('dialog',{name:'New raw material',exact:true}).getByLabel('Packaging Type',{exact:true})).toHaveCount(0);
+ await expect(page.getByRole('dialog',{name:'New raw material',exact:true}).getByLabel('Description',{exact:true})).toBeVisible();
+});
+
+test('legacy root assignment stays disabled but survives an unrelated material edit',async({page})=>{
+ const state=await setup(page);
+ await page.route('**/api/workbench/masters/lookups?**',r=>r.fulfill({json:{packagingTypes:[{ID:70,PackagingType:'Legacy root',PackagingOrder:'Primary',ParentTypeID:null,HasChildren:false,Status:'Active'}],uoms:[{ID:1,UoMCode:'EA',Status:'Active'}],currencies:[],materials:[],creators:[]}}));
+ await page.route('**/api/workbench/masters/materials?**',r=>r.fulfill({json:{rows:[{ID:3,MaterialCode:'BAG',MaterialName:'Legacy material',Description:'Historical description',PackagingTypeID:70,PackagingType:'Legacy root',UnitOfMeasure:'EA',Status:'Active',RowVersion:rv}],total:1,page:1}}));
+ await page.getByRole('button',{name:'Packaging Material',exact:true}).click();await page.getByRole('button',{name:'Edit material 3'}).click();
+ const form=page.getByRole('dialog',{name:'Edit material',exact:true}),type=form.getByLabel('Packaging Type',{exact:true});
+ await expect(type).toHaveValue('70');await expect(type.locator('option').filter({hasText:'Legacy root'})).toHaveAttribute('disabled','');await expect(form.getByLabel('Description',{exact:true})).toHaveCount(0);
+ await form.getByLabel('Material name',{exact:true}).fill('Renamed legacy material');await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[0].rows[0].PackagingTypeID).toBe(70);expect(state.writes[0].rows[0]).not.toHaveProperty('Description');
+});
+
+test('retired material Description disappears from saved layouts and sort without changing Raw Material',async({page})=>{
+ const state=await setup(page);
+ state.profile().settings.masters.materials={columns:['MaterialCode','MaterialName','Description','UnitOfMeasure','Status'],filters:['search','status'],values:{},sort:[{column:'Description',direction:'asc'}],column_widths:{Description:240},page_size:25};
+ await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Material',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Sort by Description',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Layout options'}).click();await expect(page.getByRole('complementary').getByRole('checkbox',{name:'Description',exact:true})).toHaveCount(0);
 });
 test('price preserves decimal precision and nulls, sends version on edit',async({page})=>{
  const state=await setup(page);await page.getByRole('button',{name:'Packaging Material Pricing',exact:true}).click();
@@ -57,7 +163,7 @@ test('master profile order persists independently of Customer; mobile fits',asyn
  await page.getByRole('button',{name:'Move Material name left'}).click();await page.getByRole('button',{name:'Save layout to profile'}).click();await expect(page.getByRole('status')).toContainText('saved');
  expect(state.profile().settings.columns).toEqual(['CustomerName']);
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Material',exact:true}).click();
- await expect(page.getByRole('columnheader').first()).toHaveText('Material name');
+ await expect(page.getByRole('columnheader').nth(1)).toHaveText('Material name');
  await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
  await page.screenshot({path:'test-results/packaging-material-mobile.png',fullPage:true});
 });
@@ -213,28 +319,25 @@ test('RawMaterial users maintain Raw Grade relationships',async({page})=>{
  await page.getByRole('button',{name:'New raw grade',exact:true}).click();
  await page.getByLabel('Grade name',{exact:true}).fill('W320');
  await page.getByLabel('Parent grade',{exact:true}).selectOption('21');
- await page.getByLabel('Material assign',{exact:true}).check();
- await page.getByRole('dialog').getByLabel('Raw Material',{exact:true}).selectOption('1');
+ await expect(page.getByLabel('Material assign',{exact:true})).toHaveCount(0);
+ await expect(page.getByRole('dialog').getByLabel('Raw Material',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
  expect(state.writes[0].path).toBe('/api/raw-material/grade/batch');
- expect(state.writes[0].rows[0]).toMatchObject({GradeName:'W320',MaterialAssign:true,MaterialID:1,ParentGradeID:21});
+ expect(state.writes[0].rows[0]).toMatchObject({GradeName:'W320',ParentGradeID:21});
 });
 
-test('Raw Grade can be saved without material after unticking assignment',async({page})=>{
+test('Raw Material selects a leaf Grade and Grade Master has no material assignment',async({page})=>{
  const state=await setup(page,'RawMaterial');
- await page.getByRole('button',{name:'Raw Grade Master',exact:true}).click();
- await page.getByRole('button',{name:'New raw grade',exact:true}).click();
- await page.getByLabel('Grade name',{exact:true}).fill('Group grade');
- await expect(page.getByRole('dialog').getByLabel('Raw Material',{exact:true})).toHaveCount(0);
- await page.getByLabel('Material assign',{exact:true}).check();
- await page.getByRole('button',{name:'Review & save'}).click();
- await expect(page.getByText('Required.',{exact:true})).toBeVisible();
- await page.getByRole('dialog').getByLabel('Raw Material',{exact:true}).selectOption('1');
- await page.getByLabel('Material assign',{exact:true}).uncheck();
+ await page.getByRole('button',{name:'Raw Material',exact:true}).click();
+ await page.getByRole('button',{name:'New raw material',exact:true}).click();
+ await page.getByLabel('Material name',{exact:true}).fill('Walnut raw');
+ await page.getByLabel('Base UoM',{exact:true}).selectOption('EA');
+ await expect(page.getByLabel('Grade',{exact:true}).locator('option[value="21"]')).toHaveCount(0);
+ await page.getByLabel('Grade',{exact:true}).selectOption('22');
  await page.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(state.writes[0].rows[0]).toMatchObject({MaterialAssign:false,MaterialID:null});
+ expect(state.writes[0].rows[0]).toMatchObject({MaterialName:'Walnut raw',GradeID:22});
 });

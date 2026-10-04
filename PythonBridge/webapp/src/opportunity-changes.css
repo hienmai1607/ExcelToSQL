@@ -2,3 +2,6 @@
 .change-log-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .change-log-heading h2{margin:0;overflow-wrap:anywhere}
 .change-log .change-value{min-width:140px;max-width:320px;white-space:pre-wrap;overflow-wrap:anywhere}
+.change-log[open]{display:flex;flex-direction:column;overflow:hidden}
+.change-log>.table-wrap{min-height:0;overflow:auto;flex:1}
+.change-log>.pager{flex:none;margin-top:8px;background:var(--surface)}

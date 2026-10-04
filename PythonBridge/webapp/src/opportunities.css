@@ -49,6 +49,20 @@ dialog.opportunity-entry-dialog{width:min(1760px,98vw);max-width:98vw;max-height
 .opportunity-entry-summary{grid-column:span 6;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-self:stretch;padding:6px 14px;border-left:1px solid var(--border,#d7e0d9)}
 .opportunity-entry-summary span{display:block;font-size:11px;color:var(--muted,#65756e);margin-bottom:8px}
 .opportunity-entry-summary strong{font-size:14px;font-variant-numeric:tabular-nums}
+.opportunity-header-box .customer-entry{padding:10px 12px}
+.opportunity-header-box .customer-entry>header{margin-bottom:8px}
+.opportunity-header-box h3{font-size:12px}
+.opportunity-header-fields{gap:8px 12px}
+.opportunity-header-box label{font-size:11px;gap:4px}
+.opportunity-header-box input,.opportunity-header-box select{height:32px;padding:5px 9px;font-size:12px}
+.opportunity-header-box .opportunity-rate small{font-size:10px}
+.packaging-copy{margin-bottom:12px}
+.packaging-copy-controls{display:flex;align-items:end;flex-wrap:wrap;gap:8px}
+.packaging-copy-controls label{width:min(420px,100%)}
+.packaging-copy-controls button{height:38px;white-space:nowrap}
+.packaging-copy>small{display:block;margin-top:5px;font-size:11px;color:var(--muted,#65756e)}
+.packaging-copy>p{margin:4px 0;font-size:11px}
+.packaging-copy>p:empty{display:none}
 .packaging-entry-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .packaging-entry-grid .packaging-wide{grid-column:span 2}
 .opportunity-requirements{padding:4px 0}
@@ -67,11 +81,37 @@ dialog.opportunity-entry-dialog{width:min(1760px,98vw);max-width:98vw;max-height
  .packaging-entry-grid{grid-template-columns:1fr}
  .packaging-entry-grid .packaging-wide{grid-column:auto}
 }
+@media(min-width:851px){
+ .opportunity-header-fields{grid-template-columns:repeat(12,minmax(0,1fr))}
+ .opportunity-header-fields>label{grid-column:span 3}
+ .opportunity-header-fields>label:nth-child(2){grid-column:span 5}
+ .opportunity-bid-dates>label{grid-column:span 2}
+ .opportunity-header-fields>.opportunity-currency{grid-column:span 2}
+ .opportunity-header-fields>.opportunity-rate{grid-column:span 3}
+ .opportunity-header-fields>.opportunity-rate:nth-of-type(5){grid-column:span 4}
+ .opportunity-entry-summary{grid-column:span 3;align-self:stretch;border-top:0;border-left:1px solid var(--border,#d7e0d9);padding:6px 8px;gap:8px}
+ .opportunity-entry-summary span{margin-bottom:4px;font-size:10px}
+ .opportunity-entry-summary strong{font-size:12px}
+}
 
 .request-editor-header{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:16px;margin-bottom:16px}
 .request-editor-list{display:grid;gap:16px}
 .request-editor-item{padding:16px;min-width:0}
-.request-editor-item>header{display:flex;justify-content:space-between;gap:12px}
+.request-editor-item>header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+.request-item-assignment{display:flex;align-items:center;flex-wrap:wrap;gap:12px;max-width:100%;min-width:0}
+.request-item-assignment>label{display:flex;align-items:center;gap:8px;max-width:100%;min-width:0}
+.request-item-assignment select{width:220px;max-width:100%;min-width:0}
 .request-editor-item>label{display:block;max-width:320px;margin-bottom:12px}
 .request-editor-item summary{padding:12px 0;font-weight:600}
 .request-editor-item fieldset{border:0;padding:0;min-width:0}
+.requirement-sections{display:grid;gap:14px;min-width:0}
+.requirement-sections>section{padding:12px;border:1px solid var(--border,#d7e0d9);border-radius:8px;min-width:0}
+.requirement-sections h4{margin:0 0 12px;font-size:12px}
+.requirement-sections p{margin:6px 0;overflow-wrap:anywhere}
+
+.opportunity-entry-row.opportunity-mix-child{margin-left:24px;border-left:3px solid var(--border,#d7e0d9)}
+.opportunity-items tr.opportunity-mix-child{background:var(--surface-alt,#f7faf7)}
+.mix-item-number{display:inline-block;min-width:32px;margin-right:6px;font-variant-numeric:tabular-nums}
+.mix-child-toggle{padding:4px 8px}
+.opportunity-mix-child .mix-item-number{padding-left:14px}
+@media(max-width:550px){.opportunity-entry-row.opportunity-mix-child{margin-left:8px}}

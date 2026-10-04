@@ -1,24 +1,29 @@
-export type PackagingField={key:string;label:string;numeric?:boolean;integer?:boolean;max?:number};
+import {parseContainerProfiles} from './container-loading';
+export type PackagingField={key:string;label:string;numeric?:boolean;integer?:boolean;max?:number;parentOnly?:boolean;readOnly?:boolean};
 export const productInfoLabels:Record<string,string>={ProductName:'Product name',WeightGrams:'Net weight (g)',Category:'Category',Grade:'Grade',MixRatioPct:'Mix ratio %'};
 export const requirementFields:PackagingField[]=[
  {
   "key": "PalletSize",
+  "parentOnly": true,
   "label": "Pallet size",
   "max": 100
  },
  {
   "key": "PalletStacking",
+  "parentOnly": true,
   "label": "Pallet stacking",
   "max": 100
  },
  {
   "key": "MaxPalletHeightM",
+  "parentOnly": true,
   "label": "Max pallet height (m)",
   "numeric": true,
   "integer": false
  },
  {
   "key": "ContainerRequest",
+  "parentOnly": true,
   "label": "Container request",
   "max": 200
  },
@@ -53,12 +58,8 @@ export const requirementFields:PackagingField[]=[
   "max": 100
  },
  {
-  "key": "BarrierRequirement",
-  "label": "Barrier requirement",
-  "max": 500
- },
- {
   "key": "ShelfLifeDays",
+  "readOnly": true,
   "label": "Shelf life (days)",
   "numeric": true,
   "integer": true
@@ -72,12 +73,12 @@ export const requirementFields:PackagingField[]=[
 export const responseFields:PackagingField[]=[
  {
   "key": "FirstPMType",
-  "label": "1st PM Type",
+  "label": "Primary Type",
   "max": 100
  },
  {
   "key": "SecondPMType",
-  "label": "2nd PM Type",
+  "label": "Secondary Type",
   "max": 100
  },
  {
@@ -102,11 +103,6 @@ export const responseFields:PackagingField[]=[
   "label": "2nd PM MOQ",
   "numeric": true,
   "integer": false
- },
- {
-  "key": "PalletType",
-  "label": "Pallet type",
-  "max": 100
  },
  {
   "key": "CartonsPerLayer",
@@ -134,6 +130,34 @@ export const responseFields:PackagingField[]=[
  }
 ];
 export const requirementLabels=Object.fromEntries(requirementFields.map(f=>[f.key,f.label]));
-export const responseLabels:Record<string,string>={...Object.fromEntries(responseFields.map(f=>[f.key,f.label])),PMCost:'PM cost',PMCostCurrencyCode:'Cost currency'};
-export function fieldValues(row:Record<string,unknown>|undefined,fields:PackagingField[]){return Object.fromEntries(fields.map(f=>[f.key,row?.[f.key]==null?'':String(row[f.key])]))}
-export function fieldPayload(values:Record<string,string>,fields:PackagingField[]){return Object.fromEntries(fields.map(f=>[f.key,values[f.key]?.trim()||null]))}
+// Web response inputs only. Keep the legacy column and Excel/Layout contract intact.
+export const webResponseFields:PackagingField[]=[
+ {key:'SelectedContainerType',label:'Container type'},
+ {key:'ContainerLoadProfiles',label:'Container loading profiles'},
+ {key:'ResponseLayerCount',label:'Confirmed packaging layers',numeric:true,integer:true},
+ ...responseFields.filter(f=>!['PackagingDescription','PacksPerPallet'].includes(f.key)).map(f=>f.key==='FirstPMMOQ'?{...f,label:'Primary MOQ unit',readOnly:true}:f.key==='SecondPMMOQ'?{...f,label:'Secondary MOQ unit',readOnly:true}:f.key==='UnitsPerCarton'?{...f,label:'No of Primary Unit'}:['CartonsPerContainer','LayersPerPallet'].includes(f.key)?{...f,readOnly:true}:f),
+ {key:'ResponsePalletSize',label:'Pallet size',max:100},
+ {key:'ResponsePalletStacking',label:'Pallet stacking',max:100},
+ {key:'ResponseMaxPalletHeightMM',label:'Max pallet height (mm)',numeric:true,integer:true},
+ {key:'HeightMM',label:'Shipping height (mm)',numeric:true,readOnly:true},
+ {key:'UnitsPerPallet',label:'Units / pallet',numeric:true,readOnly:true},
+ {key:'PrimaryPricePerUnit',label:'Primary price per unit',numeric:true,readOnly:true},
+ {key:'PrimaryPriceCurrencyCode',label:'Primary price currency',readOnly:true},
+ {key:'SecondaryPricePerUnit',label:'Secondary price per unit',numeric:true,readOnly:true},
+ {key:'SecondaryPriceCurrencyCode',label:'Secondary price currency',readOnly:true},
+ {key:'NutDensity',label:'Nut Density (g/ml)',numeric:true},
+ {key:'ThirdPMType',label:'Tertiary Type',max:100},
+ {key:'UnitsPerTertiary',label:'No of Secondary Unit',numeric:true,integer:true},
+ {key:'ThirdPMMOQ',label:'Tertiary MOQ unit',numeric:true,readOnly:true},
+ {key:'TertiaryPricePerUnit',label:'Tertiary price per unit',numeric:true,readOnly:true},
+ {key:'TertiaryPriceCurrencyCode',label:'Tertiary price currency',readOnly:true},
+ {key:'LayersPerContainer',label:'Layer / Container',numeric:true,integer:true,readOnly:true},
+ {key:'PalletsPerContainer',label:'Pallet / Container',numeric:true,integer:true,readOnly:true},
+ {key:'CartonsPerContainerFloor',label:'Carton / Container Floor',numeric:true,integer:true}
+];
+export const responseLabels:Record<string,string>=Object.fromEntries(responseFields.map(f=>[f.key,f.label]));
+export const retiredResponseColumns=new Set(['BarrierRequirement','PalletType','PMCost','PMCostCurrencyCode']);
+export function fieldValues(row:Record<string,unknown>|undefined,fields:PackagingField[]){return Object.fromEntries(fields.map(f=>[f.key,f.key==='ResponseLayerCount'?String(row?.ResponseLayerCount??row?.RequestedLayerCount??2):row?.[f.key]==null?'':typeof row[f.key]==='object'?JSON.stringify(row[f.key]):String(row[f.key])]))}
+export function requirementFieldsFor(child:boolean){return requirementFields.filter(f=>!child||!f.parentOnly)}
+export function responseFieldActive(key:string,values:Record<string,string>,configuration?:unknown){const load=String(configuration??'').trim();if(['LayersPerContainer','PalletsPerContainer'].includes(key)&&load==='Floor load')return false;if(key==='CartonsPerContainerFloor'&&!['Floor load','Both'].includes(load))return false;const layers=Number(values.ResponseLayerCount||3);return !((layers<2&&['SecondPMType','SecondPMMOQ','UnitsPerCarton'].includes(key))||(layers<3&&['ThirdPMType','ThirdPMMOQ','UnitsPerTertiary'].includes(key)))}
+export function fieldPayload(values:Record<string,string>,fields:PackagingField[],configuration?:unknown){return Object.fromEntries(fields.filter(f=>!f.readOnly&&responseFieldActive(f.key,values,configuration)).map(f=>[f.key,f.key==='ContainerLoadProfiles'?(values[f.key]?parseContainerProfiles(values[f.key]):null):values[f.key]?.trim()||null]))}

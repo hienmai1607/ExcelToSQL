@@ -1,5 +1,11 @@
 import type {ButtonHTMLAttributes} from 'react';
 const paths={
+ copy:'M9 9h12v12H9z M5 15H3V3h12v2',
+ attachment:'m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3 M6 14l9-9',
+ check:'m5 12 4 4L19 6',
+ info:'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20 M12 11v6 M12 7h.01',
+ drag:'M8 5h.01 M16 5h.01 M8 12h.01 M16 12h.01 M8 19h.01 M16 19h.01',
+ calculator:'M5 2h14v20H5z M8 5h8v4H8z M8 13h1 M12 13h1 M16 13h.01 M8 17h1 M12 17h1 M16 17h.01',
  grade:'M10 2h4v4h-4z M3 18h4v4H3z M17 18h4v4h-4z M12 6v6 M5 18v-6h14v6',
  history:'M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v5l3 2',
  price:'M3 3h8l10 10-8 8L3 11z M7 7h.01',
@@ -14,6 +20,7 @@ const paths={
  opportunity:'M4 20V10h4v10 M10 20V5h4v15 M16 20V2h4v18',
  package:'m3 7 9-5 9 5v10l-9 5-9-5z M3 7l9 5 9-5 M12 12v10 M8 4l9 5',
  customer:'M16 21v-3a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v3 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M17 4a4 4 0 0 1 0 7 M22 21v-3a4 4 0 0 0-3-4',
+ left:'m14 6-6 6 6 6',right:'m10 6 6 6-6 6',
  up:'m6 14 6-6 6 6',down:'m6 10 6 6 6-6',plus:'M12 4v16 M4 12h16',close:'m6 6 12 12 M6 18 18 6'
 };
 export type IconName=keyof typeof paths;

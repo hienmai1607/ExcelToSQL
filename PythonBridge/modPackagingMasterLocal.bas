@@ -76,7 +76,7 @@ Private Function CurrentValues(ByVal r As Long, Optional ByVal validate As Boole
     Set CurrentValues = d
 End Function
 Private Function NumericField(ByVal key As String) As Boolean
-    NumericField = InStr("|QuantityFrom|QuantityTo|UnitPrice|ExchangeRateToUSD|", "|" & key & "|") > 0
+    NumericField = InStr("|QuantityFrom|QuantityTo|UnitPrice|ExchangeRateToUSD|Width|Length|PalletAreaMM2|TareWeight|", "|" & key & "|") > 0
 End Function
 Private Function ISODate(ByVal value As Variant, Optional ByVal validate As Boolean = True) As Variant
     If Len(S(value)) = 0 Then

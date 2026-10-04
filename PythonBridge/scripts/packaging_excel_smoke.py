@@ -3,7 +3,7 @@ import json
 import tempfile
 import urllib.request
 from pathlib import Path
-body={"views":{"header":{"columns":["RequestNumber"],"sort":[]},"items":{"columns":["ProductCode","PMCost","PMCostCurrencyCode"],"sort":[]}},"page":1,"page_size":2}
+body={"views":{"header":{"columns":["RequestNumber"],"sort":[]},"items":{"columns":["ProductCode","FirstPMType","SecondPMType"],"sort":[]}},"page":1,"page_size":2}
 request=urllib.request.Request("http://127.0.0.1:8000/api/workbench/packaging-excel/download",
  data=json.dumps(body).encode(),headers={"Content-Type":"application/json","X-User-Name":"Admin"})
 with urllib.request.urlopen(request,timeout=30) as response:content=response.read()

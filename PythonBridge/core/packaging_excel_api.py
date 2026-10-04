@@ -24,16 +24,16 @@ REVIEW_REQUIRED=["FirstPMType","SecondPMType","UnitsPerCarton","PackagingDescrip
 HEADER_REQUIRED=["RequestNumber","OpportunityNumber","CustomerName"]
 ITEM_REQUIRED=["ProductCode","ItemDescription","PIC",*REVIEW_REQUIRED]
 # Same response fields exposed by the current web response editor; no snapshot or assignment edits.
-EDITABLE={*PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS,"PMCost","PMCostCurrencyCode","CostBasis","ResponseNotes","HeightMM","WidthMM","LengthMM"}
-TEXT_FIELDS={"FirstPMType","SecondPMType","PackagingDescription","PalletType","PMCostCurrencyCode","CostBasis","ResponseNotes"}
+EDITABLE={*PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS,"CostBasis","ResponseNotes","HeightMM","WidthMM","LengthMM"}
+TEXT_FIELDS={"FirstPMType","SecondPMType","PackagingDescription","CostBasis","ResponseNotes"}
 EXTRA={"CostBasis","ResponseNotes","HeightMM","WidthMM","LengthMM"}
 META=["_RequestID","_ItemID","_ItemVersion","_Original"]
 ALL_ITEMS=ITEMS|EXTRA
 LABELS={"RequestNumber":"Request","OpportunityNumber":"Opportunity","CustomerName":"Customer","ResponseDue":"Response due",
 "RequestStatus":"Status","RequestedAt":"Requested at (UTC+7)","RequestedByName":"Requested by","ItemCount":"Items",
 "ProductCode":"Product code","ItemDescription":"Description","AnnualUnit":"Annual units","PIC":"PIC username",
-"ItemStage":"Stage","PMCost":"PM cost","PMCostCurrencyCode":"Cost currency","FirstPMType":"1st PM type",
-"SecondPMType":"2nd PM type","FirstPMMOQ":"1st PM MOQ","SecondPMMOQ":"2nd PM MOQ","UnitsPerCarton":"Unit / CTN",
+"ItemStage":"Stage","FirstPMType":"Primary Type",
+"SecondPMType":"Secondary Type","FirstPMMOQ":"1st PM MOQ","SecondPMMOQ":"2nd PM MOQ","UnitsPerCarton":"Unit / CTN",
 "HeightMM":"Height (mm)","WidthMM":"Width (mm)","LengthMM":"Length (mm)"}
 
 class View(BaseModel):
@@ -175,18 +175,10 @@ def prepare(edit,source,ctx):
  if source.get("RequestID")!=edit.request_id:raise ValueError("Item does not belong to this request.")
  if source.get("ItemRowVersion")!=edit.version:raise ValueError("Item changed. Refresh before saving.")
  if not can_edit(ctx,source):raise ValueError("Only the assigned Packaging PIC or Admin can update an Assigned, Working or Returned response.")
- values={**source,**edit.changes}
  base={k:source.get(k) for k in ("MaterialID","HeightMM","WidthMM","LengthMM","Cost","CurrencyID","CostBasis","ResponseNotes")}
  for key in ("HeightMM","WidthMM","LengthMM","CostBasis","ResponseNotes"):
   if key in edit.changes:base[key]=edit.changes[key]
- if "PMCost" in edit.changes:base["Cost"]=edit.changes["PMCost"]
- if "PMCostCurrencyCode" in edit.changes:
-  code=edit.changes["PMCostCurrencyCode"]
-  if code is None or code=="":base["CurrencyID"]=None
-  else:
-   found=execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Read',@Actor OUTPUT; SELECT ID FROM dbo.Currency WHERE CurrencyCode=?",[ctx.username,code])[0]
-   if len(found)!=1:raise ValueError("Cost currency is not found or ambiguous.")
-   base["CurrencyID"]=found[0]["ID"]
+
  if base["Cost"] is not None and (not base["CurrencyID"] or not str(base["CostBasis"] or "").strip()):raise ValueError("Cost currency and cost basis are required when entering PM cost.")
  base.update({k:v for k,v in edit.changes.items() if k in PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS})
  base.update(RowNum=edit.row,ID=edit.item_id,RowVersion=edit.version)

@@ -8,7 +8,7 @@ async function setup(page:Page){
  const product={ID:7,ProductCode:'PRD-0000000007',ProductName:'Almonds',Category:'Nuts',WeightGrams:'100',Status:'Active',RowVersion:rv};
  await page.route('**/api/**',route=>{
   const p=new URL(route.request().url()).pathname;
-  if(p.endsWith('/raw-grade-lookups'))return route.fulfill({json:{rows:gradeNames.map((GradeName,i)=>({ID:i+1,GradeName,ParentGradeID:gradeParent[GradeName]?gradeID(gradeParent[GradeName]):null,MaterialCode:'RAW-1',MaterialName:'Raw nuts'}))}});
+  if(p.endsWith('/raw-grade-lookups'))return route.fulfill({json:{rows:gradeNames.map((GradeName,i)=>({ID:i+1,GradeName,ParentGradeID:gradeParent[GradeName]?gradeID(gradeParent[GradeName]):null,MaterialCode:'RAW-1',MaterialName:'Raw nuts'})),materials:[{ID:101,GradeID:gradeID('A1'),MaterialCode:'RAW-101',MaterialName:'Nuts A',Status:'Active'},{ID:102,GradeID:gradeID('A1'),MaterialCode:'RAW-102',MaterialName:'Nuts B',Status:'Active'},{ID:201,GradeID:gradeID('B1'),MaterialCode:'RAW-201',MaterialName:'Other',Status:'Active'}]}});
   if(p.endsWith('/session'))return route.fulfill({json:{username:'Tester',user_id:1,scopes:['Product'],is_admin:false}});
   if(p.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,masters:{}},version:0}});
   if(p.endsWith('/lookups'))return route.fulfill({json:{customers:[{ID:1,CustomerName:"Northstar",Status:"Active"}],materials:[],currencies:[],creators:[]}});
@@ -216,7 +216,7 @@ test('tree respects active version lock and submits a new edited version',async(
  await dialog.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(dialog.getByRole('alert')).toContainText('Version conflict');
- expect(payload.items).toEqual([{ParentID:'0',ID:1,Grade:'Revised',RawGradeID:gradeID('Revised'),RatioPct:'100'},{ParentID:'0/1',ID:1,Grade:'Component',RawGradeID:gradeID('Component'),RatioPct:'100'}]);
+ expect(payload.items).toEqual([{ParentID:'0',ID:1,Grade:'Revised',RawGradeID:gradeID('Revised'),RawMaterialID:null,RatioPct:'100'},{ParentID:'0/1',ID:1,Grade:'Component',RawGradeID:gradeID('Component'),RawMaterialID:null,RatioPct:'100'}]);
  await expect(tree.getByLabel('Grade 0/1/1',{exact:true})).toHaveValue(String(gradeID("Component")));
 });
 
@@ -239,6 +239,38 @@ test('child options follow Raw Grade Master parent and reject stale child select
  await child.selectOption(String(gradeID('B1')));
  await dialog.getByRole('button',{name:'Use grades'}).click();
  await expect(dialog).toHaveCount(0);
+});
+
+test('child grade chooses a linked Raw Material and Raw Pricing follows the choice',async({page})=>{
+ const {writes}=await setup(page);
+ await page.route('**/products/raw-pricing',route=>route.fulfill({json:{as_of:'2026-09-30',rows:[
+  {RawGradeID:gradeID('A1'),MaterialID:101,MaterialCode:'RAW-101',MaterialName:'Nuts A',PricingStatus:'No current price'},
+  {RawGradeID:gradeID('A1'),MaterialID:102,MaterialCode:'RAW-102',MaterialName:'Nuts B',PricingStatus:'No current price'}
+ ]}}));
+ await page.getByRole('button',{name:'New product',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New product',exact:true});
+ await form.getByLabel('Customer',{exact:true}).selectOption('1');
+ await form.getByLabel('Product name',{exact:true}).fill('Material choice');
+ await form.getByLabel('Category',{exact:true}).fill('Nuts');
+ await form.getByLabel('Weight',{exact:true}).fill('100');
+ await form.getByRole('button',{name:'Grades for record 1'}).click();
+ const grades=page.getByRole('dialog',{name:'Product grades',exact:true});
+ await grades.getByRole('button',{name:'Add root grade'}).click();
+ await grades.getByLabel('Grade 0/1',{exact:true}).selectOption(String(gradeID('A')));
+ await grades.getByRole('button',{name:'Add child grade to 0/1'}).click();
+ await grades.getByLabel('Grade 0/1/1',{exact:true}).selectOption(String(gradeID('A1')));
+ const material=grades.getByLabel('Raw Material 0/1/1',{exact:true});
+ await expect(material.locator('option[value="201"]')).toHaveCount(0);
+ await material.selectOption('101');
+ await grades.getByRole('button',{name:'Raw Pricing',exact:true}).click();
+ await expect(grades.getByRole('table')).toContainText('RAW-101');
+ await expect(grades.getByRole('table')).not.toContainText('RAW-102');
+ await grades.getByRole('button',{name:'Tree',exact:true}).click();
+ await expect(material).toHaveValue('101');
+ await grades.getByRole('button',{name:'Use grades'}).click();
+ await form.getByRole('button',{name:'Review & save'}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(writes[0].rows[0].GradeVersion.items[1]).toMatchObject({RawGradeID:gradeID('A1'),RawMaterialID:101});
 });
 
 test('Raw Pricing is read only, shows current tiers and preserves the grade draft',async({page})=>{

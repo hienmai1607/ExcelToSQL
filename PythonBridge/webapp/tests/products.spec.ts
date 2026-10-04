@@ -74,21 +74,21 @@ test('unrelated role has no Product master access',async({page})=>{
  await setup(page,'Packaging');await expect(page.getByRole('button',{name:'Products',exact:true})).toBeDisabled();
 });
 
-test('product action column expands and saves its width',async({page})=>{
+test('product ID column expands and saves its width',async({page})=>{
  const state=await setup(page);
  const edit=page.getByRole('button',{name:'Edit product 7',exact:true});
  await expect(edit).toBeAttached();
  const cell=edit.locator('..');
  const clipped=await cell.evaluate(el=>el.scrollWidth>el.clientWidth);
  expect(clipped,'Product action buttons should not be clipped').toBe(false);
- const handle=page.getByRole('separator',{name:'Resize Actions',exact:true});
+ const handle=page.getByRole('separator',{name:'Resize Product code',exact:true});
  await expect(handle).toBeVisible();
  await handle.focus();await page.keyboard.press('Shift+ArrowRight');
  const width=Number(await handle.getAttribute('aria-valuenow'));
  await page.getByRole('button',{name:'Layout options',exact:true}).click();
  await page.getByRole('button',{name:'Save layout to profile'}).click();
  await expect(page.getByRole('status')).toContainText('saved');
- expect(state.profile().settings.masters.products.column_widths._Actions).toBe(width);
+ expect(state.profile().settings.masters.products.column_widths.ProductCode).toBe(width);
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(handle).toHaveAttribute('aria-valuenow',String(width));
 });

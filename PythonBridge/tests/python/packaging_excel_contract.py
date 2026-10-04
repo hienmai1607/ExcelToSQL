@@ -34,7 +34,8 @@ class Contracts(unittest.TestCase):
   for value in (None,"","001","Film"):
    self.assertEqual(self.edit(changes={"FirstPMType":value}).changes["FirstPMType"],value)
   self.assertEqual(self.edit(changes={"FirstPMMOQ":12}).changes["FirstPMMOQ"],12)
-  self.assertEqual(self.edit(changes={"PMCostCurrencyCode":123}).changes["PMCostCurrencyCode"],"123")
+  for key in ("PMCostCurrencyCode","PMCost","PalletType"):
+   with self.assertRaises(ValidationError):self.edit(changes={key:123})
  def test_excel_text_rejects_invalid_shapes_and_nonfinite_numbers(self):
   for value in (True,False,[],{},float("nan"),float("inf")):
    with self.subTest(value=value),self.assertRaises(ValidationError):
@@ -78,7 +79,9 @@ class Contracts(unittest.TestCase):
   row=m.serialize({**self.row,"RequestedAt":datetime(2026,9,24,1,30)},self.ctx)
   self.assertEqual(row["RequestedAt"],"2026-09-24 08:30 AM")
   original=json.loads(row["_Original"])
-  self.assertEqual(original["PMCost"],row["PMCost"])
+  self.assertNotIn("PMCost",original)
+  self.assertNotIn("PMCostCurrencyCode",original)
+  self.assertNotIn("PalletType",original)
   self.assertEqual(original["WeightGrams"],row["WeightGrams"])
  def test_grouped_page_no_n_plus_one_and_limit(self):
   body=m.View(views={})
@@ -97,6 +100,10 @@ class Contracts(unittest.TestCase):
    ns={"s":"http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
    data=E.fromstring(z.read("xl/worksheets/sheet1.xml"));rows=data.findall("s:sheetData/s:row",ns)
    keys=[c.find("s:is/s:t",ns).text for c in rows[1]]
+   for key in ("PMCost","PMCostCurrencyCode","PalletType"):self.assertNotIn(key,keys)
+   labels=[c.find("s:is/s:t",ns).text for c in rows[0]]
+   self.assertIn("Primary Type",labels[keys.index("FirstPMType")])
+   self.assertIn("Secondary Type",labels[keys.index("SecondPMType")])
    self.assertNotIn("HeaderCommand",keys)
    self.assertLess(keys.index("RequestNumber"),keys.index("ItemCommand"))
    self.assertLess(keys.index("ItemCommand"),keys.index("ProductCode"))

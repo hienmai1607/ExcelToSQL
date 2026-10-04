@@ -16,7 +16,13 @@ lookups, but never using Packaging Material records as raw-price references.
   across both dates and quantity ranges. Edits require current RowVersion.
 - Layouts, widths, filters, numeric formatting, XLSX exports and Excel Local Update
   follow the existing master screens. Exports keep numeric values without currency suffixes.
-- Existing Grade/Product links are unchanged.
+
+Since migration 45, Raw Material has an optional Grade field. Only active
+leaf grades appear as valid selections. The old assignment on Raw Grade is
+backfilled to Raw Material; Product Grade Raw Pricing follows the new link.
+Excel Local Update also permits editing Grade by name, but rejects ambiguous
+names (use the web form for those grades). Apply migration 45 after 44 before
+deploying the corresponding core and webapp/dist.
 
 ## Update an existing VM through migration 37
 

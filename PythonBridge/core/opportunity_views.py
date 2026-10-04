@@ -4,29 +4,45 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from master_models import MasterSort, ColumnWidth
 from packaging_api import execute
+from packing_way import packing_way
+from packaging_efficiency import response_derived
+from web_item_fields import WEB_ITEM_FIELDS
 
 HEADER_COLUMNS = {"OpportunityNumber", "CustomerName", "OpportunityDesc", "BidOpen", "BidClose", "HeaderStage", "ItemCount", "CustomerCurrencyCode", "ExchangeRateVNDPerUSD", "ExchangeRateCustomerCurrencyPerUSD"}
-from packaging_fields import OPPORTUNITYITEM_FIELDS, PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS
-ITEM_COLUMNS = {"ProductCode", "ItemDescription", "AnnualUnit", "EstPctAwarded", "ShelfPrice", "ItemStage", "ProductName", "WeightGrams", "Category", "Grade", "MixRatioPct", "PMCost", "PMCostCurrencyCode", "PackagingRequestNumber", "PackagingResponseStage", *OPPORTUNITYITEM_FIELDS, *PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS}
+from packaging_fields import OPPORTUNITYITEM_FIELDS, PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS, RETIRED_RESPONSE_COLUMNS
+MIX_COLUMNS = {"ItemNumber","MixUnitQuantity","ShelfLifeDays"}
+ITEM_COLUMNS = {"ProductCode", "ItemDescription", "AnnualUnit", "EstPctAwarded", "ShelfPrice", "ItemStage", "ProductName", "WeightGrams", "Category", "Grade", "MixRatioPct", "PackagingRequestNumber", "PackagingResponseStage", *OPPORTUNITYITEM_FIELDS, *PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS}
+
+ITEM_COLUMNS |= MIX_COLUMNS
+VIEW_ITEM_COLUMNS = ITEM_COLUMNS | WEB_ITEM_FIELDS
 
 class OpportunityView(BaseModel):
-    column_widths: dict[str, ColumnWidth] = Field(default_factory=dict,max_length=64)
+    page_size: int = Field(25, ge=1, le=500, strict=True)
+    column_widths: dict[str, ColumnWidth] = Field(default_factory=dict,max_length=128)
     model_config = ConfigDict(extra="forbid")
     columns: list[str] = Field(min_length=1, max_length=644)
     sort: list[MasterSort] = Field(default_factory=list, max_length=644)
     filters: list[str] | None = Field(None, max_length=5)
     values: dict[str, str] = Field(default_factory=dict, max_length=5)
-    field_version: int = Field(1, ge=1, le=3)
+    field_version: int = Field(1, ge=1, le=7)
     prefix_columns: list[str] | None = Field(None, max_length=64)
 
 def validate_view(view, allowed):
+    # Keep ITEM_COLUMNS unchanged for workbook exports; web preferences have a wider catalog.
+    allowed = VIEW_ITEM_COLUMNS if allowed == ITEM_COLUMNS else allowed
+    if allowed == VIEW_ITEM_COLUMNS:
+        view.columns = [k for k in view.columns if k not in RETIRED_RESPONSE_COLUMNS]
+        view.sort = [r for r in view.sort if r.column not in RETIRED_RESPONSE_COLUMNS]
+        for key in RETIRED_RESPONSE_COLUMNS: view.column_widths.pop(key, None)
+        if view.prefix_columns is not None:
+            view.prefix_columns = [k for k in view.prefix_columns if k not in RETIRED_RESPONSE_COLUMNS]
     if allowed == HEADER_COLUMNS:
         mapping={"CurrencyCode":"CustomerCurrencyCode","ExchangeRateToVND":"ExchangeRateVNDPerUSD"}
         view.columns=list(dict.fromkeys(mapping.get(k,k) for k in view.columns))
         for rule in view.sort: rule.column=mapping.get(rule.column,rule.column)
     if any(k not in allowed and not (allowed==HEADER_COLUMNS and k=="_Actions") for k in view.column_widths):raise ValueError("Invalid column width key.")
     if view.prefix_columns is not None:
-        if allowed != ITEM_COLUMNS or len(view.prefix_columns) != len(set(view.prefix_columns)) or any(c not in ITEM_COLUMNS for c in view.prefix_columns):
+        if allowed != VIEW_ITEM_COLUMNS or len(view.prefix_columns) != len(set(view.prefix_columns)) or any(c not in VIEW_ITEM_COLUMNS for c in view.prefix_columns):
             raise ValueError("Invalid Opportunity item prefix columns.")
     for values in (view.columns, [r.column for r in view.sort]):
         if len(values) != len(set(values)) or any(v not in allowed for v in values):
@@ -41,6 +57,7 @@ def validate_view(view, allowed):
 
 class OpportunityViews(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    editor_page_size: int = Field(25, ge=1, le=500, strict=True)
     header: OpportunityView | None = None
     items: OpportunityView | None = None
 
@@ -86,20 +103,63 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
                 o.ExchangeRateVNDPerUSD,c.CurrencyID AS CustomerCurrencyID,
                 (SELECT CurrencyCode FROM dbo.Currency WHERE ID=c.CurrencyID) CustomerCurrencyCode,
                 CASE WHEN o.RateCustomerCurrencyID=c.CurrencyID THEN o.ExchangeRateCustomerCurrencyPerUSD END AS ExchangeRateCustomerCurrencyPerUSD,
-                (SELECT COUNT(*) FROM dbo.OpportunityItem i WHERE i.OpportunityID=o.ID) ItemCount
+                (SELECT COUNT(*) FROM dbo.OpportunityItem i WHERE i.OpportunityID=o.ID AND i.ParentItemID IS NULL) ItemCount
             FROM dbo.Opportunity o JOIN dbo.Customer c ON c.ID=o.CustomerID WHERE {where}
         ), Ranked AS (
             SELECT *,ROW_NUMBER() OVER(ORDER BY {order}) SortPosition FROM Headers
         ), PageHeaders AS (
             SELECT * FROM Ranked ORDER BY SortPosition OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
         )
-        SELECT h.*,i.ID ItemID,i.ProductID,p.ProductCode,p.ProductName,p.WeightGrams,i.ItemDescription,i.AnnualUnit,
+        SELECT h.*,i.ID ItemID,i.ProductID,p.ProductCode,p.ProductName,i.ProductNetWeightGrams AS WeightGrams,i.ItemDescription,
+            CONVERT(VARCHAR(40),i.AnnualUnit) AnnualUnit,
+            i.ParentItemID,i.MixUnitQuantity,i.MixChildNumber,mix.MixVersionID,
+            CONVERT(VARCHAR(20),(SELECT COUNT(*) FROM dbo.OpportunityItem root
+              WHERE root.OpportunityID=i.OpportunityID AND root.ParentItemID IS NULL
+              AND root.ID<=COALESCE(i.ParentItemID,i.ID)))+
+              CASE WHEN i.ParentItemID IS NULL THEN '' ELSE '.'+CONVERT(VARCHAR(20),i.MixChildNumber) END AS ItemNumber,
             i.EstPctAwarded,i.ShelfPrice,i.Stage ItemStage,i.RowVersion ItemRowVersion,
             CAST(CASE WHEN active_request.ID IS NULL THEN 0 ELSE 1 END AS BIT) HasOpenPackagingRequest,
             request_header.RequestNumber AS OpenPackagingRequestNumber,
             active_request.Stage AS OpenPackagingRequestStage,
-            x.Category,x.Grade,x.MixRatioPct,x.PalletSize,x.PalletStacking,x.MaxPalletHeightM,x.ContainerRequest,x.ConfigurationRequest,x.PackagingType,x.RecyclableRequirement,x.RecycledContent,x.Transparency,x.MetalizedAluminum,x.BarrierRequirement,x.ShelfLifeDays,x.SpecialComments,
+            x.Category,x.Grade,x.MixRatioPct,x.PalletSize,x.PalletStacking,x.MaxPalletHeightM,x.ContainerRequest,x.ConfigurationRequest,x.PackagingType,x.RecyclableRequirement,x.RecycledContent,x.Transparency,x.MetalizedAluminum,p.ShelfLifeDays,x.SpecialComments,
+            i.PrimaryTypeID,i.SecondaryTypeID,i.SecondaryTransparency,i.NumberOfPrimary,i.PackagingLayerCount,i.PackagingLayerCount RequestedLayerCount,i.TertiaryTypeID,i.TertiaryTransparency,i.NumberOfSecondary,
+            i.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
+            (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.TertiaryTypeID) AS TertiaryTypeName,
+            (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.PrimaryTypeID) AS PrimaryTypeName,
+            (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.SecondaryTypeID) AS SecondaryTypeName,
             x.PackagingRequestNumber,x.PackagingResponseStage,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponseLayerCount END ResponseLayerCount,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.SelectedContainerType END SelectedContainerType,
+            COALESCE(NULLIF(response.ContainerRequest,N''),parent_container.ContainerRequest) ResponseContainerFamily,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ContainerLoadProfiles END ContainerLoadProfiles,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponsePalletSize END ResponsePalletSize,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponsePalletStacking END ResponsePalletStacking,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponseMaxPalletHeightMM END ResponseMaxPalletHeightMM,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.HeightMM END HeightMM,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ThirdPMType END ThirdPMType,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ThirdPMMOQ END ThirdPMMOQ,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.UnitsPerTertiary END UnitsPerTertiary,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.NutDensity END NutDensity,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.UsedVolumeML END UsedVolumeML,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.LayersPerContainer END LayersPerContainer,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.PalletsPerContainer END PalletsPerContainer,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.CartonsPerContainerFloor END CartonsPerContainerFloor,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN primary_pricing.UnitPrice END PrimaryPricePerUnit,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN primary_pricing.CurrencyCode END PrimaryPriceCurrencyCode,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN secondary_pricing.UnitPrice END SecondaryPricePerUnit,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN secondary_pricing.CurrencyCode END SecondaryPriceCurrencyCode,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN tertiary_pricing.UnitPrice END TertiaryPricePerUnit,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN tertiary_pricing.CurrencyCode END TertiaryPriceCurrencyCode,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN primary_pricing.SnapshotJSON END PrimaryLayerPricingSnapshot,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN secondary_pricing.SnapshotJSON END SecondaryLayerPricingSnapshot,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN tertiary_pricing.SnapshotJSON END TertiaryLayerPricingSnapshot,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN
+              CASE COALESCE(response.ResponseLayerCount,response.RequestedLayerCount) WHEN 1 THEN primary_pricing.SnapshotJSON
+                WHEN 2 THEN secondary_pricing.SnapshotJSON ELSE tertiary_pricing.SnapshotJSON END END FinalLayerPricingSnapshot,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN efficiency_pallet.PalletAreaMM2 END EfficiencyPalletAreaMM2,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN 1 ELSE 0 END PackingWayVisible,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.WeightGrams END PackingProductWeight,
+            response.RequestedLayerCount PackingRequestedLayers,response.ConfigurationRequest PackingConfiguration,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN x.FirstPMType END FirstPMType,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN x.SecondPMType END SecondPMType,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN x.UnitsPerCarton END UnitsPerCarton,
@@ -115,11 +175,34 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN (SELECT CurrencyCode FROM dbo.Currency WHERE ID=x.PMCostCurrencyID) END PMCostCurrencyCode
         FROM PageHeaders h LEFT JOIN dbo.OpportunityItem i ON i.OpportunityID=h.OpportunityID
         LEFT JOIN dbo.Product p ON p.ID=i.ProductID
+        LEFT JOIN dbo.OpportunityMixSnapshot mix ON mix.ParentItemID=COALESCE(i.ParentItemID,i.ID)
         LEFT JOIN dbo.v_OpportunityItemPackaging x ON x.OpportunityItemID=i.ID
+        LEFT JOIN dbo.PackagingConfigurationRequestItem response ON response.ID=x.PackagingRequestItemID
+        LEFT JOIN dbo.PackagingConfigurationRequestItem parent_container ON parent_container.RequestID=response.RequestID AND parent_container.OpportunityItemID=i.ParentItemID
+        LEFT JOIN dbo.PkgPricingMaster primary_pricing ON primary_pricing.RequestItemID=response.ID AND primary_pricing.PackagingOrder='Primary' AND primary_pricing.IsCurrent=1
+        LEFT JOIN dbo.PkgPricingMaster secondary_pricing ON secondary_pricing.RequestItemID=response.ID AND secondary_pricing.PackagingOrder='Secondary' AND secondary_pricing.IsCurrent=1
+        LEFT JOIN dbo.PkgPricingMaster tertiary_pricing ON tertiary_pricing.RequestItemID=response.ID AND tertiary_pricing.PackagingOrder='Tertiary' AND tertiary_pricing.IsCurrent=1
+        OUTER APPLY(SELECT TOP(1) p.PalletAreaMM2 FROM dbo.v_PalletMaster p JOIN dbo.UoM u ON u.ID=p.UoMID
+          WHERE p.PalletSize=response.ResponsePalletSize AND p.Status='Active' AND u.Status='Active' ORDER BY p.ID) efficiency_pallet
         LEFT JOIN dbo.PackagingConfigurationRequestItem active_request
             ON active_request.OpportunityItemID=i.ID AND active_request.IsOpen=1
         LEFT JOIN dbo.PackagingConfigurationRequest request_header ON request_header.ID=active_request.RequestID
-        ORDER BY h.SortPosition,i.ID;
+        ORDER BY h.SortPosition,COALESCE(i.ParentItemID,i.ID),COALESCE(i.MixChildNumber,0);
         SELECT COUNT(*) Total FROM dbo.Opportunity o JOIN dbo.Customer c ON c.ID=o.CustomerID WHERE {where};
     """, [username, username, *params, (page-1)*page_size, page_size, *params])
+    for row in result[0]:
+        # Responses use the immutable request product/configuration snapshot, not current product weight.
+        visible=row.pop("PackingWayVisible",False)
+        weight=row.pop("PackingProductWeight",None)
+        layers=row.pop("PackingRequestedLayers",None)
+        configuration=row.pop("PackingConfiguration",None)
+        values=packing_way({**row,"WeightGrams":weight,"RequestedLayerCount":layers,"ConfigurationRequest":configuration})
+        from container_loading import container_results
+        values["ContainerLoadResults"]=container_results({**row,"WeightGrams":weight,"RequestedLayerCount":layers,"ConfigurationRequest":configuration})
+        values.update(response_derived({**row,"RequestedLayerCount":layers}, values))
+        row.pop("FinalLayerPricingSnapshot",None)
+        for order in ("Primary","Secondary","Tertiary"):
+            row.pop(order+"LayerPricingSnapshot",None)
+        row.pop("EfficiencyPalletAreaMM2",None)
+        row.update(values if visible else {key:None for key in values})
     return {"rows": result[0], "total": result[1][0]["Total"], "page": page, "page_size": page_size}

@@ -38,7 +38,7 @@ Private Function S(ByVal v As Variant) As String
     If Not IsNull(v) And Not IsEmpty(v) Then S = CStr(v)
 End Function
 Private Function Editable(ByVal key As String) As Boolean
-    Editable = InStr(1, "|CustomerName|ProductName|Category|WeightGrams|Status|", "|" & key & "|", vbBinaryCompare) > 0
+    Editable = InStr(1, "|CustomerName|ProductName|Category|WeightGrams|ShelfLifeDays|Status|", "|" & key & "|", vbBinaryCompare) > 0
 End Function
 Private Function Api(ByVal endpoint As String, ByVal body As Object) As Object
     Dim http As Object, base As String
@@ -65,9 +65,12 @@ Private Function CurrentValues(ByVal r As Long, Optional ByVal validate As Boole
         If key <> "Command" And Left$(key, 1) <> "_" And Len(key) > 0 Then
             v = WS.Cells(r, c).Value2
             If Len(S(v)) = 0 Then v = Null
-            If validate And Not IsNull(v) And (key = "WeightGrams") Then
+            If validate And Not IsNull(v) And (key = "WeightGrams" Or key = "ShelfLifeDays") Then
                 If Not IsNumeric(v) Then Err.Raise vbObjectError + 3103, , "Row " & r & ": invalid numeric value for " & key
                 v = CDbl(v)
+                If key = "ShelfLifeDays" Then
+                    If v < 0 Or v > 2147483647# Or v <> Fix(v) Then Err.Raise vbObjectError + 3103, , "Row " & r & ": Shelf life must be whole days from 0 to 2,147,483,647."
+                End If
             End If
             d(key) = v
         End If
@@ -76,7 +79,7 @@ Private Function CurrentValues(ByVal r As Long, Optional ByVal validate As Boole
 End Function
 Private Function SameValue(ByVal a As Variant, ByVal b As Variant, ByVal key As String) As Boolean
     If Len(S(a)) = 0 And Len(S(b)) = 0 Then SameValue = True: Exit Function
-    If key = "WeightGrams" Then
+    If key = "WeightGrams" Or key = "ShelfLifeDays" Then
         If IsNumeric(a) And IsNumeric(b) Then SameValue = (CDbl(a) = CDbl(b)): Exit Function
     End If
     SameValue = (StrComp(S(a), S(b), vbBinaryCompare) = 0)

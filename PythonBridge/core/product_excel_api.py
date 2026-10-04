@@ -23,7 +23,7 @@ from cache import invalidate
 router=APIRouter(prefix="/api/workbench/product-excel",tags=["Product Excel"])
 ROOT=Path(__file__).resolve().parents[1]
 TEMPLATE=ROOT/"templates"/"Product_Local_Update.xlsm"
-EDITABLE={"CustomerName","ProductName","Category","WeightGrams","Status"}
+EDITABLE={"CustomerName","ProductName","Category","WeightGrams","ShelfLifeDays","Status"}
 REQUIRED=list(PRODUCT_REQUIRED_COLUMNS)
 META=["_ID","_RowVersion","_Original"]
 class View(BaseModel):

@@ -65,6 +65,8 @@
 @media(pointer:coarse){.grade-tree-actions .icon-button{min-width:36px;min-height:36px}}
 
 .grade-tree-node select{width:100%;min-width:0;height:32px;padding:4px 6px;font-size:12px;}
+.grade-tree-node .grade-tree-material{grid-column:1/-1}
+.grade-tree-node small.grade-tree-material{display:block;margin-top:4px;line-height:1.35}
 
 .raw-pricing-scroll{max-width:100%;overflow:auto;margin:12px 0}.raw-pricing-scroll table{min-width:1900px;width:100%;border-collapse:collapse}.raw-pricing-scroll th,.raw-pricing-scroll td{padding:10px;text-align:left;border-bottom:1px solid var(--border,#d7e0d9);white-space:nowrap}.raw-pricing-scroll th{white-space:normal;min-width:100px}
 

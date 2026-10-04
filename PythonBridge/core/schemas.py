@@ -8,6 +8,8 @@ the corresponding tuple-building code in main.py together.
 """
 
 from typing import Literal, Optional
+from decimal import Decimal
+from pydantic import ConfigDict
 from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 from packaging_fields import ProductFields, HeaderFields, ItemFields
@@ -61,6 +63,11 @@ class OpportunityHeaderRow(HeaderFields):
         populate_by_name = True
 
 
+class OpportunityMixChildInput(ItemFields):
+    model_config = ConfigDict(extra="forbid")
+    ProductID: int = Field(ge=1)
+
+
 class OpportunityItemRow(ItemFields):
     row_num: int = Field(..., alias="RowNum")
     command: Literal["C", "U", "D"] = Field(..., alias="Command")
@@ -68,7 +75,9 @@ class OpportunityItemRow(ItemFields):
     opportunity_number: str = Field(..., alias="OpportunityNumber")  # links to header in this batch
     product_id: Optional[int] = Field(None, alias="ProductID")
     item_description: Optional[str] = Field(None, alias="ItemDescription")
-    annual_unit: Optional[int] = Field(None, alias="AnnualUnit")
+    annual_unit: Optional[Decimal] = Field(None, alias="AnnualUnit", ge=0, max_digits=18, decimal_places=4, allow_inf_nan=False)
+    MixVersionID: int | None = Field(None, ge=1)
+    MixChildren: list[OpportunityMixChildInput] = Field(default_factory=list, max_length=500)
     est_pct_awarded: Optional[float] = Field(None, alias="EstPctAwarded")
     shelf_price: Optional[float] = Field(None, alias="ShelfPrice")
     stage: Optional[str] = Field(None, alias="Stage")

@@ -2,6 +2,7 @@ from pathlib import Path
 import asyncio
 import json
 import sys
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "core"))
@@ -12,9 +13,9 @@ import main  # noqa: E402
 calls: list[tuple[str, list]] = []
 
 
-def fake_read(proc_name: str, params: list) -> list[dict]:
-    calls.append((proc_name, params))
-    return [{"OpportunityID": 10, "OpportunityNumber": "OPP-10", "TotalMatchingRows": 9510}]
+def fake_grid(username, page, page_size, sort, *filters):
+    calls.append(("sorted_grid",[username,page,page_size,sort,*filters]))
+    return {"rows":[{"OpportunityID":10,"OpportunityNumber":"OPP-10"}],"total":9510,"page":page,"page_size":page_size}
 
 
 async def get(path: str, query: str) -> tuple[int, dict]:
@@ -46,17 +47,19 @@ async def get(path: str, query: str) -> tuple[int, dict]:
 main.app.dependency_overrides[main.get_current_username] = lambda: "opportunity.user"
 main.app.dependency_overrides[main.get_is_admin] = lambda: False
 main.app.dependency_overrides[main.get_user_scopes] = lambda: frozenset({"Opportunity"})
-main.run_read_query = fake_read
-
-status, body = asyncio.run(get(
-    "/api/opportunity/grid",
-    "page=2&page_size=200&opportunity_number=OPP-2&customer_name=ACME&stage=Draft&bid_open_from=2026-01-01&bid_open_to=2026-12-31",
-))
+try:
+    with patch.object(main,"sorted_grid",side_effect=fake_grid):
+        status, body = asyncio.run(get(
+            "/api/opportunity/grid",
+            "page=2&page_size=200&opportunity_number=OPP-2&customer_name=ACME&stage=Draft&bid_open_from=2026-01-01&bid_open_to=2026-12-31",
+        ))
+finally:
+    main.app.dependency_overrides.clear()
 assert status == 200, body
 assert body["page"] == 2 and body["page_size"] == 200 and body["total"] == 9510
 assert calls[-1] == (
-    "dbo.usp_Opportunity_Grid_Read",
-    ["opportunity.user", 0, 2, 200, "OPP-2", "ACME", "Draft", "2026-01-01", "2026-12-31"],
+    "sorted_grid",
+    ["opportunity.user", 2, 200, "[]", "OPP-2", "ACME", "Draft", "2026-01-01", "2026-12-31"],
 )
 
 main.app.dependency_overrides.clear()

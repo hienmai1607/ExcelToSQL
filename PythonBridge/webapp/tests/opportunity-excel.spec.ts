@@ -1,10 +1,11 @@
 import {test,expect} from '@playwright/test';
+import {efficiencyFields} from '../src/item-view-fields';
 test('Opportunity combined workbook uses both layouts and keeps required columns',async({page})=>{
  let submitted:any;
  await page.route('**/api/**',route=>{
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Admin',scopes:['Admin'],is_admin:true}});
-  if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,opportunity:{header:{field_version:3,columns:['HeaderStage'],sort:[],filters:['customer_name'],values:{}},items:{field_version:3,columns:['ShelfPrice'],sort:[]}}},version:0}});
+  if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,opportunity:{header:{field_version:3,columns:['HeaderStage'],sort:[],filters:['customer_name'],values:{}},items:{field_version:6,columns:['ShelfPrice'],sort:[]}}},version:0}});
   if(path.endsWith('/opportunity-excel/download')){submitted=route.request().postDataJSON();return route.fulfill({body:'test',headers:{'Content-Type':'application/vnd.ms-excel.sheet.macroEnabled.12'}})}
   return route.fulfill({json:{rows:[],total:0,page:1}});
  });
@@ -15,6 +16,6 @@ test('Opportunity combined workbook uses both layouts and keeps required columns
  await page.getByRole('button',{name:'Excel Local Update',exact:true}).click();
  expect((await download).suggestedFilename()).toBe('Opportunity_Local_Update.xlsm');
  expect(submitted.views.header.columns).toContain('CustomerName');
- expect(submitted.views.items.columns).toEqual(['ShelfPrice','ProductCode','ItemDescription','AnnualUnit']);
+ expect(submitted.views.items.columns).toEqual(['ShelfPrice','ProductCode','ItemDescription','AnnualUnit',...efficiencyFields]);
  expect(submitted.page_size).toBe(25);
 });

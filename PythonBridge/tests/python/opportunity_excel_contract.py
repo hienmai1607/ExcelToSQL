@@ -16,7 +16,7 @@ class Contracts(unittest.TestCase):
   self.ctx=AccessContext(1,"Admin",frozenset({"Admin"}))
   self.source=dict(OpportunityID=1,OpportunityNumber="OPP-1",CustomerID=2,CustomerName="Customer",OpportunityDesc="Test",
    BidOpen="2026-09-01",BidClose="2026-10-01",CurrencyID=3,CurrencyCode="VND",ExchangeRateToVND="1",
-   HeaderStage="Draft",HeaderRowVersion="AAAAAAAAAAE=",ItemID=4,ProductID=5,ProductCode="P1",
+   CustomerCurrencyCode="VND",ExchangeRateVNDPerUSD="25000",ExchangeRateCustomerCurrencyPerUSD="25000",HeaderStage="Draft",HeaderRowVersion="AAAAAAAAAAE=",ItemID=4,ProductID=5,ProductCode="P1",
    ItemDescription="Item",AnnualUnit=10,EstPctAwarded=None,ShelfPrice=None,ItemStage="Draft",ItemRowVersion="AAAAAAAAAAI=",
    HasOpenPackagingRequest=False,PalletSize="Keep me")
  def edit(self,**kw):
@@ -74,7 +74,7 @@ class Contracts(unittest.TestCase):
   with self.assertRaises(ValidationError):m.Batch(rows=[self.edit(),self.edit(row=4)])
  def test_create_header_multiple_items(self):
   group=[m.Edit(row=n,number="XL-NEW",header_command="C",item_command="C",
-   header_changes={k:self.source[k] for k in m.HEADER_REQUIRED if k!="OpportunityNumber"},
+   header_changes={k:self.source[k] for k in m.HEADER_REQUIRED if k in m.HEADER_EDITABLE},
    item_changes={"ProductCode":"P"+str(n),"ItemDescription":"Item","AnnualUnit":5}) for n in (3,4)]
   with patch.object(m,"resolve",return_value=9):
    p=m.prepare(group,self.ctx)

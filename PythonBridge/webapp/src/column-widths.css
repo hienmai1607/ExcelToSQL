@@ -7,3 +7,14 @@
 
 .resizable-table .customer-actions{width:auto;white-space:normal;padding:8px 12px;text-overflow:clip}
 .resizable-table .customer-actions button{margin:2px}
+
+/* Keep row actions available without visiting the bottom horizontal scrollbar. */
+.pin-first-column thead tr>th:first-child,.pin-first-column tbody tr>td:first-child:not([colspan]){position:sticky;left:0;z-index:3;box-shadow:1px 0 0 var(--border,#d7e0d9),3px 0 5px #132c3310}
+.pin-first-column thead tr>th:first-child{background:#f7f9f7;z-index:4}
+.pin-first-column tbody tr>td:first-child:not([colspan]){background:var(--surface,#fff)}
+.pin-first-column tbody tr:hover>td:first-child:not([colspan]){background:#fafcf9}
+.pin-first-column tbody tr.selected>td:first-child:not([colspan]){background:#edf5ee}
+.pin-first-column tbody tr.opportunity-mix-child>td:first-child:not([colspan]){background:var(--surface-alt,#f7faf7)}
+[data-theme=dark] .pin-first-column thead tr>th:first-child{background:#22362e}
+[data-theme=dark] .pin-first-column tbody tr:hover>td:first-child:not([colspan]),[data-theme=dark] .pin-first-column tbody tr.selected>td:first-child:not([colspan]){background:#2c4437}
+[data-theme=dark] .pin-first-column tbody tr.opportunity-mix-child>td:first-child:not([colspan]){background:#22362e}

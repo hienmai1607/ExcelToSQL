@@ -26,7 +26,7 @@ test('compact request views save header/item layout independently and sort on se
  await expect(page.getByRole('combobox',{name:'Status',exact:true})).toHaveCount(0);
  const headerRequest=page.waitForRequest(r=>r.url().includes('/workbench/requests?')&&new URL(r.url()).searchParams.get('sort')?.includes('ResponseDue')===true);
  await page.getByRole('button',{name:'Sort by Response due',exact:true}).click();await headerRequest;
- await page.getByRole('button',{name:'PKG-1',exact:true}).click();
+ await page.getByRole('button',{name:'View request',exact:true}).click();
  await expect(page.getByRole('table',{name:'Packaging request items'})).toBeVisible();
  const itemRequest=page.waitForRequest(r=>r.url().includes('/packaging/requests?')&&new URL(r.url()).searchParams.get('sort')?.includes('AnnualUnit')===true);
  await page.getByRole('button',{name:'Sort by Annual units',exact:true}).click();await itemRequest;
@@ -55,7 +55,7 @@ test('request mobile toolbar and item box fit; close returns to list',async({pag
 test('request header and item column widths persist independently',async({page})=>{
  const profile=await setup(page);
  const request=page.getByRole('separator',{name:'Resize Request',exact:true});
- await expect(page.getByRole('button',{name:'PKG-1',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'View request',exact:true})).toBeVisible();
  await request.focus();await page.keyboard.press('Shift+ArrowRight');
  await expect(request).toHaveAttribute('aria-valuenow','230');
  await page.getByRole('button',{name:'Request layout',exact:true}).click();
@@ -63,7 +63,7 @@ test('request header and item column widths persist independently',async({page})
  await layout.getByRole('button',{name:'Save layout to profile'}).click();
  await expect(layout.getByRole('status')).toContainText('saved');
  await layout.getByRole('button',{name:'Close layout'}).click();
- await page.getByRole('button',{name:'PKG-1',exact:true}).click();
+ await page.getByRole('button',{name:'View request',exact:true}).click();
  const product=page.getByRole('separator',{name:'Resize Product',exact:true});
  await product.focus();await page.keyboard.press('ArrowRight');
  await expect(product).toHaveAttribute('aria-valuenow','190');
@@ -75,16 +75,16 @@ test('request header and item column widths persist independently',async({page})
  expect(profile().settings.requests.items.column_widths.ProductCode).toBe(190);
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(request).toHaveAttribute('aria-valuenow','230');
- await page.getByRole('button',{name:'PKG-1',exact:true}).click();
+ await page.getByRole('button',{name:'View request',exact:true}).click();
  await expect(product).toHaveAttribute('aria-valuenow','190');
 });
 
-test('request action column fits and can expand',async({page})=>{
+test('request ID column fits and can expand',async({page})=>{
  await setup(page);
  const button=page.getByRole('button',{name:'View request',exact:true});
  await expect(button).toBeVisible();
  expect(await button.evaluate(el=>{const cell=el.closest('td')!;return cell.scrollWidth>cell.clientWidth})).toBe(false);
- const handle=page.getByRole('separator',{name:'Resize Actions',exact:true});
+ const handle=page.getByRole('separator',{name:'Resize Request',exact:true});
  await handle.focus();await page.keyboard.press('Shift+ArrowRight');
 
  await expect(handle).toHaveAttribute('aria-valuenow','230');
@@ -94,12 +94,12 @@ test('request action column fits and can expand',async({page})=>{
  await expect(layout.getByRole('status')).toContainText('saved');
  await layout.getByRole('button',{name:'Close layout'}).click();
  await button.click();
- for(const label of ['Documents']){
+ for(const label of ['Review']){
   const resize=page.getByRole('separator',{name:'Resize '+label,exact:true});
   await resize.focus();await page.keyboard.press('Shift+ArrowRight');
-  await expect(resize).toHaveAttribute('aria-valuenow','230');
+  await expect(resize).toHaveAttribute('aria-valuenow','410');
  }
- await expect(page.getByRole('table',{name:'Packaging request items'}).getByRole('combobox')).toHaveCount(0);
+ await expect(page.getByRole('table',{name:'Packaging request items'}).getByRole('combobox')).toBeVisible();
  await page.getByRole('button',{name:'Request item layout',exact:true}).click();
  const items=page.getByRole('complementary',{name:'Request item layout',exact:true});
  await items.getByRole('button',{name:'Save layout to profile'}).click();
@@ -107,6 +107,6 @@ test('request action column fits and can expand',async({page})=>{
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(handle).toHaveAttribute('aria-valuenow','230');
  await button.click();
- for(const label of ['Documents'])
-  await expect(page.getByRole('separator',{name:'Resize '+label,exact:true})).toHaveAttribute('aria-valuenow','230');
+ for(const label of ['Review'])
+  await expect(page.getByRole('separator',{name:'Resize '+label,exact:true})).toHaveAttribute('aria-valuenow','410');
 });

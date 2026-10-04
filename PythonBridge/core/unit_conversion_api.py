@@ -1,6 +1,6 @@
 """Unit conversion maintenance; general factors are Admin-only."""
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from auth import AccessContext, get_access_context
@@ -17,21 +17,26 @@ IF COALESCE(@Admin,0)+COALESCE(@Packaging,0)+COALESCE(@Raw,0)=0 THROW 51102,'Mat
 """
 VISIBLE="(@Admin=1 OR (c.PackagingMaterialID IS NULL AND c.RawMaterialID IS NULL) OR (@Packaging=1 AND c.PackagingMaterialID IS NOT NULL) OR (@Raw=1 AND c.RawMaterialID IS NOT NULL))"
 @router.get("")
-def read(page:int=Query(1,ge=1),search:str=Query("",max_length=200),ctx:AccessContext=Depends(get_access_context)):
+def read(page:int=Query(1,ge=1),search:str=Query("",max_length=200),ctx:AccessContext=Depends(get_access_context),page_size:Annotated[int,Query(ge=1,le=500)]=50):
  require(ctx,"Packaging","PackagingManager","RawMaterial")
+ source="""FROM dbo.UnitConversion c JOIN dbo.UoM f ON f.ID=c.FromUoMID JOIN dbo.UoM t ON t.ID=c.ToUoMID
+ LEFT JOIN dbo.PackagingMaterial p ON p.ID=c.PackagingMaterialID
+ LEFT JOIN dbo.RawMaterial r ON r.ID=c.RawMaterialID"""
+ predicate=VISIBLE+""" AND (?='' OR f.UoMCode LIKE ? OR t.UoMCode LIKE ? OR p.MaterialCode LIKE ? OR r.MaterialCode LIKE ?)"""
+ filters=[search,*([search+"%"]*4)]
  sets=execute(AUTH+"""
  SELECT c.*,f.UoMCode AS FromUoM,t.UoMCode AS ToUoM,
  COALESCE(p.MaterialCode,r.MaterialCode) AS MaterialCode,v.VendorName,
  creator.UserName AS CreatedByName,updater.UserName AS UpdatedByName
- FROM dbo.UnitConversion c JOIN dbo.UoM f ON f.ID=c.FromUoMID JOIN dbo.UoM t ON t.ID=c.ToUoMID
- LEFT JOIN dbo.PackagingMaterial p ON p.ID=c.PackagingMaterialID
- LEFT JOIN dbo.RawMaterial r ON r.ID=c.RawMaterialID LEFT JOIN dbo.Vendor v ON v.ID=c.VendorID
+ """+source+""" LEFT JOIN dbo.Vendor v ON v.ID=c.VendorID
  LEFT JOIN dbo.Users creator ON creator.ID=c.CreatedBy LEFT JOIN dbo.Users updater ON updater.ID=c.UpdatedBy
- WHERE """+VISIBLE+""" AND (?='' OR f.UoMCode LIKE ? OR t.UoMCode LIKE ? OR p.MaterialCode LIKE ? OR r.MaterialCode LIKE ?)
- ORDER BY c.ID DESC OFFSET ? ROWS FETCH NEXT 51 ROWS ONLY;
- """,[ctx.username,search,*([search+"%"]*4),(page-1)*50])
+ WHERE """+predicate+"""
+ ORDER BY c.ID DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY;
+ SELECT COUNT(*) Total """+source+" WHERE "+predicate+";",
+ [ctx.username,*filters,(page-1)*page_size,page_size,*filters])
  rows=[{k:str(v) if isinstance(v,Decimal) else v for k,v in r.items()} for r in sets[0]]
- return dict(rows=rows[:50],has_more=len(rows)>50)
+ total=sets[1][0]["Total"]
+ return dict(rows=rows,total=total,page=page,has_more=page*page_size<total,page_size=page_size)
 
 @router.get("/lookups")
 def lookups(ctx:AccessContext=Depends(get_access_context)):

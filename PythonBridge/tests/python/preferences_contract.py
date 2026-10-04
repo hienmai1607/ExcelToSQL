@@ -66,4 +66,22 @@ class Preferences(unittest.TestCase):
             api.ExportSnapshot(columns=["CustomerName"],rows=[["x"]]*501)
         with self.assertRaises(HTTPException):
             api.snapshot_xlsx(api.ExportSnapshot(columns=["CustomerName"],rows=[["x","y"]]))
+    def test_editor_page_sizes_are_independent_and_round_trip(self):
+        # Legacy Item View sizes are preserved, not adopted by the editor.
+        self.assertEqual(api.Settings(requests={"items":{"columns":["ProductCode"],"page_size":10}}).requests.editor_page_size,25)
+        settings=api.Settings(
+            requests={"header":{"columns":["RequestNumber"],"page_size":40},
+                      "items":{"columns":["ProductCode"],"page_size":10},"editor_page_size":1},
+            opportunity={"items":{"columns":["ProductCode"],"page_size":20},"editor_page_size":3})
+        restored=api.Settings.model_validate_json(settings.model_dump_json())
+        self.assertEqual(restored.requests.header.page_size,40)
+        self.assertEqual(restored.requests.items.page_size,10)
+        self.assertEqual(restored.requests.editor_page_size,1)
+        self.assertEqual(restored.opportunity.items.page_size,20)
+        self.assertEqual(restored.opportunity.editor_page_size,3)
+        for domain in ("requests","opportunity"):
+            for size in (0,501,1.5,True,"10"):
+                with self.subTest(domain=domain,size=size),self.assertRaises(ValidationError):
+                    api.Settings(**{domain:{"editor_page_size":size}})
+
 if __name__=="__main__":unittest.main()

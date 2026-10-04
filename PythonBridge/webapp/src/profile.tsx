@@ -2,13 +2,14 @@ import {createContext,useContext,useEffect,useRef,useState,type ReactNode} from 
 import {call} from './api';
 import './workspace.css';
 import {IconButton} from './icons';
+import {ErrorNote,PageSizeSetting,LayoutPanel,ColumnOrder,Notification,InfoTip} from './ui';
 import type {MasterLayout,MasterEntity} from './master-config';
 import type {OpportunityViews} from './opportunity-view';
 export const columnLabels={CustomerName:'Customer',MarketCode:'Market',CurrencyCode:'Currency',Status:'Status',UpdatedAt:'Last updated',CreatedAt:'Created at',CreatedByName:'Created by',UpdatedByName:'Updated by'};
 export type Column=keyof typeof columnLabels;
 export type SortRule={column:Column;direction:'asc'|'desc'};
 export type Filter='customer_name'|'market_id'|'status'|'currency_id'|'created_by';
-export type Settings={column_widths?:Record<string,number>;requests?:OpportunityViews;opportunity?:OpportunityViews;masters?:Partial<Record<MasterEntity,MasterLayout>>;sort:SortRule[];columns:Column[];filters:Filter[];customer_name:string;market_id:string;currency_id:string;created_by:string;status:string;page_size:number;dark:boolean;nav_hidden:boolean};
+export type Settings={list_layouts?:Partial<Record<'unit-conversions'|'packaging-dimensions',{page_size:number}>>;column_widths?:Record<string,number>;requests?:OpportunityViews;opportunity?:OpportunityViews;masters?:Partial<Record<MasterEntity,MasterLayout>>;sort:SortRule[];columns:Column[];filters:Filter[];customer_name:string;market_id:string;currency_id:string;created_by:string;status:string;page_size:number;dark:boolean;nav_hidden:boolean};
 export const defaults:Settings={sort:[{column:'CustomerName',direction:'asc'}],columns:['CustomerName','MarketCode','CurrencyCode','Status','UpdatedAt'],filters:['customer_name','market_id','status'],customer_name:'',market_id:'',currency_id:'',created_by:'',status:'',page_size:25,dark:false,nav_hidden:false};
 type Profile={settings:Settings;version:number};
 type Context={profile:Profile;ready:boolean;error:string;saving:boolean;save:(s:Settings)=>Promise<void>;reload:()=>void;setAppearance:(s:Partial<Settings>)=>void};
@@ -24,6 +25,17 @@ export function ProfileProvider({enabled,children}:{enabled:boolean;children:Rea
 export function WorkspaceFrame({children}:{children:ReactNode}){
  const {profile}=useProfile();
  return <div className={'app'+(profile.settings.nav_hidden?' nav-hidden':'')}>{children}</div>
+}
+export function useListLayout(key:'unit-conversions'|'packaging-dimensions',defaultSize=25){
+ const {profile,ready,saving,save}=useProfile();
+ const [pageSize,setPageSize]=useState(defaultSize),[open,setOpen]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+ const savedSize=profile.settings.list_layouts?.[key]?.page_size??defaultSize;
+ useEffect(()=>{if(ready)setPageSize(savedSize)},[ready,savedSize]);
+ async function persist(){setError('');setMessage('');try{await save({...profile.settings,list_layouts:{...profile.settings.list_layouts,[key]:{page_size:pageSize}}});setMessage('Layout saved to your profile.')}catch(e){setError((e as Error).message)}}
+ return {pageSize,setPageSize,open,setOpen,persist,error,message,dismissMessage:()=>setMessage(''),canSave:ready&&!saving};
+}
+export function ListLayoutTools({control}:{control:ReturnType<typeof useListLayout>}){
+ return <><IconButton icon="layout" label="Layout options" aria-expanded={control.open} onClick={()=>control.setOpen(!control.open)}/>{control.open&&<LayoutPanel className="layout-panel utility-layout" aria-label="List layout"><h2>List layout</h2><PageSizeSetting value={control.pageSize} onChange={control.setPageSize}/><ErrorNote value={control.error}/><Notification value={control.message} onDismiss={control.dismissMessage}/><div className="actions"><button disabled={!control.canSave} onClick={control.persist}>Save layout to profile</button><button onClick={()=>control.setOpen(false)}>Close layout</button></div></LayoutPanel>}</>;
 }
 export function AppearanceControls(){
  const {profile,ready,error,saving,save,reload,setAppearance}=useProfile();

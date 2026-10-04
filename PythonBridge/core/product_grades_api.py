@@ -12,12 +12,15 @@ router = APIRouter(prefix="/api/workbench/products", tags=["Product grades"])
 def raw_grade_lookups(ctx: AccessContext = Depends(get_access_context)):
     require(ctx,"Product")
     from packaging_master_api import PRODUCT_AUTH
-    return {"rows":execute(PRODUCT_AUTH+"""
-      SELECT g.ID,g.GradeName,g.ParentGradeID,g.MaterialAssign,m.ID AS MaterialID,m.MaterialCode,m.MaterialName
-      FROM dbo.RawGrade g LEFT JOIN dbo.RawMaterial m ON m.ID=g.MaterialID
-      WHERE g.Status='Active' AND (g.MaterialID IS NULL OR m.Status='Active')
-      ORDER BY g.GradeName,m.MaterialCode,g.ID;
-    """,[ctx.username])[0]}
+    grades,materials=execute(PRODUCT_AUTH+"""
+      SELECT g.ID,g.GradeName,g.ParentGradeID
+      FROM dbo.RawGrade g WHERE g.Status='Active'
+      ORDER BY g.GradeName,g.ID;
+      SELECT m.ID,m.GradeID,m.MaterialCode,m.MaterialName,m.Status
+      FROM dbo.RawMaterial m WHERE m.GradeID IS NOT NULL
+      ORDER BY m.MaterialCode,m.ID;
+    """,[ctx.username])
+    return {"rows":grades,"materials":materials}
 
 @router.get("/{product_id}/grades")
 def read(product_id: int = Path(ge=1), ctx: AccessContext = Depends(get_access_context)):
@@ -56,7 +59,7 @@ def raw_pricing(body: RawPricingQuery, ctx: AccessContext = Depends(get_access_c
       DECLARE @Today DATE=CONVERT(DATE,SYSUTCDATETIME());
       SELECT @Today AS AsOf;
       SELECT requested.ID AS RawGradeID,g.GradeName,g.Status AS GradeStatus,
-       m.MaterialCode,m.MaterialName,m.Status AS MaterialStatus,m.UnitOfMeasure AS MaterialBaseUoM,
+       m.ID AS MaterialID,m.MaterialCode,m.MaterialName,m.Status AS MaterialStatus,m.UnitOfMeasure AS MaterialBaseUoM,
        p.ID AS PriceID,v.VendorName,c.CurrencyCode,p.PriceBasis AS PriceUoM,
        p.QuantityFrom,p.QuantityTo,p.EffectiveFrom,p.EffectiveTo,
        p.UnitPrice,p.ExchangeRateToUSD,p.UnitUSDPrice,
@@ -64,7 +67,6 @@ def raw_pricing(body: RawPricingQuery, ctx: AccessContext = Depends(get_access_c
        CONVERT(DECIMAL(38,8),p.UnitUSDPrice/NULLIF(factor.Value,0)) AS BaseUnitUSDPrice,
        CASE WHEN g.ID IS NULL THEN 'Grade unavailable'
         WHEN g.Status<>'Active' THEN 'Grade blocked'
-        WHEN g.MaterialID IS NULL THEN 'No material assigned'
         WHEN m.Status<>'Active' THEN 'Material blocked'
         WHEN p.ID IS NULL THEN 'No current price'
         WHEN p.ExchangeRateToUSD IS NULL THEN 'Exchange rate required'
@@ -72,7 +74,7 @@ def raw_pricing(body: RawPricingQuery, ctx: AccessContext = Depends(get_access_c
         ELSE 'Current' END AS PricingStatus
       FROM (SELECT DISTINCT CONVERT(INT,value) AS ID FROM OPENJSON(?)) requested
       LEFT JOIN dbo.RawGrade g ON g.ID=requested.ID
-      LEFT JOIN dbo.RawMaterial m ON m.ID=g.MaterialID
+      LEFT JOIN dbo.RawMaterial m ON m.GradeID=g.ID
       LEFT JOIN dbo.RawMaterialPrice p ON p.MaterialID=m.ID
        AND g.Status='Active' AND m.Status='Active' AND p.Status='Active'
        AND p.EffectiveFrom<=@Today AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=@Today)
@@ -83,7 +85,7 @@ def raw_pricing(body: RawPricingQuery, ctx: AccessContext = Depends(get_access_c
       OUTER APPLY dbo.fn_UnitConversion(p.PriceBasis,m.UnitOfMeasure,NULL,m.ID,p.VendorID) conv
       OUTER APPLY (SELECT CASE WHEN p.PriceBasis=m.UnitOfMeasure
        THEN CONVERT(DECIMAL(24,9),1) ELSE conv.Factor END AS Value) factor
-      WHERE g.MaterialID IS NOT NULL
+      WHERE m.ID IS NOT NULL
       ORDER BY requested.ID,v.VendorName,p.PriceBasis,p.QuantityFrom,p.EffectiveFrom,p.ID;
     """, [ctx.username,json.dumps(body.grade_ids)])
     return {"as_of":sets[0][0]["AsOf"],

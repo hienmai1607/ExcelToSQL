@@ -1,11 +1,11 @@
 import {decimalDisplay} from './number-format';
 import {IconButton} from './icons';
-import type {GradeItem,RawGradeOption} from './product-grades';
+import type {GradeItem,RawGradeOption,RawMaterialOption} from './product-grades';
 
-type Props={rawGrades?:RawGradeOption[];items:GradeItem[];busy:boolean;readonly:boolean;disabled:boolean;
+type Props={rawGrades?:RawGradeOption[];rawMaterials?:RawMaterialOption[];items:GradeItem[];busy:boolean;readonly:boolean;disabled:boolean;
  onAdd:(parent:string)=>void;onRemove:(item:GradeItem)=>void;
- onChange:(item:GradeItem,patch:Partial<Pick<GradeItem,'Grade'|'RawGradeID'|'RatioPct'>>)=>void};
-export function GradeTree({rawGrades=[],items,busy,readonly,disabled,onAdd,onRemove,onChange}:Props){
+ onChange:(item:GradeItem,patch:Partial<Pick<GradeItem,'Grade'|'RawGradeID'|'RawMaterialID'|'RatioPct'>>)=>void};
+export function GradeTree({rawGrades=[],rawMaterials=[],items,busy,readonly,disabled,onAdd,onRemove,onChange}:Props){
  const children=new Map<string,GradeItem[]>();
  for(const item of items){const list=children.get(item.ParentID)||[];list.push(item);children.set(item.ParentID,list)}
  for(const list of children.values())list.sort((a,b)=>a.ID-b.ID);
@@ -22,18 +22,21 @@ export function GradeTree({rawGrades=[],items,busy,readonly,disabled,onAdd,onRem
    const id=parent+'/'+item.ID,hasChildren=children.has(id);
    const parentGrade=items.find(p=>p.ParentID+'/'+p.ID===parent)?.RawGradeID;
    const options=parent==='0'?rawGrades:rawGrades.filter(g=>!!parentGrade&&g.ParentGradeID===parentGrade);
+   const materials=parent==='0'?[]:rawMaterials.filter(m=>m.GradeID===item.RawGradeID);
+   const selectedMaterial=rawMaterials.find(m=>m.ID===item.RawMaterialID);
    return <li key={id}><div className="grade-tree-node" data-grade-path={id}>
     <div className="grade-tree-node-heading"><small>{id}</small>{!readonly&&<div className="grade-tree-actions">
     <IconButton icon="plus" label={'Add child grade to '+id} disabled={disabled||items.length>=1000||depth>=12} onClick={()=>onAdd(id)}/>
     <IconButton icon="close" label={'Remove grade '+id} disabled={disabled} onClick={()=>onRemove(item)}/>
     </div>}</div>
-    {readonly?<div className="grade-tree-readonly-fields"><strong>{item.Grade||'Unnamed grade'}</strong><span className="grade-tree-ratio">{decimalDisplay(item.RatioPct,2)??'—'}%</span></div>:
-    <fieldset disabled={disabled}><label>Grade<select aria-label={'Grade '+id} value={item.RawGradeID??''} onChange={e=>{const grade=rawGrades.find(g=>g.ID===Number(e.target.value));onChange(item,{RawGradeID:grade?.ID??null,Grade:grade?.GradeName||''})}}>
+    {readonly?<><div className="grade-tree-readonly-fields"><strong>{item.Grade||'Unnamed grade'}</strong><span className="grade-tree-ratio">{decimalDisplay(item.RatioPct,2)??'—'}%</span></div>{parent!=='0'&&item.RawMaterialID&&<small className="grade-tree-material">{selectedMaterial?selectedMaterial.MaterialCode+' - '+selectedMaterial.MaterialName:'Raw Material #'+item.RawMaterialID+' (unavailable)'}</small>}</>:
+    <fieldset disabled={disabled}><label>Grade<select aria-label={'Grade '+id} value={item.RawGradeID??''} onChange={e=>{const grade=rawGrades.find(g=>g.ID===Number(e.target.value));onChange(item,{RawGradeID:grade?.ID??null,RawMaterialID:null,Grade:grade?.GradeName||''})}}>
      <option value="">{item.Grade&&!item.RawGradeID?item.Grade+' (legacy - select Raw Grade)':'Choose Raw Grade'}</option>
      {item.RawGradeID&&!options.some(g=>g.ID===item.RawGradeID)&&<option value={item.RawGradeID} disabled>{item.Grade} (unavailable for this parent)</option>}
-     {options.map(g=><option key={g.ID} value={g.ID}>{g.GradeName} - {g.MaterialCode?[g.MaterialCode,g.MaterialName].filter(Boolean).join(' - '):'Group grade'}</option>)}
+     {options.map(g=><option key={g.ID} value={g.ID}>{g.GradeName}</option>)}
     </select>{parent!=='0'&&!options.length&&<small>{parentGrade?'No active child grades for this parent in Raw Grade Master.':'Choose the parent grade first.'}</small>}</label>
-    <label>Ratio %<input aria-label={'Ratio '+id} inputMode="decimal" maxLength={6} value={item.RatioPct} onChange={e=>onChange(item,{RatioPct:e.target.value})}/></label></fieldset>}
+    <label>Ratio %<input aria-label={'Ratio '+id} inputMode="decimal" maxLength={6} value={item.RatioPct} onChange={e=>onChange(item,{RatioPct:e.target.value})}/></label>
+    {parent!=='0'&&<label className="grade-tree-material">Raw Material<select aria-label={'Raw Material '+id} value={item.RawMaterialID??''} onChange={e=>onChange(item,{RawMaterialID:e.target.value?Number(e.target.value):null})}><option value="">No material selected</option>{item.RawMaterialID&&!materials.some(m=>m.ID===item.RawMaterialID)&&<option value={item.RawMaterialID} disabled>Raw Material #{item.RawMaterialID} (unavailable for this grade)</option>}{materials.map(m=><option key={m.ID} value={m.ID} disabled={m.Status!=='Active'}>{m.MaterialCode+' - '+m.MaterialName}{m.Status!=='Active'?' (Blocked)':''}</option>)}</select>{item.RawGradeID&&!materials.length&&<small>No Raw Materials assigned to this grade.</small>}</label>}</fieldset>}
     {hasChildren&&<>{total(id)}<small>{children.get(id)!.length} child grade{children.get(id)!.length===1?'':'s'}</small></>}
 
    </div>{hasChildren&&branch(id,depth+1)}</li>;

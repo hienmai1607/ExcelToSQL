@@ -12,6 +12,7 @@ from customer_sort import SortRule, unique_sort
 from master_models import Entity, MasterLayout, check_layout, ColumnWidth
 from opportunity_views import OpportunityViews
 from request_views import RequestViews
+from pallet_fields import PALLET_CAPACITY_LABELS
 from auth import AccessContext, get_access_context
 from db import get_raw_cursor
 from packaging_api import require
@@ -20,7 +21,13 @@ router = APIRouter(prefix="/api/workbench", tags=["Workbench"])
 Column = Literal["CustomerName", "MarketCode", "CurrencyCode", "Status", "UpdatedAt", "CreatedAt", "CreatedByName", "UpdatedByName"]
 Filter = Literal["customer_name", "market_id", "status", "currency_id", "created_by"]
 
+class ListLayout(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    page_size: int = Field(25, ge=1, le=500, strict=True)
+
+
 class Settings(BaseModel):
+    list_layouts: dict[Literal["unit-conversions", "packaging-dimensions"], ListLayout] = Field(default_factory=dict)
     column_widths: dict[Column | Literal["_Actions"], ColumnWidth] = Field(default_factory=dict,max_length=9)
     requests: RequestViews = Field(default_factory=RequestViews)
     opportunity: OpportunityViews = Field(default_factory=OpportunityViews)
@@ -99,7 +106,7 @@ def snapshot_xlsx(body, labels=None, sheet_name="Customers") -> bytes:
         for i, value in enumerate(values):
             if value is None:
                 continue
-            numeric_columns={"BaseUnitPrice","BaseUnitUSDPrice","ConversionFactor","UnitPrice","UnitUSDPrice","ExchangeRateToUSD","WeightGrams","WeightOz","QuantityFrom","QuantityTo"}
+            numeric_columns={"TareWeight","Width","Length","PalletAreaMM2","BaseUnitPrice","BaseUnitUSDPrice","ConversionFactor","UnitPrice","UnitUSDPrice","ExchangeRateToUSD","WeightGrams","WeightOz","QuantityFrom","QuantityTo","SupplierDimensionID","SupplierD1","SupplierD2","SupplierD3","SupplierAreaPerPriceUnit",*PALLET_CAPACITY_LABELS}
             if number>1 and body.columns[i] in numeric_columns and re.fullmatch(r"-?\d+(?:\.\d+)?",value):
                 cells.append(f'<c r="{chr(65+i)}{number}" t="n"><v>{value}</v></c>')
                 continue

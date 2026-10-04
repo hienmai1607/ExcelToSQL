@@ -48,7 +48,7 @@ test('create selected request items without secure-context randomUUID',async({pa
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await page.getByLabel('Customer',{exact:true}).fill('North');
  const requested=page.waitForRequest(r=>r.url().includes('customer_name=North'));
- await page.getByRole('button',{name:'Apply filters'}).click();await requested;
+ await page.getByRole('button',{name:'Search'}).click();await requested;
  await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await expect(page.getByText('Roasted almonds')).toBeVisible();
  await page.getByRole('checkbox',{name:'Select P-101 item 11'}).check();
@@ -79,26 +79,25 @@ test('lost create reply retains payload across reload and retries the same key',
 test('manager assigns an item with its RowVersion and locked items cannot be assigned',async({page})=>{
  await mock(page,['PackagingManager']);let payload:any;
  await page.route('**/api/packaging/items/101/assign',async route=>{payload=route.request().postDataJSON();return route.fulfill({json:{result:{ID:101,RowVersion:'AAAAAAAAAAI='}}})});
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View request'}).click();
- await page.getByRole('button',{name:/Edit request /}).click();await page.getByLabel('PIC for item 101').selectOption('2');
- await expect(page.getByLabel('PIC for item 102')).toBeDisabled();
- await page.getByRole('button',{name:'Review & save',exact:true}).click();
- await page.getByRole('button',{name:'Confirm save'}).click();
- await expect(page.getByRole('status')).toContainText('1 item(s) saved.');
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests',exact:true}).click();await page.getByRole('button',{name:'View request',exact:true}).click();
+ await page.getByLabel('PIC for item 101',{exact:true}).selectOption('2');
+ await expect(page.getByLabel('PIC for item 102',{exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Assign PIC for item 101',exact:true}).click();
+ await expect(page.getByRole('status')).toContainText('Item updated.');
  expect(payload).toEqual({PICUserID:2,ExpectedRowVersion:rv});
 });
 test('sales can read requests but cannot assign PICs',async({page})=>{
  await mock(page,['Opportunity']);await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await page.getByRole('button',{name:'Packaging requests'}).click();
- await page.getByRole('button',{name:'View request'}).click();
+ await page.getByRole('button',{name:'View request',exact:true}).click();
  await expect(page.getByRole('button',{name:/Edit request /})).toHaveCount(0);
 });
 test('assignment conflict preserves the old PIC and shows refresh guidance',async({page})=>{
  await mock(page);await page.route('**/api/packaging/items/101/assign',route=>route.fulfill({status:409,json:{detail:'Conflict: stale RowVersion.'}}));
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests'}).click();await page.getByRole('button',{name:'View request'}).click();
- await page.getByRole('button',{name:/Edit request /}).click();await page.getByLabel('PIC for item 101').selectOption('2');await page.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save'}).click();
+ await page.getByLabel('PIC for item 101',{exact:true}).selectOption('2');await page.getByRole('button',{name:'Assign PIC for item 101',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('Conflict: stale RowVersion.');
- await expect(page.getByRole('status')).toContainText('0 item(s) saved.');
+ await expect(page.getByLabel('PIC for item 101',{exact:true})).toHaveValue('2');
 });
 test('mobile layout has no page overflow and screenshot',async({page})=>{
  await mock(page);await page.setViewportSize({width:390,height:844});await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
@@ -120,6 +119,6 @@ test('missing Packaging type blocks request creation before posting',async({page
  await page.getByRole('checkbox',{name:'Select P-101 item 11'}).check();
  await page.getByLabel('Response due').fill('2026-10-01');
  await page.getByRole('button',{name:'Create Packaging Request (1)'}).click();
- await expect(page.getByRole('alert')).toContainText('Enter Packaging type');
+ await expect(page.getByRole('alert')).toContainText('Choose Primary Type');
  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
