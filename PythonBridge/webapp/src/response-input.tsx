@@ -21,13 +21,13 @@ export function useResponseTypes(){
  return {types,pallets,loading,error};
 }
 const orderFor=(key:string)=>responseOrderFields.find(f=>f.type===key)?.order;
-export function responseTypeError(key:string,value:string,original:unknown,types:Row[],layers?:unknown,originalLayers?:unknown){
+export function responseTypeError(key:string,value:string,original:unknown,types:Row[],layers?:unknown,originalLayers?:unknown,mixChild=false,mixParent=false){
  const order=orderFor(key);
- return order&&value.trim()&&(value!==String(original??'')||layerCount(layers)!==layerCount(originalLayers))&&!types.some(t=>selectableType(t,order,layers)&&t.PackagingType===value)?'Choose an active '+order+' Type from Packaging Type Master.':'';
+ return order&&value.trim()&&(value!==String(original??'')||layerCount(layers)!==layerCount(originalLayers))&&!types.some(t=>selectableType(t,order,layers,mixChild,mixParent)&&t.PackagingType===value)?'Choose an active '+order+' Type from Packaging Type Master.':'';
 }
-export function ResponseInput({field,value,onChange,types,pallets=[],loading,layers}:{field:PackagingField;value:string;onChange:(v:string)=>void;types:Row[];pallets?:Row[];loading:boolean;layers?:unknown}){
+export function ResponseInput({field,value,onChange,types,pallets=[],loading,layers,mixChild=false,mixParent=false}:{field:PackagingField;value:string;onChange:(v:string)=>void;types:Row[];pallets?:Row[];loading:boolean;layers?:unknown;mixChild?:boolean;mixParent?:boolean}){
  if(field.readOnly)return <input readOnly aria-label={field.label} value={field.numeric?(decimalDisplay(value,9)??''):value}/>;
- const order=orderFor(field.key),choices=types.filter(t=>!!order&&selectableType(t,order,layers));
+ const order=orderFor(field.key),choices=types.filter(t=>!!order&&selectableType(t,order,layers,mixChild,mixParent));
  if(field.key==='ResponsePalletSize'||field.key==='ResponsePalletStacking'){
   const options=field.key==='ResponsePalletSize'?pallets.map(p=>String(p.PalletSize)):['Single','Double'];
   return <select aria-label={field.label} value={value} disabled={loading} onChange={e=>onChange(e.target.value)}><option value="">Choose {field.label.toLowerCase()}</option>{value&&!options.includes(value)&&<option value={value} disabled>{value} (existing value — unavailable)</option>}{options.map(option=><option key={option} value={option}>{option}</option>)}</select>;

@@ -1,5 +1,21 @@
 import {test,expect,type Page} from '@playwright/test';
 
+test('mix child pricing does not require Shipping D3 even on its last packaging layer',async({page})=>{
+ const {editor,dialog,optionsData,previews}=await setup(page,false,false,true);
+ await dialog.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
+ Object.assign(optionsData,{isMixChild:true,parentType:{ID:10,Shipping:true}});
+ optionsData.dimensions=[{ID:10,PackagingTypeID:10,PackagingType:'Shipping parent',D1Name:'Length',D2Name:'Width',D3Name:'Height',D1Unit:'mm',D2Unit:'mm',D3Unit:'mm',RowVersion:'AAAAAAAAAAE='}];
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('2');
+ await editor.getByLabel('Secondary Type',{exact:true}).selectOption('Carton');
+ await editor.getByRole('button',{name:'Secondary Pricing Calculator',exact:true}).click();
+ const calculator=page.getByRole('dialog',{name:'Secondary Pricing Calculator',exact:true});
+ await calculator.getByRole('button',{name:'Add PKG-Jar price 2'}).click();
+ await expect(calculator.getByLabel('Parent D3',{exact:true})).not.toHaveAttribute('required','');
+ await calculator.getByRole('button',{name:'Calculate pricing',exact:true}).click();
+ await expect(calculator.getByRole('button',{name:'Apply to response',exact:true})).toBeEnabled();
+ expect(previews[0]).toMatchObject({PackagingOrder:'Secondary',LayerCount:2,D3:null});
+});
+
 test('child consumption formula is selected separately from parent occupied space',async({page})=>{
  const state=await setup(page,true);
  state.optionsData.dimensions.push({ID:9,PackagingTypeID:2,ParentDimensionID:1,PackagingType:'Label',D1Name:'Height',D2Name:'Width',D1Unit:'mm',D2Unit:'mm',ConvertFromParentFormula:'(D2*2+25)*D1/1000000',ConvertFromSupplierFormula:'D1*D2/1000000',RowVersion:'AAAAAAAAAAE='});
@@ -38,9 +54,9 @@ test('supplier conversion measurements are read-only in the response calculator'
  await expect(state.dialog.getByText(/Convert from parent fx:/)).toBeVisible();
 });
 
-async function setup(page:Page,area=false,previewFailure=false,threeLayers=false){
+async function setup(page:Page,area=false,previewFailure=false,threeLayers=false,stored:Record<string,unknown>={}){
  const writes:any[]=[],previews:any[]=[],geometryPreviews:any[]=[];
- const row={RequestID:1,ItemID:1,ProductCode:'PRD-1',ProductName:'Nut product',WeightGrams:'10',ItemDescription:'Item 1',ItemStage:'Assigned',PIC:'Admin',PICUserID:1,ItemRowVersion:'AAAAAAAAAAE=',FirstPMType:'PET jar',RequestedLayerCount:threeLayers?3:2};
+ const row={RequestID:1,ItemID:1,ProductCode:'PRD-1',ProductName:'Nut product',WeightGrams:'10',ItemDescription:'Item 1',ItemStage:'Assigned',PIC:'Admin',PICUserID:1,ItemRowVersion:'AAAAAAAAAAE=',FirstPMType:'PET jar',RequestedLayerCount:threeLayers?3:2,...stored};
  const materials=[{MaterialID:1,MaterialCode:'PKG-Label',MaterialName:'Label',PackagingType:'Label',PackagingTypeID:2,CalculationBasis:area?'Square meter':'Count',PriceID:1,PriceRowVersion:'AAAAAAAAAAE=',UnitPrice:'10000',CurrencyCode:'VND',VendorMOQ:'5000',QuantityTo:null,PriceUoM:area?'m':'EA',EffectiveFrom:'2026-01-01',EffectiveTo:'2026-12-31'},
   {MaterialID:2,MaterialCode:'PKG-Jar',MaterialName:'Jar',PackagingType:'Jar',PackagingTypeID:3,CalculationBasis:'Count',PriceID:2,PriceRowVersion:'AAAAAAAAAAE=',UnitPrice:'3000',CurrencyCode:'VND',VendorMOQ:'1000',QuantityTo:null,PriceUoM:'EA',EffectiveFrom:'2026-01-01',EffectiveTo:null},
   {MaterialID:3,MaterialCode:'PKG-NoPrice',MaterialName:'No price',PackagingType:'Jar',PackagingTypeID:3,CalculationBasis:'Count',PriceID:null}];
@@ -67,6 +83,103 @@ async function setup(page:Page,area=false,previewFailure=false,threeLayers=false
  await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
  return {editor,dialog:page.getByRole('dialog',{name:'Primary Pricing Calculator',exact:true}),writes,previews,geometryPreviews,optionsData,row};
 }
+
+test('changing confirmed layers preserves Primary dimension capture and calculator inputs',async({page})=>{
+ const {editor,dialog}=await setup(page,true);
+ await dialog.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('1');
+ await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
+ await dialog.getByRole('button',{name:'Add PKG-Label price 1'}).click();
+ await dialog.getByLabel('Parent D1',{exact:true}).fill('200');
+ await dialog.getByLabel('Parent D2',{exact:true}).fill('100');
+ await dialog.getByRole('button',{name:'Calculate pricing',exact:true}).click();
+ await dialog.getByRole('button',{name:'Apply to response',exact:true}).click();
+ const dimensions=editor.getByLabel('Primary captured dimensions',{exact:true}).locator('.captured-dimensions-value');
+ await expect(dimensions).toContainText('200mm');
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('2');
+ await expect(dimensions).toContainText('200mm');
+ await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
+ await expect(dialog.getByLabel('Parent D1',{exact:true})).toHaveValue('200');
+ await expect(dialog.getByLabel('Parent D2',{exact:true})).toHaveValue('100');
+ await expect(dialog.getByLabel('Component 1 quantity',{exact:true})).toHaveValue('1');
+});
+
+test('failed pricing revalidation preserves defaults and performs no save',async({page})=>{
+ const {editor,dialog,writes}=await setup(page,true);
+ await dialog.getByRole('button',{name:'Add PKG-Label price 1'}).click();
+ await dialog.getByLabel('Parent D1',{exact:true}).fill('200');
+ await dialog.getByLabel('Parent D2',{exact:true}).fill('100');
+ await dialog.getByRole('button',{name:'Calculate pricing',exact:true}).click();
+ await dialog.getByRole('button',{name:'Apply to response',exact:true}).click();
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('3');
+ await page.route('**/pricing/preview',route=>route.fulfill({status:409,json:{detail:'Material price changed. Refresh the calculator.'}}));
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await expect(editor.getByRole('alert')).toContainText('Material price changed');
+ await expect(page.getByRole('dialog',{name:'Confirm request save',exact:true})).toHaveCount(0);
+ expect(writes).toHaveLength(0);
+ await expect(editor.getByLabel('Primary captured dimensions',{exact:true})).toContainText('200mm');
+ await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
+ await expect(dialog.getByLabel('Parent D1',{exact:true})).toHaveValue('200');
+ await expect(dialog.getByLabel('Parent D2',{exact:true})).toHaveValue('100');
+});
+
+test('all layer drafts survive 3 to 1 to 3; saving 1 includes only Primary pricing',async({page})=>{
+ const {editor,dialog,optionsData,previews,writes}=await setup(page,false,false,true);
+ await dialog.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
+ optionsData.dimensions=[1,10].map(id=>({ID:id,PackagingTypeID:id,PackagingType:id===1?'PET jar':'Carton',D1Name:'Length',D2Name:'Width',D3Name:'Height',D1Unit:'mm',D2Unit:'mm',D3Unit:'mm',RowVersion:'AAAAAAAAAAE='}));
+ for(const [index,order] of ['Primary','Secondary','Tertiary'].entries()){
+  if(order!=='Primary')await editor.getByLabel(order+' Type',{exact:true}).selectOption('Carton');
+  await editor.getByRole('button',{name:order+' Pricing Calculator',exact:true}).click();
+  const calc=page.getByRole('dialog',{name:order+' Pricing Calculator',exact:true});
+  await calc.getByRole('button',{name:'Add PKG-Jar price 2'}).click();
+  await calc.getByLabel('Component 1 quantity',{exact:true}).fill(String(index+1));
+  for(const [key,value] of [['D1',String((index+1)*100)],['D2','200'],['D3','300']])await calc.getByLabel('Parent '+key,{exact:true}).fill(value);
+  await calc.getByRole('button',{name:'Calculate pricing',exact:true}).click();
+  await calc.getByRole('button',{name:'Apply to response',exact:true}).click();
+ }
+ await editor.getByLabel('No of Primary Unit',{exact:true}).fill('12');
+ await editor.getByLabel('No of Secondary Unit',{exact:true}).fill('5');
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('1');
+ await expect(editor.getByLabel('Primary captured dimensions',{exact:true})).toContainText('100mm');
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('3');
+ await expect(editor.getByLabel('No of Primary Unit',{exact:true})).toHaveValue('12');
+ await expect(editor.getByLabel('No of Secondary Unit',{exact:true})).toHaveValue('5');
+ for(const [index,order] of ['Primary','Secondary','Tertiary'].entries()){
+  await expect(editor.getByLabel(order+' Type',{exact:true})).toHaveValue(order==='Primary'?'PET jar':'Carton');
+  await expect(editor.getByLabel(order+' captured dimensions',{exact:true})).toContainText(String((index+1)*100)+'mm');
+  await expect(editor.getByLabel(order+' price per unit',{exact:true})).toHaveValue('23,000');
+  await editor.getByRole('button',{name:order+' Pricing Calculator',exact:true}).click();
+  const calc=page.getByRole('dialog',{name:order+' Pricing Calculator',exact:true});
+  await expect(calc.getByLabel('Parent D1',{exact:true})).toHaveValue(String((index+1)*100));
+  await expect(calc.getByLabel('Component 1 quantity',{exact:true})).toHaveValue(String(index+1));
+  await calc.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
+ }
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('1');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
+ expect(previews.at(-1)).toMatchObject({PackagingOrder:'Primary',LayerCount:1,D1:'100'});
+ expect(writes[0].rows[0].PricingCalculations).toHaveLength(1);
+ expect(writes[0].rows[0].PricingCalculations[0]).toMatchObject({PackagingOrder:'Primary',LayerCount:1,D1:'100',components:[{Quantity:'1'}]});
+ for(const key of ['SecondPMType','ThirdPMType','UnitsPerCarton','UnitsPerTertiary'])expect(writes[0].rows[0]).not.toHaveProperty(key);
+});
+
+test('saved Primary dimensions remain defaults and active pricing is revalidated for new layers',async({page})=>{
+ const {editor,dialog,optionsData,previews,writes}=await setup(page,true,false,false,{ResponseLayerCount:1,FirstPMMOQ:'25000',PrimaryPricePerUnit:'2000',ResponseDefaultsInitialized:true,
+  LayerDimensionCaptures:{Primary:{PackagingTypeName:'PET jar',LayerCount:1,Dimensions:[{Name:'Height',Unit:'mm',Value:'200'},{Name:'Width',Unit:'mm',Value:'100'}]}}});
+ const input={PackagingOrder:'Primary',LayerCount:1,PackagingTypeID:1,SquareMeterUoMID:1,DimensionID:1,DimensionRowVersion:'AAAAAAAAAAE=',D1:'200',D2:'100',D3:null,
+  components:[{PriceID:1,PriceRowVersion:'AAAAAAAAAAE=',Quantity:'2',DimensionID:null,DimensionRowVersion:null,D1:null,D2:null,D3:null}]};
+ optionsData.saved=[{ID:8,PackagingTypeID:1,PackagingTypeName:'PET jar',IsCurrent:true,InputJSON:JSON.stringify(input)}];
+ await dialog.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('2');
+ await expect(editor.getByLabel('Primary captured dimensions',{exact:true})).toContainText('200mm');
+ await expect(editor.getByLabel('Primary price per unit',{exact:true})).toHaveValue('2,000');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
+ expect(previews[0]).toMatchObject({PackagingOrder:'Primary',LayerCount:2,D1:'200',D2:'100'});
+ expect(writes[0].rows[0].PricingCalculations[0]).toMatchObject({PackagingOrder:'Primary',LayerCount:2,D1:'200',D2:'100'});
+});
 
 test('calculator selects child materials and applies MOQ, then saves calculation with response',async({page})=>{
  const {editor,dialog,writes,previews}=await setup(page);

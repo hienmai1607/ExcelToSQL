@@ -4,10 +4,10 @@ import {decimalDisplay} from './number-format';
 export type CapturedDimension={Name:string;Unit:string;Value:string};
 export type LayerDimensionCapture={PackagingTypeName:string;LayerCount:number;Dimensions:CapturedDimension[]};
 
-export function savedLayerDimensions(captures:unknown,order:string,typeName:string,layers:number):CapturedDimension[]{
+export function savedLayerDimensions(captures:unknown,order:string,typeName:string,layers:number,preserveDraft=false):CapturedDimension[]{
  if(!captures||typeof captures!=='object')return [];
  const capture=(captures as Record<string,LayerDimensionCapture>)[order];
- return capture?.PackagingTypeName===typeName&&capture.LayerCount===layers&&Array.isArray(capture.Dimensions)
+ return capture?.PackagingTypeName===typeName&&(capture.LayerCount===layers||preserveDraft)&&Array.isArray(capture.Dimensions)
   ?capture.Dimensions:[];
 }
 

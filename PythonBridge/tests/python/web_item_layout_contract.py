@@ -11,6 +11,18 @@ import request_views
 import opportunity_views
 
 class WebItemLayout(unittest.TestCase):
+    def test_current_linked_pcr_is_available_in_version_eight_opportunity_layout(self):
+        settings=Settings.model_validate({'opportunity':{'items':{
+            'columns':['ProductCode','PackagingRequestNumber'],
+            'sort':[{'column':'PackagingRequestNumber','direction':'asc'}],'field_version':8}}})
+        self.assertEqual(settings.opportunity.items.field_version,8)
+        row=dict(PackingWayVisible=0,PackagingRequestNumber='PCR-30293')
+        with patch.object(opportunity_views,'execute',return_value=[[row],[{'Total':1}]]) as sql:
+            result=opportunity_views.sorted_grid('Sales',1,25,'[]')
+            self.assertEqual(result['rows'][0]['PackagingRequestNumber'],'PCR-30293')
+            self.assertIn('x.PackagingRequestNumber,x.PackagingResponseStage',sql.call_args.args[0])
+            self.assertIn('response.ID=x.PackagingRequestItemID',sql.call_args.args[0])
+
     def test_version_five_accepts_the_full_editor_catalog(self):
         for domain in ("requests","opportunity"):
             settings=Settings.model_validate({domain:{"items":{"columns":sorted(WEB_ITEM_FIELDS),"field_version":5}}})
@@ -29,7 +41,7 @@ class WebItemLayout(unittest.TestCase):
                 request_views.order('[{"column":"'+key+'"}]',request_views.VIEW_ITEMS-CALCULATED_FIELDS,"ItemID ASC")
 
     def test_new_response_values_and_weights_keep_the_permission_guard(self):
-        row=dict(PackingWayVisible=0,PackingProductWeight=None,PackingRequestedLayers=3,PackingConfiguration="Both",WeightGrams=99,ResponseLayerCount=None,UnitsPerCarton=None)
+        row=dict(PackingWayVisible=0,PackingProductWeight=None,PackingRequestedLayers=3,PackingConfiguration="Both",WeightGrams=99,ResponseLayerCount=None,UnitsPerCarton=None,UsedVolumeML=None)
         with patch.object(opportunity_views,"execute",return_value=[[row],[{"Total":1}]]) as sql:
             result=opportunity_views.sorted_grid("Sales",1,25,"[]")
             query=sql.call_args.args[0]

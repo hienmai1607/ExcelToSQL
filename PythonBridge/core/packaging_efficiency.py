@@ -2,6 +2,7 @@
 import json
 from decimal import Decimal, InvalidOperation, localcontext
 from dimension_formula import area_formula, volume_formula, formula_variables
+from mix_efficiency import mix_totals
 
 ORDERS = ("Primary", "Secondary", "Tertiary")
 TYPE_FIELDS = ("FirstPMType", "SecondPMType", "ThirdPMType")
@@ -98,6 +99,9 @@ def response_efficiency(row, packing, geometry, pallet_area_mm2):
     volume = decimal_value(geometry.get("VolumeM3"))
     area = decimal_value(geometry.get("AreaM2"))
     density = decimal_value(row.get("NutDensity"))
+    mix = mix_totals(row.get("ProductMixSnapshot"), row.get("MixResponseChildren")) if row.get("IsMixParent") else None
+    if mix is not None:
+        last = mix["weight"]
     cartons = decimal_value(row.get("CartonsPerLayer"))
     if cartons is not None and (cartons != cartons.to_integral_value() or cartons > 2147483647):
         cartons = None
@@ -113,7 +117,10 @@ def response_efficiency(row, packing, geometry, pallet_area_mm2):
             values["PalletHeightMM"] = Decimal(150) + count * height
         if last is not None and volume is not None:
             values["CartonEfficiencyKGM3"] = last / 1000 / volume
-            if density is not None:
+            if mix is not None:
+                if mix["volume"] is not None:
+                    values["RelativeCartonEfficiencyPct"] = mix["volume"] / 1000000 / volume * 100
+            elif density is not None:
                 values["RelativeCartonEfficiencyPct"] = values["CartonEfficiencyKGM3"] / density / 1000 * 100
         if area is not None and cartons is not None and pallet_area is not None:
             values["PalletUtilizationPct"] = area * cartons / (pallet_area / 1000000) * 100
@@ -130,6 +137,10 @@ def response_derived(row, packing):
     pallet_area = row.pop("EfficiencyPalletAreaMM2", None)
     geometry = saved_geometry(row, snapshot)
     values = response_efficiency(row, packing, geometry, pallet_area)
+    if row.get("IsMixParent"):
+        totals = mix_totals(row.get("ProductMixSnapshot"), row.get("MixResponseChildren"))
+        values["UsedVolumeML"] = format(totals["volume"], "f") if totals["volume"] is not None else None
+        values["MixNetWeightGrams"] = format(totals["weight"], "f") if totals["weight"] is not None else None
     layers = row.get("ResponseLayerCount") or row.get("RequestedLayerCount") or 2
     return {**values, "LayerDimensionCaptures": captures,
         "FinalLayerAreaM2": format(geometry["AreaM2"], "f") if geometry["AreaM2"] is not None else None,

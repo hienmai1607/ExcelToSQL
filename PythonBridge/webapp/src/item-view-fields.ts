@@ -28,14 +28,15 @@ export const responseFields:Record<string,string>={
  LayersPerContainer:'Layers / container',PalletsPerContainer:'Pallets / container',CalculatedCartonsPerContainer:'Cartons / container',NetWeightPerContainerKG:'Net weight / container (kg)',
  CartonsPerContainerFloor:'Cartons / container floor',NetWeightPerContainerFloorKG:'Net weight / container floor (kg)',
 };
-export const calculatedFields=new Set(['LayersPerContainer','LayersPerPallet','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','UnitsPerPallet','CalculatedCartonsPerContainer','NetWeightPerContainerKG','NetWeightPerContainerFloorKG']);
+export const linkedRequestFields:Record<string,string>={PackagingRequestNumber:'Current linked PCR'};
+export const calculatedFields=new Set(['UsedVolumeML','LayersPerContainer','LayersPerPallet','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','UnitsPerPallet','CalculatedCartonsPerContainer','NetWeightPerContainerKG','NetWeightPerContainerFloorKG']);
 export const efficiencyFields=['PalletHeightMM','CartonEfficiencyKGM3','RelativeCartonEfficiencyPct','PalletUtilizationPct','PalletHeightEfficiencyPct'];
 efficiencyFields.forEach(key=>calculatedFields.add(key));
 export function itemFieldGroups(domain:'opportunity'|'requests'){
  return [
   {title:'Product Info',fields:{...productFields,...(domain==='opportunity'?{EstPctAwarded:'Estimated award %',ShelfPrice:'Shelf price'}:{PIC:'Current PIC'})}},
   {title:'Packaging Request',fields:requestFields},
-  {title:'Packaging Responses',fields:responseFields},
+  {title:'Packaging Responses',fields:{...(domain==='opportunity'?linkedRequestFields:{}),...responseFields}},
  ];
 }
 export const itemFieldLabels=(domain:'opportunity'|'requests')=>Object.assign({},...itemFieldGroups(domain).map(g=>g.fields)) as Record<string,string>;

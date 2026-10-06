@@ -51,7 +51,7 @@ async function setup(page:Page,lookupTypes=types){
 test('sections have exact choices, root types only and one Product Info shelf-life display',async({page})=>{
  const {item}=await setup(page);
  await expect(item.getByRole('region',{name:'Container and Configuration',exact:true})).toBeVisible();
- await expect(item.getByLabel('Container request',{exact:true}).locator('option')).toHaveText(['Choose container request','Dry','Reefer']);
+ await expect(item.getByLabel('Container request',{exact:true}).locator('option')).toHaveText(['Choose container request','Dry','Reefer','Both']);
  await expect(item.getByLabel('Configuration request',{exact:true}).locator('option')).toHaveText(['Choose configuration request','Pallet load','Floor load','Both']);
  await expect(item.getByRole('region',{name:'Palletization request',exact:true})).toBeVisible();
  await expect(item.getByLabel('Primary Type',{exact:true}).locator('option')).toHaveText(['Choose primary type','Pouch']);

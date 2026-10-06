@@ -50,7 +50,7 @@ test('create selected request items without secure-context randomUUID',async({pa
  const requested=page.waitForRequest(r=>r.url().includes('customer_name=North'));
  await page.getByRole('button',{name:'Search'}).click();await requested;
  await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
- await expect(page.getByText('Roasted almonds')).toBeVisible();
+ await expect(page.getByRole('table',{name:'Opportunity items',exact:true}).getByRole('cell',{name:'P-101',exact:true})).toBeVisible();
  await page.getByRole('checkbox',{name:'Select P-101 item 11'}).check();
  await page.getByLabel('Response due',{exact:true}).fill('2099-10-01');
  await page.getByRole('button',{name:'Create Packaging Request (1)'}).click();

@@ -24,7 +24,7 @@ class OpportunityView(BaseModel):
     sort: list[MasterSort] = Field(default_factory=list, max_length=644)
     filters: list[str] | None = Field(None, max_length=5)
     values: dict[str, str] = Field(default_factory=dict, max_length=5)
-    field_version: int = Field(1, ge=1, le=7)
+    field_version: int = Field(1, ge=1, le=8)
     prefix_columns: list[str] | None = Field(None, max_length=64)
 
 def validate_view(view, allowed):
@@ -112,7 +112,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         )
         SELECT h.*,i.ID ItemID,i.ProductID,p.ProductCode,p.ProductName,i.ProductNetWeightGrams AS WeightGrams,i.ItemDescription,
             CONVERT(VARCHAR(40),i.AnnualUnit) AnnualUnit,
-            i.ParentItemID,i.MixUnitQuantity,i.MixChildNumber,mix.MixVersionID,
+            i.ParentItemID,i.MixUnitQuantity,i.MixChildNumber,mix.MixVersionID,(SELECT StructureJSON FROM dbo.v_OpportunityMixStructure WHERE ParentItemID=i.ID) MixStructure,
             CONVERT(VARCHAR(20),(SELECT COUNT(*) FROM dbo.OpportunityItem root
               WHERE root.OpportunityID=i.OpportunityID AND root.ParentItemID IS NULL
               AND root.ID<=COALESCE(i.ParentItemID,i.ID)))+
@@ -121,13 +121,13 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CAST(CASE WHEN active_request.ID IS NULL THEN 0 ELSE 1 END AS BIT) HasOpenPackagingRequest,
             request_header.RequestNumber AS OpenPackagingRequestNumber,
             active_request.Stage AS OpenPackagingRequestStage,
-            x.Category,x.Grade,x.MixRatioPct,x.PalletSize,x.PalletStacking,x.MaxPalletHeightM,x.ContainerRequest,x.ConfigurationRequest,x.PackagingType,x.RecyclableRequirement,x.RecycledContent,x.Transparency,x.MetalizedAluminum,p.ShelfLifeDays,x.SpecialComments,
+            x.Category,x.Grade,x.MixRatioPct,logistics.PalletSize,logistics.PalletStacking,logistics.MaxPalletHeightM,logistics.ContainerRequest,logistics.ConfigurationRequest,x.PackagingType,x.RecyclableRequirement,x.RecycledContent,x.Transparency,x.MetalizedAluminum,p.ShelfLifeDays,x.SpecialComments,
             i.PrimaryTypeID,i.SecondaryTypeID,i.SecondaryTransparency,i.NumberOfPrimary,i.PackagingLayerCount,i.PackagingLayerCount RequestedLayerCount,i.TertiaryTypeID,i.TertiaryTransparency,i.NumberOfSecondary,
-            i.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
+            logistics.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.TertiaryTypeID) AS TertiaryTypeName,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.PrimaryTypeID) AS PrimaryTypeName,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.SecondaryTypeID) AS SecondaryTypeName,
-            x.PackagingRequestNumber,x.PackagingResponseStage,
+            x.PackagingRequestID,x.PackagingRequestItemID,x.PackagingRequestNumber,x.PackagingResponseStage,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponseLayerCount END ResponseLayerCount,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.SelectedContainerType END SelectedContainerType,
             COALESCE(NULLIF(response.ContainerRequest,N''),parent_container.ContainerRequest) ResponseContainerFamily,
@@ -141,6 +141,14 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.UnitsPerTertiary END UnitsPerTertiary,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.NutDensity END NutDensity,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.UsedVolumeML END UsedVolumeML,
+            response.ProductMixSnapshot,
+            CAST(CASE WHEN i.ParentItemID IS NULL AND mix.ParentItemID IS NOT NULL THEN 1 ELSE 0 END AS BIT) IsMixParent,
+            CASE WHEN i.ParentItemID IS NULL AND (@CanReadDraft=1 OR x.PackagingResponseStage='Approved') THEN
+              (SELECT child.ID ItemID,child_oi.ProductID,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN CONVERT(VARCHAR(40),child.NutDensity) END NutDensity
+               FROM dbo.PackagingConfigurationRequestItem child JOIN dbo.OpportunityItem child_oi ON child_oi.ID=child.OpportunityItemID
+               WHERE child.RequestID=response.RequestID AND child_oi.ParentItemID=i.ID FOR JSON PATH,INCLUDE_NULL_VALUES)
+            END MixResponseChildren,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.LayersPerContainer END LayersPerContainer,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.PalletsPerContainer END PalletsPerContainer,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.CartonsPerContainerFloor END CartonsPerContainerFloor,
@@ -176,7 +184,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         FROM PageHeaders h LEFT JOIN dbo.OpportunityItem i ON i.OpportunityID=h.OpportunityID
         LEFT JOIN dbo.Product p ON p.ID=i.ProductID
         LEFT JOIN dbo.OpportunityMixSnapshot mix ON mix.ParentItemID=COALESCE(i.ParentItemID,i.ID)
-        LEFT JOIN dbo.v_OpportunityItemPackaging x ON x.OpportunityItemID=i.ID
+        LEFT JOIN dbo.v_OpportunityItemPackaging x ON x.OpportunityItemID=i.ID LEFT JOIN dbo.OpportunityItem logistics ON logistics.ID=COALESCE(i.ParentItemID,i.ID)
         LEFT JOIN dbo.PackagingConfigurationRequestItem response ON response.ID=x.PackagingRequestItemID
         LEFT JOIN dbo.PackagingConfigurationRequestItem parent_container ON parent_container.RequestID=response.RequestID AND parent_container.OpportunityItemID=i.ParentItemID
         LEFT JOIN dbo.PkgPricingMaster primary_pricing ON primary_pricing.RequestItemID=response.ID AND primary_pricing.PackagingOrder='Primary' AND primary_pricing.IsCurrent=1

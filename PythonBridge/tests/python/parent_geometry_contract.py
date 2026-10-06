@@ -80,6 +80,33 @@ class ParentGeometrySQL(unittest.TestCase):
             PricingCalculations=[payload.model_copy(update={'Fingerprint':result['Fingerprint']})],**extra)
         return batches.response_save(batches.ResponseBatch(rows=[row]),self.ctx)
 
+    def test_saved_layer_defaults_repreview_under_new_count_and_unused_layers_clear_only_on_save(self):
+        from request_views import item_read
+        self.save(self.payload(LayerCount=2))
+        saved = pricing.options(self.req, self.root, 'Secondary', self.ctx)['saved'][0]
+        previous = json.loads(saved['InputJSON'])
+        self.assertEqual(previous['LayerCount'], 2)
+        updated = Calculation(**{**previous, 'LayerCount': 3})
+        self.save(updated, ResponseLayerCount=3)
+        read = item_read(self.username, self.header, 1, 25, None, None, '[]')['rows'][0]
+        self.assertEqual(read['LayerDimensionCaptures']['Secondary']['Dimensions'], [
+            dict(Name='Length', Unit='mm', Value='200'), dict(Name='Width', Unit='mm', Value='100'),
+            dict(Name='Height', Unit='mm', Value='250')])
+        current = pricing.options(self.req, self.root, 'Secondary', self.ctx)['saved'][0]
+        current_input = json.loads(current['InputJSON'])
+        self.assertEqual(current_input['LayerCount'], 3)
+        self.assertEqual(current_input['components'], previous['components'])
+        version = bytes_to_b64(self.cur.execute('SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?', self.req).fetchval())
+        reply = batches.response_save(batches.ResponseBatch(rows=[dict(RowNum=1, ID=self.req,
+            RowVersion=version, ResponseLayerCount=1)]), self.ctx)
+        self.assertEqual(reply['results'][0]['Status'], 'OK', reply)
+        after = item_read(self.username, self.header, 1, 25, None, None, '[]')['rows'][0]
+        self.assertIsNone(after['SecondPMType'])
+        self.assertIsNone(after['UnitsPerCarton'])
+        self.assertNotIn('Secondary', after['LayerDimensionCaptures'])
+        self.assertEqual(self.cur.execute('SELECT COUNT(*) FROM dbo.PkgPricingMaster WHERE RequestItemID=? AND IsCurrent=1', self.req).fetchval(), 0)
+        self.assertEqual(self.cur.execute('SELECT COUNT(*) FROM dbo.PkgPricingMaster WHERE RequestItemID=?', self.req).fetchval(), 2)
+
     def test_parent_measurements_feed_parent_consumption_formula(self):
         result=self.preview()
         self.assertEqual(D(result['components'][0]['Area']),D('.02'))
@@ -101,6 +128,9 @@ class ParentGeometrySQL(unittest.TestCase):
         pallet=self.cur.execute('SELECT PalletSize FROM dbo.v_PalletMaster WHERE UoMID=? AND Width=1000 AND Length=1000',self.units['mm']).fetchval()
         self.save(self.payload(),ResponseMaxPalletHeightMM=1900,CartonsPerLayer=10,ResponsePalletSize=pallet,NutDensity='.5')
         row=item_read(self.username,self.header,1,25,None,None,'[]')['rows'][0]
+        self.assertEqual(row['OpportunityItemID'],self.item)
+        self.assertEqual(row['ProductID'],self.product)
+        self.assertEqual(D(row['SecondaryPriceUSDPerUnit']),D('.008'))
         self.assertEqual(D(row['FinalLayerAreaM2']),D('.02'))
         self.assertEqual(D(row['FinalLayerVolumeM3']),D('.005'))
         self.assertEqual(D(row['PalletHeightMM']),D(1900))
@@ -115,6 +145,8 @@ class ParentGeometrySQL(unittest.TestCase):
         self.assertNotIn('SecondaryLayerPricingSnapshot',row)
         opportunities=sorted_grid(self.username,1,25,'[]',self.number)['rows']
         opportunity=next(r for r in opportunities if r['ItemID']==self.item)
+        self.assertEqual(opportunity['PackagingRequestID'],self.header)
+        self.assertEqual(opportunity['PackagingRequestItemID'],self.req)
         for key in ('PalletHeightMM','CartonEfficiencyKGM3','RelativeCartonEfficiencyPct','PalletUtilizationPct','PalletHeightEfficiencyPct'):
             self.assertEqual(D(opportunity[key]),D(row[key]))
         self.assertNotIn('FinalLayerPricingSnapshot',opportunity)

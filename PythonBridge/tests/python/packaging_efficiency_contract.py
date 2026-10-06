@@ -92,6 +92,8 @@ class Efficiency(unittest.TestCase):
             self.assertIsNone(row['LayerDimensionCaptures'])
             self.assertIn("CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN tertiary_pricing.SnapshotJSON END TertiaryLayerPricingSnapshot",query.call_args.args[0])
             self.assertIn("CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN efficiency_pallet.PalletAreaMM2",query.call_args.args[0])
+            for order,alias in (('Primary','primary'),('Secondary','secondary'),('Tertiary','tertiary')):
+                self.assertIn("CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN "+alias+"_pricing.UnitUSDPrice END "+order+"PriceUSDPerUnit",query.call_args.args[0])
         opportunity={**self.row(),'PackingWayVisible':0,'PackingRequestedLayers':3,
             'FinalLayerPricingSnapshot':json.dumps(self.snapshot()),'EfficiencyPalletAreaMM2':'1000000'}
         opportunity['TertiaryLayerPricingSnapshot']=json.dumps(self.snapshot())

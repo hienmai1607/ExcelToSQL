@@ -2,12 +2,13 @@ import {useEffect,useState,useRef} from 'react';
 import {call,type Row} from './api';
 import {Modal,ErrorNote,InfoTip,Notification} from './ui';
 import {ResponseSections,responseChange} from './response-sections';
+import {prepareResponsePricing,activeResponsePricing} from './response-pricing';
 import {IconButton} from './icons';
 import {webResponseFields as responseFields,fieldValues,fieldPayload,responseFieldActive} from './packaging-fields';
 import {useResponseTypes,responseTypeError,responseValues} from './response-input';
 import {numericEntryError} from './numeric-input';
 import {pricingResponseValues,type PricingCalculation} from './pkg-pricing';
-import {containerProfileError} from './container-loading';
+import {containerProfileError} from './container-loading';import {isMixParent} from './packaging-orders';
 
 export function PackagingResponse({row,onClose,onSaved}:{row:Row;onClose:()=>void;onSaved:()=>void}){
  const [values,setValues]=useState(()=>responseValues(row));
@@ -17,22 +18,23 @@ export function PackagingResponse({row,onClose,onSaved}:{row:Row;onClose:()=>voi
  const [uncertain,setUncertain]=useState(false);
  const guard=useRef(false);
  const dirty=Object.keys(pricing).length>0||JSON.stringify(values)!==JSON.stringify(fieldValues(row,responseFields));
- function change(key:string,value:string){const next=responseChange(values,pricing,key,value,responseTypes.pallets,row.ConfigurationRequest);setValues(next.values);setPricing(next.pricing)}
+ function change(key:string,value:string){const next=responseChange(values,pricing,key,value,responseTypes.pallets,row.ConfigurationRequest,row);setValues(next.values);setPricing(next.pricing)}
  function close(){if(!busy&&(!dirty||window.confirm('Discard unsaved response?')))onClose()}
 
  useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirty||busy){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn)},[dirty,busy]);
- function review(){
+ async function review(){
   const profileError=containerProfileError(values);if(profileError){setError(profileError);return}
-  for(const f of responseFields){if(f.readOnly||!responseFieldActive(f.key,values,row.ConfigurationRequest))continue;const v=values[f.key];const typeError=responseTypeError(f.key,v,row[f.key],responseTypes.types,values.ResponseLayerCount,row.ResponseLayerCount??row.RequestedLayerCount);if(typeError){setError(typeError);return}if(v&&f.numeric&&((numericEntryError(f.key,v))||(f.integer&&(!/^\d+$/.test(v)||Number(v)<=0)))){setError('Check '+f.label+'.');return}}
+  for(const f of responseFields){if(f.readOnly||!responseFieldActive(f.key,values,row.ConfigurationRequest,!!row.ParentItemID,isMixParent(row)))continue;const v=values[f.key];const typeError=responseTypeError(f.key,v,row[f.key],responseTypes.types,values.ResponseLayerCount,row.ResponseLayerCount??row.RequestedLayerCount,!!row.ParentItemID,isMixParent(row));if(typeError){setError(typeError);return}if(v&&f.numeric&&((numericEntryError(f.key,v))||(f.integer&&(!/^\d+$/.test(v)||Number(v)<=0)))){setError('Check '+f.label+'.');return}}
 
 
-  setError('');setConfirm(true);
+  setBusy(true);setError('');
+  try{const prepared=await prepareResponsePricing(row,values,pricing,responseTypes.types);setValues(prepared.values);setPricing(prepared.pricing);setConfirm(true)}catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
  async function save(){
   if(guard.current)return;guard.current=true;setBusy(true);setError('');
   try{
    const existing=Object.fromEntries(['MaterialID','WidthMM','LengthMM','ResponseNotes'].map(k=>[k,row[k]??null]));
-   const reply=await call<{results:Row[]}>('/api/packaging/response/batch',{rows:[{...existing,...fieldPayload(values,responseFields,row.ConfigurationRequest),RowNum:1,ID:row.ItemID,RowVersion:row.ItemRowVersion,...(Object.keys(pricing).length?{PricingCalculations:Object.values(pricing)}:{})}]});
+   const reply=await call<{results:Row[]}>('/api/packaging/response/batch',{rows:[{...existing,...fieldPayload(values,responseFields,row.ConfigurationRequest,!!row.ParentItemID,isMixParent(row)),RowNum:1,ID:row.ItemID,RowVersion:row.ItemRowVersion,...(Object.keys(pricing).length?{PricingCalculations:activeResponsePricing(values,pricing)}:{})}]});
    if(reply.results?.length!==1||reply.results[0].Status!=='OK')throw new Error(String(reply.results?.[0]?.Message||'Save outcome unknown. Close and refresh before retrying.'));
    onSaved();onClose();
   }catch(e){setError((e as Error).message);if(!(e as {status?:number}).status||(e as {status:number}).status>=500)setUncertain(true)}

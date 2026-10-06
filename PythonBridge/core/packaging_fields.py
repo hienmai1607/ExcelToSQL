@@ -43,7 +43,7 @@ class HeaderFields(BaseModel):
     CurrencyID: int | None = Field(None, ge=1)
     ExchangeRateToVND: Decimal | None = Field(None, max_digits=19, decimal_places=6, gt=0, allow_inf_nan=False)
 
-PARENT_LOGISTICS_FIELDS = {"PalletSize","PalletStacking","MaxPalletHeightM","ContainerRequest"}
+PARENT_LOGISTICS_FIELDS = {"PalletSize","PalletStacking","MaxPalletHeightM","ContainerRequest","ConfigurationRequest"}
 OPPORTUNITYITEM_FIELDS = ["PalletSize","PalletStacking","MaxPalletHeightM","ContainerRequest","ConfigurationRequest","PackagingType","RecyclableRequirement","RecycledContent","Transparency","MetalizedAluminum","SpecialComments"]
 # Web-only extensions: keep existing Layout and Excel field lists unchanged.
 WEB_ITEM_FIELDS = ["PrimaryTypeID", "SecondaryTypeID", "SecondaryTransparency", "NumberOfPrimary", "WebPackagingRequirements",
@@ -94,8 +94,9 @@ PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS = ["FirstPMType","SecondPMType","UnitsP
 WEB_RESPONSE_FIELDS = ["NutDensity","ResponseLayerCount","ThirdPMType","ThirdPMMOQ","UnitsPerTertiary",
                        "LayersPerContainer","PalletsPerContainer","CartonsPerContainerFloor",
                        "ResponsePalletSize","ResponsePalletStacking","ResponseMaxPalletHeightMM","HeightMM"]
-WEB_RESPONSE_FIELDS += ["SelectedContainerType", "ContainerLoadProfiles"]
+WEB_RESPONSE_FIELDS += ["SelectedContainerType", "ContainerLoadProfiles", "SameConfig"]
 class ResponseFields(BaseModel):
+    SameConfig: bool | None = Field(None, strict=True)
     SelectedContainerType: ContainerType | None = None
     ContainerLoadProfiles: dict[ContainerType, ContainerLoadProfile] | None = None
     ResponsePalletSize: str | None = Field(None, max_length=100)
@@ -266,6 +267,8 @@ def enriched_response(payload, ctx):
             # original rows in ID order; SQL still enforces version, stage and PIC.
             cursor.execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Read',@Actor OUTPUT;", ctx.username)
             consume(cursor)
+            from mix_same_config import validate_group_batch
+            validate_group_batch(cursor, payload.rows)
             for row in sorted(payload.rows, key=lambda r: r.ID):
                 cursor.execute("SELECT Cost,CurrencyID,CostBasis,FirstPMMOQ,FirstPMType,SecondPMMOQ,SecondPMType,ThirdPMMOQ,ThirdPMType,ResponseLayerCount,RequestedLayerCount,HeightMM FROM dbo.PackagingConfigurationRequestItem WITH(UPDLOCK,HOLDLOCK) WHERE ID=?", row.ID)
                 original = cursor.fetchone()

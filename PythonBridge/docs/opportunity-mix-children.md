@@ -19,7 +19,16 @@ and the Opportunity Local Update workbook. The API and SQL reject child identity
 or quantity changes. Existing child edits require their current RowVersions;
 the parent and any child edits share one document transaction.
 
+After migration 86, Container/Configuration and Palletization requirements are
+parent-owned, not independent child inputs. New child requests copy the parent's
+requirements even when requested separately. See [mix parent logistics](mix-parent-logistics.md)
+for Shipping exceptions and the captured Product structure dialog.
+
 Both parents and children can be selected for Packaging Requests, independently.
+Selecting a parent automatically selects all of its eligible Draft children,
+including collapsed rows; children with open requests or non-Draft stages stay
+unavailable. Clearing the parent clears its group, while individual child
+checkboxes remain editable. Other product selections are not affected.
 Each gets its own request item, processing lock, response and request-time
 snapshot. An open parent request does not lock an unrequested child. Parent
 quantity changes are refused while any child has an open request or is not Draft.

@@ -71,15 +71,23 @@ def authorize(cur, username, item_id, write=False, version=None):
     return select(cur, "EXEC dbo.usp_PkgPricing_ItemAuthorize ?,?,?,?", username, item_id, int(write), version)[0][0]
 
 
-def catalog(cur, type_id, order, locked=False):
+def pricing_item_kind(cur, item_id):
+    """Use the saved Opportunity mix membership, never a client flag or live Master."""
+    return select(cur, '''SELECT oi.ParentItemID,CAST(CASE WHEN oi.ParentItemID IS NULL
+        AND EXISTS(SELECT 1 FROM dbo.OpportunityMixSnapshot ms WHERE ms.ParentItemID=oi.ID)
+        THEN 1 ELSE 0 END AS BIT) IsMixParent FROM dbo.PackagingConfigurationRequestItem i
+        JOIN dbo.OpportunityItem oi ON oi.ID=i.OpportunityItemID WHERE i.ID=?''', item_id)[0][0]
+
+
+def catalog(cur, type_id, order, locked=False, mix_parent=False):
     # Shared serializable source locks keep snapshots stable without serializing
     # independent pricing saves behind exclusive/update locks on the masters.
     hint = " WITH(HOLDLOCK)" if locked else ""
     types = decode_orders(select(cur, f"SELECT ID,ParentTypeID,PackagingType,PackagingOrder,PackagingOrdersJSON,PriceBasis,Shipping,Status,RowVersion FROM dbo.v_PackagingTypeWeb{hint}")[0])
     by_id = {t["ID"]: t for t in types}
     root = by_id.get(type_id)
-    if not root or root["ParentTypeID"] is not None or root["Status"] != "Active" or order not in root["PackagingOrders"]:
-        raise HTTPException(422, "Choose an active " + order + " Type.")
+    if not root or root["ParentTypeID"] is not None or root["Status"] != "Active" or not (any(o in ("Secondary","Tertiary") for o in root["PackagingOrders"]) if mix_parent else order in root["PackagingOrders"]):
+        raise HTTPException(422, "Choose an active Secondary/Tertiary Type for the mix parent." if mix_parent else "Choose an active " + order + " Type.")
     paths = {}
     for t in types:
         path, seen, node = [], set(), t
@@ -333,7 +341,7 @@ def pricing_context(cur, item_id, locked=False):
         i.SourceProductRowVersion,i.SnapshotCapturedAt,i.PrimaryTypeID,i.PrimaryTypeName,
         i.SecondaryTypeID,i.SecondaryTypeName,i.NumberOfPrimary,i.Transparency,i.SecondaryTransparency,
         i.RequestedLayerCount,COALESCE(i.ResponseLayerCount,i.RequestedLayerCount) ConfirmedLayerCount,
-        i.TertiaryTypeID,i.TertiaryTypeName,i.TertiaryTransparency,i.NumberOfSecondary
+        i.TertiaryTypeID,i.TertiaryTypeName,i.TertiaryTransparency,i.NumberOfSecondary,(SELECT ParentItemID FROM dbo.OpportunityItem WHERE ID=i.OpportunityItemID) ParentItemID,CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.OpportunityMixSnapshot ms WHERE ms.ParentItemID=i.OpportunityItemID) THEN 1 ELSE 0 END AS BIT) IsMixParent
         FROM dbo.PackagingConfigurationRequestItem i{hint} JOIN dbo.PackagingConfigurationRequest h{hint} ON h.ID=i.RequestID
         WHERE i.ID=?''', item_id)[0][0]
     product = select(cur, 'SELECT ID,ProductCode,ProductName,WeightGrams,ShelfLifeDays,Category,IsMix,Status,RowVersion FROM dbo.Product'+hint+' WHERE ID=?', request['ProductID'])[0][0]
@@ -360,15 +368,15 @@ def calculate(cur, ctx, item_id, payload, locked=False, expected_version=None):
     if ORDERS.index(payload.PackagingOrder)+1>layers:
         raise HTTPException(422,'Calculator order exceeds the confirmed packaging layers.')
     snapshot_context['Request']['ConfirmedLayerCount']=layers
-    root, paths, units, dimensions, prices = catalog(cur, payload.PackagingTypeID, payload.PackagingOrder, locked)
-    if layers >= 2 and ORDERS.index(payload.PackagingOrder)+1 == layers and not root['Shipping']:
-        raise HTTPException(422, 'The final packaging layer requires a Shipping type in the matching order.')
+    root, paths, units, dimensions, prices = catalog(cur, payload.PackagingTypeID, payload.PackagingOrder, locked, mix_parent=bool(snapshot_context['Request'].get('IsMixParent')))
+    if not snapshot_context['Request'].get('ParentItemID') and layers >= 2 and ORDERS.index(payload.PackagingOrder)+1 == layers and not root['Shipping']:
+        raise HTTPException(422, 'The final packaging layer requires an eligible Shipping type.')
     price_map = {p["PriceID"]: p for p in prices if p["PriceID"] is not None}
     dimension_map = {d["ID"]: d for d in dimensions}
     unit_map = {u["ID"]: u for u in units if u["Status"] == "Active"}
     area_unit = unit_map.get(payload.SquareMeterUoMID)
     parent,height,height_conversion=parent_geometry(cur,payload,root,dimension_map,unit_map,locked,
-        final_layer=ORDERS.index(payload.PackagingOrder)+1==layers)
+        final_layer=not snapshot_context['Request'].get('ParentItemID') and ORDERS.index(payload.PackagingOrder)+1==layers)
     rows = []
     with localcontext() as context:
         context.prec = 50
@@ -421,13 +429,13 @@ def options(item_id: ItemID, packaging_type_id: int = Query(ge=1, le=2147483647)
             ctx: AccessContext = Depends(get_access_context)):
     require(ctx, "Packaging", "PackagingManager")
     with api_cursor() as cur:
-        authorize(cur, ctx.username, item_id)
-        root, paths, units, dimensions, prices = catalog(cur, packaging_type_id, packaging_order)
+        authorize(cur, ctx.username, item_id); item_kind = pricing_item_kind(cur,item_id)
+        root, paths, units, dimensions, prices = catalog(cur, packaging_type_id, packaging_order, mix_parent=item_kind['IsMixParent'])
         saved = select(cur, "SELECT TOP(20) ID,PackagingTypeID,PackagingTypeName,FinalMOQ,UnitPrice,CurrencyCode,UnitUSDPrice,InputJSON,IsCurrent,CreatedAt FROM dbo.PkgPricingMaster WHERE RequestItemID=? AND PackagingOrder=? ORDER BY ID DESC", item_id, packaging_order)[0]
         matching=select(cur,"SELECT TOP(1) ID,CreatedAt FROM dbo.PkgPricingMaster WHERE RequestItemID=? AND PackagingOrder=? AND PackagingTypeID=? ORDER BY IsCurrent DESC,ID DESC",item_id,packaging_order,packaging_type_id)[0]
         previous=matching[0] if matching else None
         snapshots = select(cur, "SELECT SnapshotJSON FROM dbo.PkgPricingComponent WHERE PricingMasterID=? ORDER BY LineNumber", previous['ID'])[0] if previous else []
-    return json.loads(document(dict(parentType=root,materials=prices, dimensions=dimensions, uoms=[dict(u,IsSquareMeter=is_area_unit(u)) for u in units if u["Status"] == "Active"],
+    return json.loads(document(dict(parentType=root,isMixChild=item_kind['ParentItemID'] is not None,isMixParent=item_kind['IsMixParent'],materials=prices, dimensions=dimensions, uoms=[dict(u,IsSquareMeter=is_area_unit(u)) for u in units if u["Status"] == "Active"],
         types=[dict(t, AncestorIDs=[n["ID"] for n in path]) for path in paths.values() for t in path[:1]],
         saved=saved, componentSnapshot=previous, savedComponents=[json.loads(r["SnapshotJSON"]) for r in snapshots])))
 
@@ -449,7 +457,7 @@ def references(item_id: ItemID, packaging_type_id: int = Query(ge=1,le=214748364
     require(ctx,'Packaging','PackagingManager')
     with api_cursor() as cur:
         authorize(cur,ctx.username,item_id)
-        catalog(cur,packaging_type_id,packaging_order)
+        catalog(cur,packaging_type_id,packaging_order,mix_parent=pricing_item_kind(cur,item_id)['IsMixParent'])
         rows=select(cur,'''SELECT TOP(100) p.ID,p.PackagingTypeID,p.PackagingTypeName,p.FinalMOQ,p.UnitPrice,p.CurrencyCode,
             p.CreatedAt,p.IsCurrent,i.ProductCode,i.ProductName,h.RequestNumber,h.OpportunityNumber
             FROM dbo.PkgPricingMaster p JOIN dbo.PackagingConfigurationRequestItem i ON i.ID=p.RequestItemID
@@ -464,7 +472,7 @@ def reference(item_id: ItemID, reference_id: ItemID, packaging_type_id: int = Qu
     require(ctx,'Packaging','PackagingManager')
     with api_cursor() as cur:
         authorize(cur,ctx.username,item_id)
-        _,paths,units,dimensions,prices=catalog(cur,packaging_type_id,packaging_order)
+        _,paths,units,dimensions,prices=catalog(cur,packaging_type_id,packaging_order,mix_parent=pricing_item_kind(cur,item_id)['IsMixParent'])
         header=select(cur,'SELECT ID,InputJSON,PackagingTypeName,CreatedAt FROM dbo.PkgPricingMaster WHERE ID=? AND PackagingOrder=?',reference_id,packaging_order)[0]
         if not header:
             raise HTTPException(404,'Pricing reference not found in this packaging order.')
@@ -520,7 +528,7 @@ def geometry_preview(item_id: ItemID, payload: Calculation, ctx: AccessContext =
     require(ctx,'Packaging','PackagingManager')
     with api_cursor() as cur:
         authorize(cur,ctx.username,item_id)
-        root,paths,units,dimensions,prices=catalog(cur,payload.PackagingTypeID,payload.PackagingOrder)
+        root,paths,units,dimensions,prices=catalog(cur,payload.PackagingTypeID,payload.PackagingOrder,mix_parent=pricing_item_kind(cur,item_id)['IsMixParent'])
         price_map={p['PriceID']:p for p in prices if p['PriceID'] is not None}
         unit_map={u['ID']:u for u in units if u['Status']=='Active'}
         dimension_map={d['ID']:d for d in dimensions}

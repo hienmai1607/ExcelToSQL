@@ -148,7 +148,7 @@ class WebRequirementSections(unittest.TestCase):
 
     def test_mix_child_accepts_new_packaging_fields_without_logistics(self):
         self.create_mix()
-        result = self.batch(self.edit(self.child, WebPackagingRequirements=True, ConfigurationRequest="Floor load",
+        result = self.batch(self.edit(self.child, WebPackagingRequirements=True,
             PrimaryTypeID=self.types["Primary"], NumberOfPrimary=4, SecondaryTransparency="NA"))
         self.assertEqual(result["item_results"][0]["Status"], "OK", result)
         self.assertEqual(self.cur.execute("SELECT NumberOfPrimary FROM dbo.OpportunityItem WHERE ID=?", self.child).fetchval(), 4)

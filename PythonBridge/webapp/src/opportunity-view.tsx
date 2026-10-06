@@ -1,7 +1,7 @@
 import {ColumnResizer} from './column-widths';
 import {useEffect,useState,type ReactNode} from 'react';
 import {type Row} from './api';
-import {itemFieldGroups,itemFieldLabels,requestFields,responseFields,calculatedFields,efficiencyFields} from './item-view-fields';
+import {itemFieldGroups,itemFieldLabels,requestFields,responseFields,linkedRequestFields,calculatedFields,efficiencyFields} from './item-view-fields';
 import {useProfile} from './profile';
 import {IconButton} from './icons';
 import {ErrorNote,PageSizeSetting,LayoutPanel,ColumnOrder,Notification,InfoTip} from './ui';
@@ -10,7 +10,7 @@ export type OpportunityView={page_size?:number;column_widths?:Record<string,numb
 export type ItemTab='all'|'item'|'packaging'|'responses';
 export const itemTabs:Record<ItemTab,string>={all:'All Fields',item:'Product Info',packaging:'Packaging Request',responses:'Packaging Responses'};
 export const itemPrefix=(view:OpportunityView)=>(view.prefix_columns??['ProductCode']).filter(c=>view.columns.includes(c));
-export function itemTabColumns(view:OpportunityView,tab:ItemTab){const prefix=itemPrefix(view);return [...prefix,...view.columns.filter(c=>!prefix.includes(c)&&(tab==='all'||(tab==='packaging'?c in requestFields:tab==='responses'?c in responseFields:!(c in requestFields)&&!(c in responseFields))))]}
+export function itemTabColumns(view:OpportunityView,tab:ItemTab){const prefix=itemPrefix(view),responses={...linkedRequestFields,...responseFields};return [...prefix,...view.columns.filter(c=>!prefix.includes(c)&&(tab==='all'||(tab==='packaging'?c in requestFields:tab==='responses'?c in responses:!(c in requestFields)&&!(c in responses))))]}
 export type OpportunityViews={header?:OpportunityView|null;items?:OpportunityView|null;editor_page_size?:number};
 export const headerLabels:Record<string,string>={OpportunityNumber:'Opportunity',CustomerName:'Customer',OpportunityDesc:'Description',BidOpen:'Bid open',BidClose:'Bid close',HeaderStage:'Stage',ItemCount:'Items',CustomerCurrencyCode:'Customer currency',ExchangeRateVNDPerUSD:'Exchange rate VND per USD',ExchangeRateCustomerCurrencyPerUSD:'Exchange rate Customer Currency per USD'};
 export const itemLabels=itemFieldLabels('opportunity');
@@ -24,15 +24,15 @@ type Domain='opportunity'|'requests';
 const labelsFor=(kind:'header'|'items',domain:Domain)=>domain==='requests'?(kind==='header'?requestHeaderLabels:requestItemLabels):(kind==='header'?headerLabels:itemLabels);
 export const defaultFilters=['opportunity_number','customer_name','stage'];
 export const activeFilters=(v:OpportunityView)=>Object.fromEntries((v.filters??defaultFilters).filter(k=>v.values?.[k]).map(k=>[k,v.values![k]]));
-export const defaultView=(kind:'header'|'items',domain:Domain='opportunity'):OpportunityView=>({page_size:25,field_version:7,filters:kind==='header'?(domain==='requests'?['search','status']:defaultFilters):[],values:{},columns:Object.keys(labelsFor(kind,domain)),sort:kind==='header'?[{column:domain==='requests'?'RequestedAt':'BidOpen',direction:'desc'}]:[]});
+export const defaultView=(kind:'header'|'items',domain:Domain='opportunity'):OpportunityView=>({page_size:25,field_version:domain==='opportunity'?8:7,filters:kind==='header'?(domain==='requests'?['search','status']:defaultFilters):[],values:{},columns:Object.keys(labelsFor(kind,domain)),sort:kind==='header'?[{column:domain==='requests'?'RequestedAt':'BidOpen',direction:'desc'}]:[]});
 export function restoreView(stored:OpportunityView,kind:'header'|'items',domain:Domain):OpportunityView{
  const labels=labelsFor(kind,domain),required=domain==='opportunity'?opportunityRequired[kind]:requestRequired[kind];
  const renamed:Record<string,string>=kind==='header'&&domain==='opportunity'?{CurrencyCode:'CustomerCurrencyCode',ExchangeRateToVND:'ExchangeRateVNDPerUSD'}:{};
  const oldColumns=stored.columns.map(c=>renamed[c]||c).filter(c=>c in labels);
- const added=kind==='items'&&(stored.field_version??1)<7?efficiencyFields:[];
+ const added=kind==='items'?[...((stored.field_version??1)<7?efficiencyFields:[]),...(domain==='opportunity'&&(stored.field_version??1)<8?Object.keys(linkedRequestFields):[])]:[];
  const columns=kind==='items'&&(stored.field_version??1)<6?Object.keys(labels):[...new Set([...oldColumns,...required,...added])];
- const ordered=kind==='items'?itemFieldGroups(domain).flatMap(g=>columns.filter(c=>c in g.fields)):columns;
- return {...stored,field_version:7,columns:ordered,
+ const ordered=kind==='items'?itemFieldGroups(domain).flatMap(g=>{const group=columns.filter(c=>c in g.fields);return added.includes('PackagingRequestNumber')&&'PackagingRequestNumber' in g.fields?['PackagingRequestNumber',...group.filter(c=>c!=='PackagingRequestNumber')]:group}):columns;
+ return {...stored,field_version:domain==='opportunity'?8:7,columns:ordered,
   sort:stored.sort.map(r=>({...r,column:renamed[r.column]||r.column})).filter(r=>r.column in labels&&(kind==='header'||!calculatedFields.has(r.column))),
   prefix_columns:kind==='items'?stored.prefix_columns?.filter(c=>c in itemFieldGroups(domain)[0].fields):undefined,
   column_widths:Object.fromEntries(Object.entries(stored.column_widths||{}).filter(([k])=>k in labels||k.startsWith('_'))),

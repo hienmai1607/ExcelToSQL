@@ -1,10 +1,30 @@
 import {test,expect,type Page} from '@playwright/test';
 import {itemFieldLabels} from '../src/item-view-fields';
+test('linked PCR migrates existing Opportunity layouts once and can remain hidden after saving',async({page})=>{
+ const profile=await setup(page,{columns:['ProductCode','SelectedContainerType'],sort:[],field_version:7});
+ await page.getByRole('button',{name:'View details',exact:true}).click();
+ await page.getByRole('button',{name:'Packaging Responses',exact:true}).click();
+ const table=page.getByRole('table',{name:'Opportunity items'});
+ await expect(table.getByRole('columnheader')).toHaveText(['Packaging status','Product','Current linked PCR','Container type']);
+ await page.getByRole('button',{name:'Item layout',exact:true}).click();
+ const panel=page.getByRole('complementary',{name:'Item layout',exact:true});
+ await panel.getByRole('group',{name:'Visible columns',exact:true}).getByLabel('Current linked PCR',{exact:true}).uncheck();
+ await panel.getByRole('button',{name:'Save layout to profile'}).click();
+ await expect(panel.getByRole('status')).toContainText('saved');
+ expect(profile().settings.opportunity.items.field_version).toBe(8);
+ expect(profile().settings.opportunity.items.columns).toContain('SelectedContainerType');
+ expect(profile().settings.opportunity.items.columns).not.toContain('PackagingRequestNumber');
+ expect(itemFieldLabels('requests')).not.toHaveProperty('PackagingRequestNumber');
+ await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.getByRole('button',{name:'View details',exact:true}).click();
+ await page.getByRole('button',{name:'Packaging Responses',exact:true}).click();
+ await expect(table.getByRole('columnheader',{name:/Current linked PCR/})).toHaveCount(0);
+});
 
-async function setup(page:Page){
+async function setup(page:Page,opportunityView?:Record<string,unknown>){
  let profile:any={version:0,settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,
   requests:{header:{columns:['RequestNumber','CustomerName','ItemCount'],filters:['search'],sort:[],field_version:3},items:{columns:['ProductCode','CostBasis','HeightMM'],sort:[],field_version:3}},
-  opportunity:{items:{columns:['ProductCode','Category','PackagingDescription'],sort:[],field_version:3}}}};
+  opportunity:{items:opportunityView??{columns:['ProductCode','Category','PackagingDescription'],sort:[],field_version:3}}}};
  const item={ItemID:21,RequestID:1,OpportunityID:1,OpportunityNumber:'OPP-1',CustomerName:'Customer',HeaderStage:'Draft',ItemCount:1,ProductID:1,
   ProductCode:'PRD-1',ProductName:'Almonds',ItemDescription:'Item 1',ItemStage:'Assigned',PIC:'Admin',PICUserID:1,ItemRowVersion:'AAAAAAAAAAE=',
   WeightGrams:10,AnnualUnit:1000,RequestedLayerCount:3,ResponseLayerCount:3,UnitsPerCarton:10,UnitsPerTertiary:5,

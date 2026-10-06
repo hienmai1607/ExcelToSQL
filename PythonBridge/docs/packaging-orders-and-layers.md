@@ -23,6 +23,16 @@ Layout, workbook columns, templates and local-update macros are unchanged.
   Secondary also has Unit / CTN; Tertiary has Secondary units / tertiary.
 - Submission/approval requires a type and calculated MOQ for each confirmed layer,
   plus those unit counts for Secondary/Tertiary. Incomplete draft saves remain allowed.
+- Changing confirmed layers preserves each layer's draft types, measurements,
+  component quantities, counts and calculated price defaults. Hiding a layer is
+  not deleting it: switching back before save restores the previous inputs.
+  The former change handler deleted pending calculations and hidden fields;
+  dimension display also rejected their previous confirmed layer count.
+  Active pricing is revalidated during Review for the new layer count, using
+  preserved inputs (including current saved setups). Stale prices/definitions
+  or missing final Shipping height prevent save without discarding those defaults.
+  Only active-layer calculations are submitted; historical shipping height is
+  never transferred to a different final layer.
 - Reducing layers clears inactive fields on save. Inactive pricing becomes superseded, never deleted;
   historical headers, components, inputs, prices and context remain available.
 - New Packaging Material assignments allow only active leaf types, with no children

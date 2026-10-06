@@ -1,3 +1,13 @@
+/* Same config is a per-Mix response setting, separate from product density. */
+.same-config-toggle{display:flex!important;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.same-config-toggle>span{width:100%}
+.same-config-toggle input[type=checkbox]{appearance:none!important;position:relative!important;padding:0!important;width:38px!important;height:22px!important;min-height:22px!important;border:1px solid var(--border)!important;border-radius:999px!important;background:var(--muted)!important;cursor:pointer}
+.same-config-toggle input[type=checkbox]::before{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .12s ease}
+.same-config-toggle input[type=checkbox]:checked{background:var(--accent)!important}
+.same-config-toggle input[type=checkbox]:checked::before{transform:translateX(16px)}
+.same-config-toggle input[type=checkbox]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.same-config-toggle input[type=checkbox]:disabled{opacity:.55;cursor:default}
+.response-configuration-fields{border:0!important;padding:0!important;margin:0!important;min-width:0;display:block;background:transparent!important}
 /* Compact record workspace: 1920x1080 baseline, with responsive and dark variants. */
 
 
@@ -166,9 +176,9 @@ dialog:not([open]){display:none}
 .customers-page th.record-id-column>.icon-button{position:absolute;right:10px;top:50%;transform:translateY(-50%);min-width:26px;min-height:26px;width:26px;height:26px;padding:3px}
 .customers-page th.record-id-column .sort-heading{display:inline-flex;align-items:center;gap:5px;white-space:normal;text-align:left}
 .requirement-sections,.response-sections{gap:0!important}
-.requirement-sections>section,.response-sections>section,.packaging-layer-sections>section,.packaging-request-layers>section{border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important;padding:10px 0!important;min-width:0;position:relative}
-.requirement-sections>section,.response-sections>section,.packaging-layer-sections,.packaging-request-layers{border-bottom:1px solid var(--border)!important}
-.requirement-sections>section:last-child,.response-sections>section:last-child{border-bottom:0!important}
+.requirement-sections>section,.response-sections>section,.response-configuration-fields>section,.packaging-layer-sections>section,.packaging-request-layers>section{border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important;padding:10px 0!important;min-width:0;position:relative}
+.requirement-sections>section,.response-sections>section,.response-configuration-fields>section,.packaging-layer-sections,.packaging-request-layers{border-bottom:1px solid var(--border)!important}
+.requirement-sections>section:last-child,.response-sections>section:last-child,.response-configuration-fields>section:last-child{border-bottom:0!important}
 .requirement-sections h4,.response-sections h4{font-size:12px;margin:0 0 7px}
 .packaging-request-layers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;min-width:0}
 .packaging-request-layers[data-layers="1"]{grid-template-columns:1fr}
@@ -262,7 +272,7 @@ button.primary:hover:not(:disabled),[data-theme=dark] button.primary:hover:not(:
 @media(max-width:900px){.record-dialog-footer{flex-wrap:wrap;gap:8px}.record-dialog-footer>.pager{flex-basis:100%}.record-dialog-footer>.record-action-bar{margin-left:auto!important}}
 /* Shared compact rhythm for editable and read-only packaging sections. */
 .requirement-sections{--packaging-section-gap:8px;--packaging-heading-gap:6px;--packaging-field-gap:4px}
-.requirement-sections>section,.response-sections>section,.packaging-layer-sections>section,.packaging-request-layers>section{padding:var(--packaging-section-gap) 0!important}
+.requirement-sections>section,.response-sections>section,.response-configuration-fields>section,.packaging-layer-sections>section,.packaging-request-layers>section{padding:var(--packaging-section-gap) 0!important}
 .requirement-sections h4,.response-sections h4{font-size:12px;line-height:18px;margin:0 0 var(--packaging-heading-gap);font-weight:600}
 .requirement-sections .packaging-entry-grid{gap:6px 12px;align-items:start}
 .requirement-sections label,.requirement-sections .field-label{font-family:inherit;font-size:11px;line-height:16px;font-weight:500;gap:var(--packaging-field-gap)}

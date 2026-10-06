@@ -1,7 +1,150 @@
 import {test,expect,type Page} from '@playwright/test';
-import {responseEfficiency} from '../src/response-efficiency';
 
-async function setup(page:Page,layers=3,overrides:Record<string,unknown>={}){
+test('PCR-30293 saved mix dimensions survive 2 to 1 to 2 without saving',async({page})=>{
+ const dimensions=(values:string[])=>values.map((Value,index)=>({Name:['Length','Width','Height'][index],Unit:'mm',Value}));
+ const {editor,writes}=await setup(page,2,{RequestedLayerCount:1,IsMixParent:true,WeightGrams:750,ProductMixSnapshot:JSON.stringify(efficiencyMix),
+  FirstPMType:'RSC',SecondPMType:'RSC',FirstPMMOQ:1000,SecondPMMOQ:1000,UnitsPerCarton:10,HeightMM:300,
+  LayerDimensionCaptures:{Primary:{PackagingTypeName:'RSC',LayerCount:2,Dimensions:dimensions(['100','200','300'])},
+   Secondary:{PackagingTypeName:'RSC',LayerCount:2,Dimensions:dimensions(['300','300','300'])}}
+ },[{ID:2,PackagingType:'RSC',PackagingOrder:'Secondary',Shipping:true,Status:'Active'}]);
+ const primary=editor.getByLabel('Primary captured dimensions',{exact:true}).locator('.captured-dimensions-value');
+ const secondary=editor.getByLabel('Secondary captured dimensions',{exact:true}).locator('.captured-dimensions-value');
+ await expect(primary).toHaveText('100mm × 200mm × 300mm');
+ await expect(secondary).toHaveText('300mm × 300mm × 300mm');
+ const layers=editor.getByLabel('Confirmed packaging layers',{exact:true});
+ await layers.selectOption('1');
+ await expect(primary).toHaveText('100mm × 200mm × 300mm');
+ await layers.selectOption('2');
+ await expect(primary).toHaveText('100mm × 200mm × 300mm');
+ await expect(secondary).toHaveText('300mm × 300mm × 300mm');
+ await expect(editor.getByLabel('No of Primary Mix Unit',{exact:true})).toHaveValue('10');
+ expect(writes).toHaveLength(0);
+});
+
+test('mix response slots exclude Primary-only master types and save cross-order packaging',async({page})=>{
+ const types=[
+  {ID:11,PackagingOrder:'Primary',PackagingType:'Pouch',Shipping:false},
+  {ID:12,PackagingOrder:'Secondary',PackagingType:'Tray',Shipping:false},
+  {ID:13,PackagingOrder:'Tertiary',PackagingType:'Shipping case',Shipping:true}
+ ].map(t=>({...t,ParentTypeID:null,Status:'Active'}));
+ const {editor,writes}=await setup(page,3,{IsMixParent:true},types);
+ for(const layer of ['Primary','Secondary'])await expect(editor.getByLabel(layer+' Type',{exact:true}).locator('option')).toHaveText(['Choose '+layer.toLowerCase()+' type','Tray','Shipping case']);
+ await expect(editor.getByLabel('Tertiary Type',{exact:true}).locator('option')).toHaveText(['Choose tertiary type','Shipping case']);
+ await editor.getByLabel('Primary Type',{exact:true}).selectOption('Tray');
+ await expect(editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true})).toBeEnabled();
+ await editor.getByLabel('Secondary Type',{exact:true}).selectOption('Shipping case');
+ await editor.getByLabel('Tertiary Type',{exact:true}).selectOption('Shipping case');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
+ expect(writes[0].rows[0]).toMatchObject({FirstPMType:'Tray',SecondPMType:'Shipping case',ThirdPMType:'Shipping case'});
+});
+
+test('mix child response hides parent shipping controls and excludes them from saves',async({page})=>{
+ const {editor,writes}=await setup(page,2,{ParentItemID:90,ConfigurationRequest:'Both',ContainerRequest:'Dry',ResponsePalletSize:'3000x2000mm',ResponseMaxPalletHeightMM:1900,CartonsPerLayer:10,SelectedContainerType:'20DC',ContainerLoadProfiles:{'20DC':{PalletsPerContainer:10}},CartonsPerContainerFloor:100});
+ for(const name of ['Palletization response','Efficiency response','Pallet load response','Floor load response'])await expect(editor.getByRole('region',{name,exact:true})).toHaveCount(0);
+ await expect(editor.getByLabel('Shipping height (mm)',{exact:true})).toHaveCount(0);
+ await editor.getByLabel('No of Primary Unit',{exact:true}).fill('12');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
+ expect(writes[0].rows[0].UnitsPerCarton).toBe('12');
+ for(const key of ['ResponsePalletSize','ResponsePalletStacking','ResponseMaxPalletHeightMM','HeightMM','CartonsPerLayer','SelectedContainerType','ContainerLoadProfiles','CartonsPerContainerFloor'])expect(writes[0].rows[0]).not.toHaveProperty(key);
+});
+
+test('mix response uses captured Product structure and mix unit labels',async({page})=>{
+ const mix={MixVersionID:7,items:[{ProductID:2,ProductCode:'PRD-A',ProductName:'Almonds',UnitQuantity:'2',WeightGrams:'150',ProductGradeSnapshot:{items:[]}}]};
+ const {editor}=await setup(page,2,{ProductMixSnapshot:JSON.stringify(mix)});
+ await expect(editor.getByLabel('No of Primary Mix Unit',{exact:true})).toBeVisible();
+ await expect(editor.getByRole('region',{name:'Packing Way response',exact:true}).getByText('No of Secondary Mix Unit',{exact:true})).toBeVisible();
+ await editor.getByRole('button',{name:'View grade snapshot',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Product structure',exact:true});
+ await expect(dialog.getByRole('cell',{name:'PRD-A · Almonds',exact:true})).toBeVisible();
+ await dialog.getByRole('button',{name:'Close product structure',exact:true}).click();
+ await expect(editor).toBeVisible();
+});
+import {responseEfficiency,mixTotals,mixVolumeDisplay} from '../src/response-efficiency';
+import {fieldPayload,webResponseFields} from '../src/packaging-fields';
+
+const efficiencyMix={MixVersionID:7,items:[
+ {ProductID:2,ProductCode:'PRD-A',ProductName:'Almonds 150g',UnitQuantity:'2',WeightGrams:'150'},
+ {ProductID:3,ProductCode:'PRD-B',ProductName:'Almonds 450g',UnitQuantity:'1',WeightGrams:'450'}
+]};
+const efficiencyChildren=[{ItemID:2,ProductID:2,NutDensity:'.6'},{ItemID:3,ProductID:3,NutDensity:'.9'}];
+
+test('mix efficiency sums child consumption exactly and never requires a parent density',()=>{
+ const totals=mixTotals(JSON.stringify(efficiencyMix),JSON.stringify(efficiencyChildren));
+ expect(mixVolumeDisplay(totals)).toBe('1,000');
+ const values={ResponseLayerCount:'3',UnitsPerCarton:'12',UnitsPerTertiary:'5',NutDensity:'999'};
+ expect(responseEfficiency(750,values,{VolumeM3:'.002'},null,totals)).toMatchObject({carton:'375',relative:'50.00'});
+ expect(responseEfficiency(750,values,{VolumeM3:'.003'},null,totals)).toMatchObject({carton:'250',relative:'33.33'});
+ const missing=mixTotals(efficiencyMix,efficiencyChildren.slice(0,1));
+ expect(mixVolumeDisplay(missing)).toBe('');
+ expect(responseEfficiency(750,values,{VolumeM3:'.002'},null,missing)).toMatchObject({carton:'375',relative:''});
+ expect(fieldPayload(values,webResponseFields,undefined,false,true)).not.toHaveProperty('NutDensity');
+ expect(fieldPayload(values,webResponseFields,undefined,true,false)).toHaveProperty('NutDensity','999');
+ const fractions=mixTotals({items:[{ProductID:1,UnitQuantity:1,WeightGrams:1},{ProductID:2,UnitQuantity:1,WeightGrams:1}]},[{ProductID:1,NutDensity:3},{ProductID:2,NutDensity:3}]);
+ expect(mixVolumeDisplay(fractions)).toBe('0.666667');
+});
+
+for(const layers of [1,3])test('mix parent volume and efficiency use off-page children for '+layers+' layers',async({page})=>{
+ const {editor,writes}=await setup(page,layers,{
+  IsMixParent:true,WeightGrams:750,NutDensity:999,ProductMixSnapshot:JSON.stringify(efficiencyMix),
+  MixResponseChildren:JSON.stringify(efficiencyChildren),UnitsPerCarton:12,UnitsPerTertiary:5,
+  FirstPMType:'RSC',SecondPMType:'RSC',ThirdPMType:'RSC',HeightMM:100,
+  EfficiencyLayerCount:layers,EfficiencyTypeName:'RSC',FinalLayerVolumeM3:'.002'
+ },[{ID:2,PackagingType:'RSC',PackagingOrder:'Secondary',Shipping:true,Status:'Active'}]);
+ await expect(editor.getByLabel('Nut Density (g/ml)',{exact:true})).toHaveCount(0);
+ await expect(editor.getByLabel('Total Used volume (ml)',{exact:true})).toHaveValue('1,000');
+ await expect(editor.getByLabel('Mix Carton Efficiency (kg/m3)',{exact:true})).toHaveValue('375');
+ await expect(editor.getByLabel('Relative mix carton efficiency %',{exact:true})).toHaveValue('50.00');
+ await expect(editor.getByLabel('Used volume (ml)',{exact:true})).toHaveCount(0);
+ await editor.getByLabel('Cartons / layer',{exact:true}).fill('10');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
+ for(const key of ['NutDensity','UsedVolumeML','MixNetWeightGrams','CartonEfficiencyKGM3','RelativeCartonEfficiencyPct'])expect(writes[0].rows[0]).not.toHaveProperty(key);
+ await expect(editor.getByLabel('Total Used volume (ml)',{exact:true})).toHaveValue('1,000');
+});
+
+test('editing a mix child density updates the parent total and persists after reload',async({page})=>{
+ const {editor,writes}=await setup(page,1,{IsMixParent:true,WeightGrams:750,
+  ProductMixSnapshot:JSON.stringify(efficiencyMix),MixResponseChildren:JSON.stringify(efficiencyChildren),
+  FirstPMType:'RSC',EfficiencyLayerCount:1,EfficiencyTypeName:'RSC',FinalLayerVolumeM3:'.002'},[],[
+  {RequestID:1,ItemID:2,ParentItemID:99,ProductCode:'PRD-A',ProductName:'Almonds 150g',WeightGrams:150,
+   ItemStage:'Assigned',PIC:'Admin',ItemRowVersion:'AAAAAAAAAAE=',ResponseLayerCount:1,NutDensity:'0.6'},
+  {RequestID:1,ItemID:3,ParentItemID:99,ProductCode:'PRD-B',ProductName:'Almonds 450g',WeightGrams:450,
+   ItemStage:'Assigned',PIC:'Admin',ItemRowVersion:'AAAAAAAAAAE=',ResponseLayerCount:1,NutDensity:'0.9'}
+ ]);
+ const firstChild=editor.getByRole('region',{name:'Request item 2',exact:true});
+ const density=firstChild.getByLabel('Nut Density (g/ml)',{exact:true});
+ await density.fill('0.3');
+ await expect(editor.getByLabel('Total Used volume (ml)',{exact:true})).toHaveValue('1,500');
+ await expect(editor.getByLabel('Relative mix carton efficiency %',{exact:true})).toHaveValue('75.00');
+ await expect(editor.getByLabel('Mix Carton Efficiency (kg/m3)',{exact:true})).toHaveValue('375');
+ await expect(firstChild.getByLabel('Used volume (ml)',{exact:true})).toHaveValue('500');
+ await density.fill('0');
+ await expect(editor.getByLabel('Total Used volume (ml)',{exact:true})).toHaveValue('');
+ await expect(editor.getByLabel('Relative mix carton efficiency %',{exact:true})).toHaveValue('');
+ await density.fill('0.3');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
+ expect(writes[0].rows[0]).toMatchObject({ID:2,NutDensity:'0.3'});
+ await expect(editor.getByLabel('Total Used volume (ml)',{exact:true})).toHaveValue('1,500');
+ await expect(editor.getByLabel('Relative mix carton efficiency %',{exact:true})).toHaveValue('75.00');
+});
+
+test('mix missing child density keeps volume and relative blank, not a partial total',async({page})=>{
+ const {editor}=await setup(page,1,{IsMixParent:true,WeightGrams:750,
+  ProductMixSnapshot:JSON.stringify(efficiencyMix),MixResponseChildren:JSON.stringify(efficiencyChildren.slice(0,1)),
+  FirstPMType:'RSC',EfficiencyLayerCount:1,EfficiencyTypeName:'RSC',FinalLayerVolumeM3:'.002'});
+ await expect(editor.getByLabel('Total Used volume (ml)',{exact:true})).toHaveValue('');
+ await expect(editor.getByLabel('Total Used volume (ml)',{exact:true})).toHaveAttribute('placeholder','Awaiting child densities');
+ await expect(editor.getByLabel('Relative mix carton efficiency %',{exact:true})).toHaveValue('');
+ await expect(editor.getByLabel('Mix Carton Efficiency (kg/m3)',{exact:true})).toHaveValue('375');
+});
+
+async function setup(page:Page,layers=3,overrides:Record<string,unknown>={},packagingTypes:unknown[]=[],childRows:Record<string,unknown>[]=[]){
  const writes:any[]=[];
  let row:any={RequestID:1,ItemID:1,ProductCode:'PRD-1',ProductName:'Nut product',ItemDescription:'Item 1',ItemStage:'Assigned',PIC:'Admin',PICUserID:1,ItemRowVersion:'AAAAAAAAAAE=',WeightGrams:'10.00',RequestedLayerCount:2,ResponseLayerCount:layers,...overrides};
  await page.route('**/api/**',route=>{
@@ -9,10 +152,10 @@ async function setup(page:Page,layers=3,overrides:Record<string,unknown>={}){
   if(p.endsWith('/session'))return route.fulfill({json:{username:'Admin',user_id:1,is_admin:true,scopes:['Admin']}});
   if(p.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25},version:0}});
   if(p==='/api/workbench/requests')return route.fulfill({json:{rows:[{RequestID:1,RequestNumber:'PCR-1',CustomerName:'Customer',OpportunityNumber:'OPP-1',RequestStatus:'Open',ItemCount:1}],total:1}});
-  if(p==='/api/packaging/requests')return route.fulfill({json:{rows:[row],total:1,page:1}});
-  if(p==='/api/packaging/lookups')return route.fulfill({json:{currencies:[],packagingTypes:[],pallets:[{ID:1,PalletSize:'3000x2000mm',PalletAreaMM2:'6000000'},{ID:2,PalletSize:'1000x1000mm',PalletAreaMM2:'1000000'}]}});
+  if(p==='/api/packaging/requests')return route.fulfill({json:{rows:[row,...childRows],total:1+childRows.length,page:1}});
+  if(p==='/api/packaging/lookups')return route.fulfill({json:{currencies:[],packagingTypes,pallets:[{ID:1,PalletSize:'3000x2000mm',PalletAreaMM2:'6000000'},{ID:2,PalletSize:'1000x1000mm',PalletAreaMM2:'1000000'}]}});
   if(p==='/api/workbench/pics')return route.fulfill({json:{rows:[{ID:1,UserName:'Admin'}]}});
-  if(p==='/api/packaging/response/batch'){const data=route.request().postDataJSON();writes.push(data);row={...row,...data.rows[0]};const n=Number(row.ResponseLayerCount);if(n<2)row.UnitsPerCarton=null;if(n<3)row.UnitsPerTertiary=null;return route.fulfill({json:{results:[{RowNum:1,Status:'OK',NewRowVersion:'AAAAAAAAAAI='}]}})}
+  if(p==='/api/packaging/response/batch'){const data=route.request().postDataJSON();writes.push(data);const saved=data.rows[0];if(saved.ID===row.ItemID){row={...row,...saved};const n=Number(row.ResponseLayerCount);if(n<2)row.UnitsPerCarton=null;if(n<3)row.UnitsPerTertiary=null}else{const index=childRows.findIndex(child=>child.ItemID===saved.ID);if(index>=0){childRows[index]={...childRows[index],...saved};row.MixResponseChildren=JSON.stringify(JSON.parse(row.MixResponseChildren).map((child:any)=>child.ItemID===saved.ID?{...child,NutDensity:saved.NutDensity}:child))}}return route.fulfill({json:{results:[{RowNum:1,Status:'OK',NewRowVersion:'AAAAAAAAAAI='}]}})}
   return route.fulfill({json:{rows:[],total:0,page:1}});
  });
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
@@ -112,7 +255,9 @@ test('Packing Way displays captured parent names and units per layer, omitting o
  await expect(primary.locator('.captured-dimensions-value')).toHaveText('—');
  await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('2');
  await expect(tertiary).toHaveCount(0);
- await expect(secondary.locator('.captured-dimensions-value')).toHaveText('—');
+ await expect(secondary.locator('.captured-dimensions-value')).toHaveText('10cm × 20cm × 30cm');
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('3');
+ await expect(tertiary.locator('.captured-dimensions-value')).toHaveText('100mm × 200mm × 300mm');
 });
 
 test('three layers calculate 10g, 100g, 500g and 25kg per pallet; saves counts only and reloads',async({page})=>{

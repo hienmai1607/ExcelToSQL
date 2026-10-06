@@ -27,6 +27,7 @@ RESPONSE_FIELDS = {
     "NetWeightPerContainerKG", "CartonsPerContainerFloor", "NetWeightPerContainerFloorKG",
 }
 CALCULATED_FIELDS = {
+    "UsedVolumeML",  # Mix parents aggregate across child responses, not the SQL density column.
     "LayersPerContainer",
     "NoOfPrimaryUnit", "NoOfSecondaryUnit", "NoOfTertiaryUnit", "PrimaryNetWeightGrams",
     "SecondaryNetWeightGrams", "TertiaryNetWeightGrams", "NetWeightPerPalletKG", "UnitsPerPallet",

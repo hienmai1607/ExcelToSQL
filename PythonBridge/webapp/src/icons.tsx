@@ -6,6 +6,7 @@ const paths={
  info:'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20 M12 11v6 M12 7h.01',
  drag:'M8 5h.01 M16 5h.01 M8 12h.01 M16 12h.01 M8 19h.01 M16 19h.01',
  calculator:'M5 2h14v20H5z M8 5h8v4H8z M8 13h1 M12 13h1 M16 13h.01 M8 17h1 M12 17h1 M16 17h.01',
+ packagingTree:'M9 2h6v5H9z M2 16h6v6H2z M16 16h6v6h-6z M12 7v5 M5 16v-4h14v4',
  grade:'M10 2h4v4h-4z M3 18h4v4H3z M17 18h4v4h-4z M12 6v6 M5 18v-6h14v6',
  history:'M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v5l3 2',
  price:'M3 3h8l10 10-8 8L3 11z M7 7h.01',

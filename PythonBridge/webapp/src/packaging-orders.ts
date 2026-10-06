@@ -6,7 +6,8 @@ export function typeLabel(row:Row,separator=' / '){const orders=typeOrders(row).
 export function supportsOrder(row:Row,order:string){return typeOrders(row).includes(order)}
 export function layerCount(value:unknown){const n=Number(value??2);return [1,2,3].includes(n)?n:2}
 export function shippingRequired(order:string,layers:unknown){const count=layerCount(layers);return count>=2&&order===packagingOrders[count-1]}
-export function selectableType(row:Row,order:string,layers:unknown){return supportsOrder(row,order)&&(!shippingRequired(order,layers)||row.Shipping===true||row.Shipping===1)}
+export function isMixParent(row:Row|undefined){return !!row&&!row.ParentItemID&&!!(row.IsMixParent||row.MixVersionID||row.ProductMixSnapshot||row.MixStructure)}
+export function selectableType(row:Row,order:string,layers:unknown,mixChild=false,mixParent=false){const orders=typeOrders(row);return (mixParent?orders.some(o=>o==='Secondary'||o==='Tertiary'):orders.includes(order))&&(mixChild||!shippingRequired(order,layers)||row.Shipping===true||row.Shipping===1)}
 export const responseOrderFields=[
  {order:'Primary',type:'FirstPMType',moq:'FirstPMMOQ',price:'PrimaryPricePerUnit',currency:'PrimaryPriceCurrencyCode'},
  {order:'Secondary',type:'SecondPMType',moq:'SecondPMMOQ',price:'SecondaryPricePerUnit',currency:'SecondaryPriceCurrencyCode'},
