@@ -47,8 +47,8 @@ test('pallet size is selected from Pallet Master and saved as the displayed size
  await setup(page);let payload:any;
  await page.route('**/api/opportunity/batch',route=>{payload=route.request().postDataJSON();return route.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-NEW'}],item_results:payload.item_rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})});
  const form=await fill(page),item=form.getByRole('region',{name:'Item 1',exact:true});
- await item.getByText('Packaging requirements',{exact:true}).click();
- await item.getByLabel('Configuration request',{exact:true}).selectOption('Pallet load');
+ await item.getByText('Packaging requirements',{exact:true}).click();await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await item.getByLabel('Loading request',{exact:true}).selectOption('Pallet load');
  const select=item.getByRole('combobox',{name:'Pallet size',exact:true});
  await expect(select.locator('option')).toHaveText(['Choose pallet size','1.1x1.1M','1200x1000MM']);
  await expect(item.getByRole('textbox',{name:'Pallet size',exact:true})).toHaveCount(0);
@@ -61,8 +61,8 @@ test('pallet size is selected from Pallet Master and saved as the displayed size
 test('empty pallet master shows guidance but pallet size remains optional',async({page})=>{
  await setup(page);
  await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1}],pallets:[]}}));
- const form=await fill(page);await form.getByText('Packaging requirements',{exact:true}).click();
- await form.getByLabel('Configuration request',{exact:true}).selectOption('Pallet load');
+ const form=await fill(page);await form.getByText('Packaging requirements',{exact:true}).click();await form.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await form.getByLabel('Loading request',{exact:true}).selectOption('Pallet load');
  await expect(form.getByLabel('Pallet size',{exact:true}).locator('option')).toHaveCount(1);
  await expect(form.getByText('No active pallets. Admin or Packaging must add records in Pallet Master.')).toBeVisible();
  await form.getByRole('button',{name:'Review & save'}).click();
@@ -79,9 +79,9 @@ test('creates one header with multiple items only after confirmation',async({pag
  const bounds=await form.boundingBox();
  expect(bounds!.width).toBeGreaterThan(page.viewportSize()!.width*0.9);
  const first=form.getByRole('region',{name:'Item 1',exact:true});
- await first.getByText('Packaging requirements',{exact:true}).click();
+ await first.getByText('Packaging requirements',{exact:true}).click();await first.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  await first.getByLabel('Primary Type',{exact:true}).selectOption('11');
- await first.getByLabel('Configuration request',{exact:true}).selectOption('Pallet load');
+ await first.getByLabel('Loading request',{exact:true}).selectOption('Pallet load');
  await first.getByLabel('Max pallet height (mm)',{exact:true}).fill('1250');
  await expect(first.getByLabel('Shelf life (days)',{exact:true}).first()).toHaveAttribute('readonly','');
  await form.getByRole('button',{name:'Add item',exact:true}).click();
@@ -110,8 +110,8 @@ test('entry controls align and packaging fields use a compact grid',async({page}
  const selectors=['Customer *','Bid open *','Bid close *','Customer currency','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
  const boxes=await Promise.all(selectors.map(name=>form.getByLabel(name,{exact:true}).boundingBox()));
  for(const box of boxes)expect(box!.height).toBe(32);
- await form.getByText('Packaging requirements',{exact:true}).click();
- await form.getByLabel('Configuration request',{exact:true}).selectOption('Both');
+ await form.getByText('Packaging requirements',{exact:true}).click();await form.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await form.getByLabel('Loading request',{exact:true}).selectOption('Both');
  const pallet=await form.getByLabel('Pallet size',{exact:true}).boundingBox();
  const stacking=await form.getByLabel('Pallet stacking',{exact:true}).boundingBox();
  expect(Math.abs(pallet!.width-stacking!.width)).toBeLessThan(2);

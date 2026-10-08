@@ -1,0 +1,175 @@
+import type {Row} from './api';
+import type {Draft} from './opportunity-losses';
+import {costs,packagingUSD} from './tcb-model';
+import {quantity,add,multiply,divide,objectValue,type Fraction} from './packaging-summary-model';
+import {lossTotals,lossError,processOptions} from './loss-processes';
+import {allowedContainerTypes,parseContainerProfiles} from './container-loading';
+
+export type AnalysisCell={value:Fraction|null;issues:string[]};
+export type AnalysisColumn={id:number;label:string;cells:AnalysisCell[]};
+export type AnalysisScenario={label:string;columns:AnalysisColumn[];currency:string};
+export const analysisRows=[
+ {label:'Product ($/unit)',help:'Product USD/lb ÷ 453.59237 × net weight in grams × (1 − Product loss % ÷ 100).'},
+ {label:'Self Packaging ($/unit)',help:'Sum of each own layer price ÷ (1 − that layer loss % / 100) ÷ its smallest-unit count.'},
+ {label:'Parent Packaging ($/unit)',help:'Sum of Mix parent layer prices adjusted for each layer loss, normalized per mix unit, then divided by total smallest child units. Equal allocation per smallest child unit.'},
+ {label:'Pallet ($/unit)',help:'Parent pallet price ÷ total smallest units on one pallet. Floor load excludes pallets.'},
+ {label:'Packing ($/unit)',help:'Packing USD/lb ÷ 453.59237 × this product’s net weight in grams.'},
+ {label:'Initial Design ($/unit)',help:'Initial Design ÷ estimated awarded units. For Mix, awarded mix units × total child quantity.'},
+ {label:'Fixed costs ($/unit)',help:'Other fixed costs ÷ estimated awarded units. For Mix, awarded mix units × total child quantity.'},
+ {label:'Fobbing fee ($/unit)',help:'Fobbing USD/container ÷ total smallest units in that container and loading scenario.'},
+ {label:'Interest ($/unit)',help:'Sum of Product through Fobbing × Interest % ÷ 100 × Interest months ÷ 12.'},
+ {label:'Margin ($/unit)',help:'Sum of Product through Interest × Margin % ÷ 100.'},
+ {label:'FOB ($/unit)',help:'Sum of all above, including Interest and Margin. USD.'},
+ {label:'FOB (customer currency/unit)',help:'FOB USD × Opportunity customer-currency-per-USD rate (VND uses VND-per-USD).'}
+,{label:'Freight ($/unit)',help:'Freight USD/container ÷ total smallest product units in one container.'},
+ {label:'Duty ($/unit)',help:'(FOB USD/unit + Freight USD/unit) × Duty % / 100.'},
+ {label:'Dest. Clearance ($/unit)',help:'Import clearance USD/container ÷ total smallest product units in one container.'},
+ {label:'Dest. Haulage (Port-WH) ($/unit)',help:'Port–WH USD/container ÷ total smallest product units in one container.'},
+ {label:'WH Cost (dest.) ($/unit)',help:'Destination WH USD/pallet ÷ total smallest product units on one pallet.'},
+ {label:'Overage, Shortage & Damage ($/unit)',help:'Sum of FOB, Freight, Duty, Clearance, Haulage and destination WH cost × Damage % / 100.'},
+ {label:'WH - Co-Man WH ($/unit)',help:'WH–Co-Man WH USD/pallet ÷ total smallest product units on one pallet.'},
+ {label:'Co-Man Overhead ($/unit)',help:'Co-Man Overhead USD/pallet ÷ total smallest product units on one pallet.'},
+ {label:'Freight to Customer ($/unit)',help:'Freight to Customer USD/pallet ÷ total smallest product units on one pallet.'},
+ {label:'Spoilage Allowance ($/unit)',help:'(FOB + Logistics and Co-Man costs 1–9) ÷ (1 − combined fee ratios) × Spoilage Allowance ratio.'},
+ {label:'Payment Term ($/unit)',help:'Same grossed-up base × Payment Term ratio.'},
+ {label:'Co-Man fee ($/unit)',help:'Same grossed-up base × Co-Man fee ratio.'},
+ {label:'Broker Fee ($/unit)',help:'Same grossed-up base × Broker Fee ratio.'},
+ {label:'CFR ($/unit)',help:'FOB + Freight. A display subtotal, not added again to DDP.'},
+ {label:'DDP ($/unit)',help:'FOB + Logistics and Co-Man costs 1–13. CFR is not added again.'},
+ {label:'DDP (customer currency/unit)',help:'DDP USD × Opportunity customer-currency-per-USD rate (VND uses VND-per-USD).'}
+] as const;
+const zero=quantity('0',true)!,one=quantity('1')!,hundred=quantity('100')!,gramsPerLb=quantity('453.59237')!;
+const good=(value:Fraction):AnalysisCell=>({value,issues:[]});
+const missing=(issue:string):AnalysisCell=>({value:null,issues:[issue]});
+const sum=(cells:AnalysisCell[]):AnalysisCell=>({value:cells.every(c=>c.value!==null)?cells.reduce((v,c)=>add(v,c.value!),zero):null,issues:[...new Set(cells.flatMap(c=>c.issues))]});
+const scale=(cell:AnalysisCell,factor:Fraction|null,issue:string):AnalysisCell=>factor?{...cell,value:cell.value?multiply(cell.value,factor):null}:missing(issue);
+function optional(value:unknown,label:string){
+ if(value===undefined||value===null||value==='')return good(zero);
+ const parsed=quantity(value,true);return parsed?good(parsed):missing('Invalid '+label+'.');
+}
+function perCount(cell:AnalysisCell,count:Fraction|null,issue:string){
+ if(cell.value?.n===0n)return cell;
+ return count&&count.n>0n?scale(cell,divide(one,count),issue):{value:null,issues:[...cell.issues,issue]};
+}
+function pct(cell:AnalysisCell,label:string){
+ return cell.value&&cell.value.n<=100n*cell.value.d?scale(cell,divide(one,hundred),label):missing('Invalid '+label+'.');
+}
+export function productLossValue(d:Draft,tested?:string):Fraction|null{
+ if(lossError(d.steps,processOptions(d.mix,d.layers)))return null;
+ if(!d.formula)return lossTotals(d.steps).LossProductPct;
+ if(tested!==undefined)return quantity(tested,true);
+ const previous=JSON.parse(d.baseline);
+ return previous.formula===d.formula&&JSON.stringify(previous.steps)===JSON.stringify(d.steps)?quantity(d.costingInputs.LossProductPct,true):null;
+}
+function unitsPerFinal(row:Row){
+ const count=Number(row.ResponseLayerCount);
+ if(![1,2,3].includes(count))return null;
+ let units=one;
+ for(let i=1;i<count;i++){const next=quantity(row[i===1?'UnitsPerCarton':'UnitsPerTertiary']);if(!next||next.d!==1n)return null;units=multiply(units,next)}
+ return units;
+}
+function packaging(d:Draft,owner:Row):AnalysisCell{
+ const count=Number(d.row.ResponseLayerCount);
+ if(![1,2,3].includes(count))return missing('No visible packaging response for '+d.row.ProductCode+'.');
+ const steps=d.steps.filter(s=>s.ProcessType.endsWith('Packaging'));
+ const error=lossError(steps,processOptions(d.mix,count));
+ if(error)return missing(error);
+ const losses=lossTotals(steps);
+ let units:Fraction|null=one;const cells:AnalysisCell[]=[];
+ for(let i=0;i<count;i++){
+  if(i){const next=quantity(d.row[i===1?'UnitsPerCarton':'UnitsPerTertiary']);units=units&&next&&next.d===1n?multiply(units,next):null}
+  const price=packagingUSD(d.row,i,owner);
+  const field=((d.mix?'Mix':'')+['Primary','Secondary','Tertiary'][i]+'LossPct') as keyof typeof losses;
+  const loss=losses[field],yieldValue=loss?{n:100n*loss.d-loss.n,d:100n*loss.d}:null;
+  cells.push(!yieldValue||yieldValue.n<=0n?missing('Packaging layer '+(i+1)+' loss must be below 100% for '+d.row.ProductCode+'.'):
+   units&&price?good(divide(divide(price,yieldValue),units)):missing('Missing layer price, FX or contained-unit count for '+d.row.ProductCode+'.'));
+ }
+ return sum(cells);
+}
+function composition(root:Draft,children:Draft[]){
+ const capture=objectValue(root.row.ProductMixSnapshot),items=Array.isArray(capture.items)?capture.items as Row[]:null;
+ const quantities=children.map(d=>{
+  if(!items)return quantity(d.row.MixUnitQuantity);
+  const matches=items.filter(i=>Number(i.ProductID)===Number(d.row.ProductID));
+  return matches.length===1?quantity(matches[0].UnitQuantity??matches[0].MixUnitQuantity):null;
+ });
+ // Never allocate a full parent cost across only a partial captured child set.
+ const complete=children.length>0&&quantities.every(Boolean)&&(!items||items.length===children.length&&new Set(children.map(d=>Number(d.row.ProductID))).size===children.length);
+ return {quantities,total:complete?quantities.reduce<Fraction>((v,q)=>add(v,q!),zero):null};
+}
+export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={}):AnalysisScenario[]{
+ const scenarios:AnalysisScenario[]=[];
+ for(const root of drafts.filter(d=>!d.row.ParentItemID)){
+  const children=drafts.filter(d=>Number(d.row.ParentItemID)===Number(root.row.ItemID)),products=root.mix?children.filter(d=>!d.mix):[root];
+  if(!products.length)continue;
+  const total=root.mix?composition(root,children).total:one;
+  const shipping={...root.row,...objectValue(root.row.ShipmentCostInfo)},currency=String(root.row.CustomerCurrencyCode??'').trim().toUpperCase();
+  const types=allowedContainerTypes(root.row.ResponseContainerFamily??root.row.ContainerRequest,root.row.ShipmentContainerSizeFT??shipping.ContainerSizeFT);
+  const configured=types.filter(t=>parseContainerProfiles(root.row.ContainerLoadProfiles)[t]||root.row.SelectedContainerType===t);
+  const selected=String(root.row.SelectedContainerType??'');
+  const kind=configured.includes(selected as typeof types[number])?selected:configured.length===1?configured[0]:'';
+  const mode=String(root.row.PackingConfiguration??root.row.ConfigurationRequest??'');
+  const resolved=mode==='Pallet load'||mode==='Floor load';
+  const parentPM=root.mix?perCount(packaging(root,root.row),total,'Missing captured Mix unit quantities.'):good(zero);
+  const awarded=quantity(root.row.AnnualUnit),award=quantity(root.row.EstPctAwarded,true);
+  const awardedUnits=awarded&&award&&award.n<=100n*award.d&&total?divide(multiply(multiply(awarded,award),total),hundred):null;
+  const design=perCount(optional(shipping.InitialDesignUSD,'Initial Design'),awardedUnits,'Estimated awarded units must be positive for Initial Design.');
+  const fixed=perCount(optional(shipping.OtherFixedCostsUSD,'Other fixed costs'),awardedUnits,'Estimated awarded units must be positive for fixed costs.');
+  const palletPrice=quantity(root.costingInputs.PalletUSDPerEA,true);
+  const final=unitsPerFinal(root.row),palletUnits=quantity(root.row.UnitsPerPallet);
+  {
+   const profiles=parseContainerProfiles(root.row.ContainerLoadProfiles),profile=profiles[kind],result=objectValue(objectValue(root.row.ContainerLoadResults)[kind]);
+   const cartons=mode==='Floor load'?(profile?.CartonsPerContainerFloor??(root.row.SelectedContainerType===kind?root.row.CartonsPerContainerFloor:null)):
+    (result.CalculatedCartonsPerContainer??(root.row.SelectedContainerType===kind?root.row.CalculatedCartonsPerContainer:null));
+   const n=quantity(cartons),containerUnits=n&&final&&total?multiply(multiply(n,final),total):null;
+   const sharedPalletUnits=palletUnits&&total?multiply(palletUnits,total):null;
+   const pallet=!resolved?missing('Loading request Both or unset: loading calculation is deferred.'):mode==='Floor load'?good(zero):perCount(palletPrice?good(palletPrice):missing('Enter a pallet cost on the parent item (zero is allowed).'),sharedPalletUnits,'Missing units per pallet or Mix unit quantities.');
+   const fobbing=!resolved?missing('Loading request Both or unset: loading calculation is deferred.'):perCount(optional(shipping.FobbingUSDPerContainer,'Fobbing/container'),containerUnits,'Missing container capacity, packaging quantities or Mix unit quantities.');
+   const columns=products.map(d=>{
+    const calc=costs({...d.costingInputs,Prices:d.selections},d.quoteGrades,d.quotes),weight=quantity(d.row.WeightGrams),loss=productLossValue(d,tested[Number(d.row.ItemID)]);
+    const validLoss=loss&&loss.n<=100n*loss.d;
+    const factor=weight&&validLoss?multiply(divide(weight,gramsPerLb),{n:100n*loss.d-loss.n,d:100n*loss.d}):null;
+    const product=d.pricingGradeKey!==JSON.stringify(d.grades)?missing('Reload pricing for current grades.'):
+     calc.product&&factor?good(multiply(calc.product,factor)):missing('Product price, weight or current loss calculation is incomplete.');
+    const packing=scale(optional(shipping.PackingUSDPerLb,'Packing cost'),weight?divide(weight,gramsPerLb):null,'Missing product net weight.');
+    const cells=[product,packaging(d,root.row),parentPM,pallet,packing,design,fixed,fobbing];
+    const interestRate=pct(optional(shipping.InterestPct,'Interest %'),'Interest %'),months=optional(shipping.InterestMonths,'Interest months');
+    const interestFactor=interestRate.value&&months.value?divide(multiply(interestRate.value,months.value),quantity('12')!):null;
+    cells.push(scale(sum(cells),interestFactor,'Invalid Interest % or months.'));
+    const margin=pct(optional(shipping.MarginPct,'Margin %'),'Margin %');
+    cells.push(scale(sum(cells),margin.value,'Invalid Margin %.'));
+    cells.push(sum(cells));
+    const rate=currency==='USD'?one:quantity(currency==='VND'?root.row.ExchangeRateVNDPerUSD:root.row.ExchangeRateCustomerCurrencyPerUSD);
+    cells.push(scale(cells[10],currency?rate:null,'Missing Opportunity customer currency or exchange rate.'));
+    const perContainer=(field:string,label:string)=>!resolved?missing('Loading request Both or unset: loading calculation is deferred.'):
+     perCount(optional(shipping[field],label),containerUnits,'Missing container capacity, packaging quantities or Mix unit quantities.');
+    const perPallet=(field:string,label:string)=>!resolved?missing('Loading request Both or unset: loading calculation is deferred.'):
+     perCount(optional(shipping[field],label),sharedPalletUnits,'Missing units per pallet or Mix unit quantities.');
+    const percentage=(field:string,label:string)=>pct(optional(shipping[field],label),label);
+    const freight=perContainer('FreightUSDPerContainer','Freight/container');
+    const duty=scale(sum([cells[10],freight]),percentage('DutyPct','Duty %').value,'Invalid Duty %.');
+    const destination=[
+     freight,duty,perContainer('ImportClearanceUSDPerContainer','Import clearance/container'),
+     perContainer('PortToWHUSDPerContainer','Port–WH/container'),perPallet('WHCostUSDPerPallet','Destination WH cost/pallet')
+    ];
+    destination.push(scale(sum([cells[10],...destination]),percentage('OverageShortageDamagePct','Damage %').value,'Invalid Damage %.'));
+    destination.push(perPallet('WHToCoManWHUSDPerPallet','WH–Co-Man WH/pallet'),
+     perPallet('CoManOverheadUSDPerPallet','Co-Man Overhead/pallet'),perPallet('FreightToCustomerUSDPerPallet','Freight to Customer/pallet'));
+    const base=sum([cells[10],...destination]);
+    const fees=[
+     percentage('SpoilageAllowancePct','Spoilage Allowance %'),percentage('PaymentTermPct','Payment Term %'),
+     percentage('CoManFeePct','Co-Man fee %'),percentage('BrokerFeePct','Broker Fee %')
+    ],combined=sum(fees);
+    const remaining=combined.value?{n:combined.value.d-combined.value.n,d:combined.value.d}:null;
+    const gross=remaining&&remaining.n>0n?scale(base,divide(one,remaining),'Invalid combined fee ratios.'):
+     missing('Spoilage, Payment Term, Co-Man and Broker fee ratios must total less than 100%.');
+    const allowances=fees.map(fee=>scale(gross,fee.value,'Invalid fee ratio.'));
+    const cfr=sum([cells[10],freight]),ddp=sum([base,...allowances]);
+    cells.push(...destination,...allowances,cfr,ddp,scale(ddp,currency?rate:null,'Missing Opportunity customer currency or exchange rate.'));
+    return {id:Number(d.row.ItemID),label:String(d.row.ItemNumber??d.row.ItemID)+' · '+d.row.ProductCode+' · '+d.row.ProductName,cells};
+   });
+   scenarios.push({label:kind||'Products',columns,currency});
+  }
+ }
+ return scenarios;
+}

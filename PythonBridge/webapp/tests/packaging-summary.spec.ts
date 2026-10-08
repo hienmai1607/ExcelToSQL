@@ -41,6 +41,7 @@ async function setup(page:Page,root:any=normal,childRows:any[]=[],fail=false,opp
  });
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await page.getByRole('button',{name:'View details',exact:true}).click();
+ await page.getByRole('button',{name:'Packaging Responses',exact:true}).click();
  return {reads,writes,open:async()=>{
   await page.getByRole('button',{name:'Packaging Summary for PRD-ROOT item 10',exact:true}).click();
   return page.getByRole('dialog',{name:'Packaging Summary',exact:true});

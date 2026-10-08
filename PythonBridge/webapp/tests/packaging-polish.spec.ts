@@ -54,9 +54,11 @@ test('Submit and Cancel appear only after the PIC assignment is saved',async({pa
 test('snapshot metadata is a tab-line info icon and response attachments are absent',async({page},info)=>{
  await setup(page);
  const note=page.locator('.tab-line-info').getByRole('note',{name:/Request-time snapshot/});
- await expect(note).toBeVisible();await expect(note).toHaveAttribute('title',/USD \/ VND: 25,000/);
+ await expect(note).toBeVisible();await expect(note).toHaveAttribute('aria-label',/USD \/ VND: 25,000/);
  await expect(page.locator('.notice').filter({hasText:'Request-time snapshot'})).toHaveCount(0);
  await note.focus();await expect(note).toBeFocused();
+ await expect(page.getByRole('tooltip')).toContainText('USD / VND: 25,000');
+ await expect(note).not.toHaveAttribute('title');
  const tab=(await page.getByRole('button',{name:'Packaging Responses',exact:true}).boundingBox())!,icon=(await note.boundingBox())!;
  expect(icon.x).toBeGreaterThan(tab.x+tab.width);expect(Math.abs(icon.y+icon.height/2-tab.y-tab.height/2)).toBeLessThan(2);
  await expect(page.getByRole('button',{name:/Attachments for item/})).toHaveCount(0);
@@ -130,7 +132,7 @@ test('packaging request and response share compact typography and spacing in bot
  expect(await editor.locator('.record-dialog-content').first().evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
  await expect(editor.getByRole('button',{name:'Review & save',exact:true})).toBeInViewport();
  const help=editor.getByRole('region',{name:'Packing Way request'}).getByRole('note');
- await help.focus();const tooltip=await help.evaluate(el=>{const s=getComputedStyle(el,'::after'),b=el.getBoundingClientRect(),shift=new DOMMatrix(s.transform).m41,width=parseFloat(s.width);return {left:b.right+shift-width,right:b.right+shift}});
+ await help.focus();const tooltip=await page.getByRole('tooltip').evaluate(el=>{const b=el.getBoundingClientRect();return {left:b.left,right:b.right}});
  expect(tooltip.left).toBeGreaterThanOrEqual(0);expect(tooltip.right).toBeLessThanOrEqual(390);
  await editor.screenshot({path:info.outputPath('compact-packaging-dark-mobile.png')});
 });

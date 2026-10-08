@@ -187,7 +187,7 @@ def execute(sql, params):
         message = str(exc)
         detail = sql_error(exc)
         if detail:
-            raise HTTPException(409 if '52952' in message or '52958' in message else 422, detail) from exc
+            raise HTTPException(403 if '52998' in message else 409 if any(code in message for code in ('52952','52958','52997')) else 422, detail) from exc
         if '51101' in message:
             raise HTTPException(401, 'Username is incorrect.') from exc
         if '51125' in message:

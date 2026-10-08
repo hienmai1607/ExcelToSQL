@@ -37,7 +37,7 @@ function Logistics({summary,exchange}:{summary:Summary;exchange:OpportunityCurre
  const price=(cost:Cost)=>costDisplay(cost,exchange);
  const root=summary.root.row,load=loadSections(root.ConfigurationRequest),profiles=parseContainerProfiles(root.ContainerLoadProfiles),results=objectValue(root.ContainerLoadResults);
  const cartons=quantity(root.CartonsPerLayer),layers=quantity(root.LayersPerPallet,true),cartonsPerPallet=cartons&&layers?multiply(cartons,layers):null;
- const containers=allowedContainerTypes(root.ResponseContainerFamily??root.ContainerRequest);
+ const containers=allowedContainerTypes(root.ResponseContainerFamily??root.ContainerRequest,root.ShipmentContainerSizeFT);
  const branches=(floor:boolean)=><div className="summary-container-branches">{containers.map(kind=>{
   const profile=profiles[kind]??(root.SelectedContainerType===kind?{PalletsPerContainer:root.PalletsPerContainer==null?null:String(root.PalletsPerContainer),CartonsPerContainerFloor:root.CartonsPerContainerFloor==null?null:String(root.CartonsPerContainerFloor)}:{});
   const result:SummaryRow={...(root.SelectedContainerType===kind?{LayersPerContainer:root.LayersPerContainer,NetWeightPerContainerKG:root.NetWeightPerContainerKG,NetWeightPerContainerFloorKG:root.NetWeightPerContainerFloorKG}:{}),...objectValue(results[kind])},cartonCount=floor?profile.CartonsPerContainerFloor:result.CalculatedCartonsPerContainer??(root.SelectedContainerType===kind?root.CalculatedCartonsPerContainer:null);

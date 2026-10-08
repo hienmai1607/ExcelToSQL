@@ -25,7 +25,10 @@ from pallet_api import router as pallet_router
 from packaging_dimension_api import router as packaging_dimension_router
 from pkg_pricing_api import router as pkg_pricing_router
 from packaging_type_api import router as packaging_type_router
+from tcb_api import router as tcb_router
+from loss_process_api import router as loss_process_router
 from customer_sort import parse_sort
+from ports_api import router as ports_router, opportunity_shipment_lookups
 from opportunity_views import sorted_grid
 from packaging_fields import enriched_batch
 from preferences_api import router as preferences_router
@@ -74,6 +77,9 @@ app.include_router(raw_material_router)
 app.include_router(packaging_master_router)
 app.include_router(preferences_router)
 app.include_router(attachments_router)
+app.include_router(ports_router)
+app.include_router(tcb_router)
+app.include_router(loss_process_router)
 _web_dist = Path(__file__).resolve().parents[1] / "webapp" / "dist"
 if _web_dist.is_dir():
     app.mount("/workbench", StaticFiles(directory=str(_web_dist), html=True), name="workbench")
@@ -565,8 +571,12 @@ def opportunity_lookups_read(
             "currencies": run_read_query("dbo.usp_OpportunityCurrencyLookup_Read", [username]),
         }
     from packaging_orders import decode_orders
-    # Pallet and type choices stay fresh when Packaging changes the masters.
-    return {**cached("opportunity_master_lookups", ttl_seconds=60, loader=load_lookups),
+    shipment_customers, ports = opportunity_shipment_lookups(username)
+    markets_by_customer = {row['ID']: row for row in shipment_customers}
+    choices = cached("opportunity_master_lookups", ttl_seconds=60, loader=load_lookups)
+    choices = {**choices, "customers": [{**row, **markets_by_customer.get(row['ID'], {})} for row in choices['customers']], "ports": ports}
+    # Pallet, type and port choices stay fresh when masters change.
+    return {**choices,
             "pallets": run_read_query("dbo.usp_OpportunityPalletLookup_Read", [username]),
             "packagingTypes": decode_orders(run_read_query("dbo.usp_OpportunityPackagingTypeLookup_Read", [username]))}
 

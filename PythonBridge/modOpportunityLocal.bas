@@ -14,7 +14,7 @@ End Function
 Private Function LastFieldColumn() As Long
     Dim f As Range
     ' End(xlToLeft) skips hidden columns. Formula search includes hidden metadata.
-    Set f = WS.Rows(2).Find(What:="*", After:=WS.Cells(2, 1), LookIn:=xlFormulas, _
+    Set f = Config.Rows(10).Find(What:="*", After:=Config.Cells(10, 1), LookIn:=xlFormulas, _
         LookAt:=xlPart, SearchOrder:=xlByColumns, SearchDirection:=xlPrevious, _
         MatchCase:=False, SearchFormat:=False)
     If f Is Nothing Then Err.Raise vbObjectError + 3112, , "Field keys are missing. Download a fresh workbook."
@@ -23,7 +23,7 @@ End Function
 Private Function FieldColumn(ByVal key As String) As Long
     Dim c As Long
     For c = 1 To LastFieldColumn()
-        If StrComp(S(WS.Cells(2, c).Value2), key, vbBinaryCompare) = 0 Then FieldColumn = c: Exit Function
+        If StrComp(S(Config.Cells(10, c).Value2), key, vbBinaryCompare) = 0 Then FieldColumn = c: Exit Function
     Next c
     Err.Raise vbObjectError + 3100, , "Missing field key: " & key & ". Download a fresh workbook."
 End Function
@@ -31,8 +31,8 @@ Private Function LastRow() As Long
     Dim f As Range
     Set f = WS.Cells.Find(What:="*", LookIn:=xlFormulas, LookAt:=xlPart, _
         SearchOrder:=xlByRows, SearchDirection:=xlPrevious, MatchCase:=False, SearchFormat:=False)
-    LastRow = 2
-    If Not f Is Nothing Then LastRow = Application.Max(2, f.Row)
+    LastRow = 4
+    If Not f Is Nothing Then LastRow = Application.Max(4, f.Row)
 End Function
 Private Function S(ByVal v As Variant) As String
     If Not IsNull(v) And Not IsEmpty(v) Then S = CStr(v)
@@ -44,7 +44,7 @@ Private Function Editable(ByVal key As String, ByVal level As String) As Boolean
 End Function
 Private Function Api(ByVal endpoint As String, ByVal body As Object) As Object
     Dim http As Object, base As String
-    If S(Config.Range("B1").Value2) <> "1" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
+    If S(Config.Range("B1").Value2) <> "2" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
     base = S(Config.Range("B2").Value2)
     If Left$(base, 7) <> "http://" And Left$(base, 8) <> "https://" Then Err.Raise vbObjectError + 3101, , "Invalid API URL."
     Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
@@ -70,7 +70,7 @@ Private Function Original(ByVal r As Long) As Object
 End Function
 Private Function CellValue(ByVal r As Long, ByVal c As Long) As Variant
     Dim key As String, v As Variant
-    key = S(WS.Cells(2, c).Value2): v = WS.Cells(r, c).Value2
+    key = S(Config.Cells(10, c).Value2): v = WS.Cells(r, c).Value2
     If Len(S(v)) = 0 Then
         CellValue = Null
     ElseIf key = "BidOpen" Or key = "BidClose" Then
@@ -90,8 +90,90 @@ Private Function SameValue(ByVal a As Variant, ByVal b As Variant, ByVal key As 
     If InStr("|AnnualUnit|MixUnitQuantity|EstPctAwarded|ShelfPrice|ExchangeRateToVND|ExchangeRateVNDPerUSD|ExchangeRateCustomerCurrencyPerUSD|MaxPalletHeightM|ShelfLifeDays|", "|" & key & "|") > 0 Then
         If IsNumeric(a) And IsNumeric(b) Then SameValue = (CDbl(a) = CDbl(b)): Exit Function
     End If
+    If ShipmentField(key) And IsNumeric(a) And IsNumeric(b) Then SameValue = (CDbl(a) = CDbl(b)): Exit Function
     SameValue = (StrComp(S(a), S(b), vbBinaryCompare) = 0)
 End Function
+Private Function ShipmentField(ByVal key As String) As Boolean
+    ShipmentField = InStr(1, "|" & S(Config.Range("B9").Value2) & "|", "|" & key & "|", vbBinaryCompare) > 0
+End Function
+Private Function CanEdit(ByVal key As String, ByVal level As String, ByVal before As Object) As Boolean
+    CanEdit = Editable(key, level)
+    If before.Exists("HeaderStage") Then
+        If Len(S(before("HeaderStage"))) > 0 And S(before("HeaderStage")) <> "Draft" Then CanEdit = False: Exit Function
+    End If
+    If level <> "Item" Then Exit Function
+    If before.Exists("ItemStage") Then
+        If Len(S(before("ItemStage"))) > 0 And S(before("ItemStage")) <> "Draft" Then CanEdit = False: Exit Function
+    End If
+    If before.Exists("ParentItemID") Then
+        If Len(S(before("ParentItemID"))) > 0 Then
+            If ShipmentField(key) Or InStr("|ProductCode|ItemDescription|AnnualUnit|EstPctAwarded|ShelfPrice|PalletSize|PalletStacking|MaxPalletHeightM|MaxPalletHeightMM|ContainerRequest|ConfigurationRequest|", "|" & key & "|") > 0 Then CanEdit = False: Exit Function
+        End If
+    End If
+    If before.Exists("HasOpenPackagingRequest") Then
+        If before("HasOpenPackagingRequest") = True Then CanEdit = CanEdit And ShipmentField(key)
+    End If
+End Function
+Private Function LockedReason(ByVal key As String, ByVal level As String, ByVal before As Object) As String
+    If before.Exists("HeaderStage") Then
+        If Len(S(before("HeaderStage"))) > 0 And S(before("HeaderStage")) <> "Draft" Then LockedReason = "Locked: Opportunity is not Draft.": Exit Function
+    End If
+    If level = "Header" Then LockedReason = "Display only.": Exit Function
+    If before.Exists("ItemStage") Then
+        If Len(S(before("ItemStage"))) > 0 And S(before("ItemStage")) <> "Draft" Then LockedReason = "Locked: item is not Draft.": Exit Function
+    End If
+    If before.Exists("ParentItemID") Then
+        If Len(S(before("ParentItemID"))) > 0 Then
+            If ShipmentField(key) Or InStr("|ProductCode|ItemDescription|AnnualUnit|EstPctAwarded|ShelfPrice|PalletSize|PalletStacking|MaxPalletHeightM|MaxPalletHeightMM|ContainerRequest|ConfigurationRequest|", "|" & key & "|") > 0 Then
+                Dim parent As Range, where As String, parentRow As Long, itemIdColumn As Long
+                itemIdColumn = FieldColumn("_ItemID")
+                ' Excel Find can skip hidden metadata columns; compare their values directly.
+                For parentRow = 5 To LastRow()
+                    If S(WS.Cells(parentRow, itemIdColumn).Value2) = S(before("ParentItemID")) Then
+                        Set parent = WS.Cells(parentRow, FieldColumn("_ItemID")): Exit For
+                    End If
+                Next parentRow
+                where = "item ID " & S(before("ParentItemID"))
+                If Not parent Is Nothing Then where = "row " & parent.Row & " (item " & S(WS.Cells(parent.Row, FieldColumn("ItemNumber")).Value2) & ")"
+                LockedReason = "Inherited from Mix parent. Edit " & where & " instead.": Exit Function
+            End If
+        End If
+    End If
+    If before.Exists("HasOpenPackagingRequest") Then
+        If before("HasOpenPackagingRequest") = True And Not ShipmentField(key) Then LockedReason = "Locked while a Packaging Request is processing. Only shipment/cost inputs can be edited.": Exit Function
+    End If
+    LockedReason = "Display only."
+End Function
+Private Sub FormatPermissions(ByVal r As Long)
+    Dim before As Object, c As Long, key As String, level As String, reason As String, choices As String, itemCommandColumn As Long
+    itemCommandColumn = FieldColumn("ItemCommand")
+    Set before = Original(r)
+    For c = 1 To LastFieldColumn()
+        key = S(Config.Cells(10, c).Value2)
+        level = IIf(c < itemCommandColumn, "Header", "Item")
+        If Editable(key, level) Then
+            With WS.Cells(r, c)
+                .Validation.Delete
+                If Not CanEdit(key, level, before) Then
+                    reason = LockedReason(key, level, before)
+                    .Font.Color = RGB(104, 116, 125): .Font.Italic = True
+                    .Validation.Add Type:=xlValidateCustom, AlertStyle:=xlValidAlertInformation, Formula1:="=TRUE"
+                    .Validation.InputTitle = "Locked field": .Validation.InputMessage = reason
+                    .Validation.ShowInput = True: .Validation.ShowError = False
+                Else
+                    choices = ""
+                    Select Case key
+                        Case "ContainerRequest": choices = "Dry,Reefer"
+                        Case "ConfigurationRequest": choices = "Pallet load,Floor load,Both"
+                        Case "Incoterm": choices = "CFA,DDP,EXW,FOB"
+                        Case "ContainerSizeFT": choices = "20FT,40FT"
+                    End Select
+                    If Len(choices) > 0 Then .Validation.Add Type:=xlValidateList, Formula1:=choices
+                End If
+            End With
+        End If
+    Next c
+End Sub
 Private Function Changes(ByVal r As Long, ByVal level As String, Optional ByVal validate As Boolean = True) As Object
     Dim d As Object, before As Object, c As Long, key As String, old As Variant, value As Variant
     Dim cmd As String, start As Long, finish As Long
@@ -103,20 +185,15 @@ Private Function Changes(ByVal r As Long, ByVal level As String, Optional ByVal 
         start = FieldColumn("ItemCommand") + 1: finish = FieldColumn("_Result") - 1
     End If
     For c = start To finish
-        key = S(WS.Cells(2, c).Value2): value = CellValue(r, c): old = Null
+        key = S(Config.Cells(10, c).Value2): value = CellValue(r, c): old = Null
         If before.Exists(key) Then old = before(key)
         If cmd = "C" Then
-            If Editable(key, level) And Not IsNull(value) Then d(key) = value
+            If CanEdit(key, level, before) And Not IsNull(value) Then d(key) = value
         ElseIf Not SameValue(value, old, key) Then
-            If level = "Item" And before.Exists("ParentItemID") Then
-                If Len(S(before("ParentItemID"))) > 0 And InStr("|ProductCode|ItemDescription|AnnualUnit|EstPctAwarded|ShelfPrice|PalletSize|PalletStacking|MaxPalletHeightM|ContainerRequest|", "|" & key & "|") > 0 Then
-                    If validate Then Err.Raise 5, , "Row " & r & ": Mix child Product info and Annual units are display only; Pallet and Container requirements belong to the parent."
-                End If
-            End If
             If key = "OpportunityNumber" And Len(S(WS.Cells(r, FieldColumn("_OpportunityID")).Value2)) = 0 Then
                 ' New group keys link unsaved header/item rows.
             Else
-                If validate And Not Editable(key, level) Then Err.Raise 5, , "Row " & r & ": " & key & " is display only."
+                If validate And Not CanEdit(key, level, before) Then Err.Raise 5, , "Row " & r & ": " & key & ". " & LockedReason(key, level, before)
                 d(key) = value
             End If
         End If
@@ -127,7 +204,7 @@ Private Function Dirty() As Boolean
     On Error GoTo InvalidEdit
     Dim r As Long, level As Variant, d As Object
     If S(Config.Range("B4").Value2) = "1" Then Dirty = True: Exit Function
-    For r = 3 To LastRow()
+    For r = 5 To LastRow()
         For Each level In Array("Header", "Item")
             If Command(r, CStr(level)) <> "N" Then Dirty = True: Exit Function
             Set d = Changes(r, CStr(level), False)
@@ -138,15 +215,33 @@ Private Function Dirty() As Boolean
 InvalidEdit:
     Dirty = True
 End Function
+Private Sub FormatDataRow(ByVal r As Long)
+    Dim cells As Range
+    Set cells = WS.Range(WS.Cells(r, 1), WS.Cells(r, LastFieldColumn()))
+    cells.Interior.ColorIndex = xlColorIndexNone
+    cells.WrapText = False
+    cells.Font.Bold = False
+    cells.Font.Italic = False
+    cells.Font.Color = RGB(31, 41, 55)
+    cells.VerticalAlignment = xlCenter
+    cells.Borders.LineStyle = xlContinuous
+    cells.Borders.Weight = xlThin
+    cells.Borders.Color = RGB(183, 189, 194)
+    cells.Borders(xlDiagonalDown).LineStyle = xlNone
+    cells.Borders(xlDiagonalUp).LineStyle = xlNone
+    WS.Rows(r).RowHeight = 18
+End Sub
 Private Sub PutRow(ByVal r As Long, ByVal data As Object)
     Dim c As Long, key As String
     WS.Range(WS.Cells(r, 1), WS.Cells(r, LastFieldColumn())).ClearContents
+    FormatDataRow r
     For c = 1 To LastFieldColumn()
-        key = S(WS.Cells(2, c).Value2): WS.Cells(r, c).NumberFormat = "@"
+        key = S(Config.Cells(10, c).Value2): WS.Cells(r, c).NumberFormat = "@"
         If data.Exists(key) Then
             If Not IsNull(data(key)) Then WS.Cells(r, c).Value2 = S(data(key))
         End If
     Next c
+    FormatPermissions r
 End Sub
 Private Sub LoadPage(ByVal target As Long)
     Dim body As Object, header As Object, values As Object, response As Object, row As Variant
@@ -168,18 +263,20 @@ Private Sub LoadPage(ByVal target As Long)
     values("bid_open_to") = S(Controls.Range("B10").Value2)
     Set header("values") = values
     Set response = Api("page", body)
-    If LastRow() >= 3 Then WS.Range(WS.Cells(3, 1), WS.Cells(LastRow(), LastFieldColumn())).ClearContents
-    r = 3
+    If LastRow() >= 5 Then WS.Range(WS.Cells(5, 1), WS.Cells(LastRow(), LastFieldColumn())).ClearContents
+    r = 5
     For Each row In response("rows")
         PutRow r, row: r = r + 1
     Next row
     Controls.Range("B6").Value2 = target: Config.Range("B5").Value2 = target
     Controls.Range("B8").Value2 = response("total"): Config.Range("B4").Value2 = "0"
-    WS.Rows(2).Hidden = True
+    WS.Rows(2).Hidden = False
     For Each key In Array("_OpportunityID", "_ItemID", "_HeaderVersion", "_ItemVersion", "_Original")
         WS.Columns(FieldColumn(CStr(key))).Hidden = True
     Next key
     ShowRequiredColumns
+    If WS.AutoFilterMode Then WS.AutoFilterMode = False
+    WS.Range(WS.Cells(4, 1), WS.Cells(Application.Max(5, r - 1), LastFieldColumn())).AutoFilter
 End Sub
 Private Sub ShowRequiredColumns()
     Dim key As Variant
@@ -221,9 +318,11 @@ Public Sub OpportunityNew()
     On Error GoTo Failed
     ShowRequiredColumns
     Dim r As Long: r = LastRow() + 1
+    FormatDataRow r
     WS.Cells(r, FieldColumn("HeaderCommand")).Value2 = "C"
     WS.Cells(r, FieldColumn("ItemCommand")).Value2 = "C"
     WS.Cells(r, FieldColumn("OpportunityNumber")).Value2 = "XL-" & Format$(Now, "yymmddhhnnss") & "-" & r
+    FormatPermissions r
     WS.Activate: WS.Cells(r, FieldColumn("CustomerName")).Select
     Exit Sub
 Failed:
@@ -232,9 +331,10 @@ End Sub
 Public Sub OpportunityAddItem()
     If busy Then Exit Sub
     On Error GoTo Failed
-    If ActiveSheet.Name <> "Opportunity" Or ActiveCell.Row < 3 Then Err.Raise 5, , "Select a source Opportunity row first."
+    If ActiveSheet.Name <> "Opportunity" Or ActiveCell.Row < 5 Then Err.Raise 5, , "Select a source Opportunity row first."
     Dim source As Long, r As Long, c As Long, originalRow As Object, key As Variant, snapshot As Object
     source = ActiveCell.Row: r = LastRow() + 1
+    FormatDataRow r
     If Len(S(WS.Cells(source, FieldColumn("OpportunityNumber")).Value2)) = 0 Then Err.Raise 5, , "Select a populated Opportunity row."
     ShowRequiredColumns
     For c = FieldColumn("HeaderCommand") + 1 To FieldColumn("ItemCommand") - 1
@@ -246,12 +346,13 @@ Public Sub OpportunityAddItem()
     Next key
     Set originalRow = Original(source): Set snapshot = CreateObject("Scripting.Dictionary")
     For c = FieldColumn("HeaderCommand") + 1 To FieldColumn("ItemCommand") - 1
-        key = S(WS.Cells(2, c).Value2)
+        key = S(Config.Cells(10, c).Value2)
         If originalRow.Exists(key) Then snapshot(key) = originalRow(key)
     Next c
     WS.Cells(r, FieldColumn("_Original")).Value2 = JsonConverter.ConvertToJson(snapshot)
     WS.Cells(r, FieldColumn("HeaderCommand")).Value2 = IIf(Len(S(WS.Cells(r, FieldColumn("_OpportunityID")).Value2)) = 0, "C", "N")
     WS.Cells(r, FieldColumn("ItemCommand")).Value2 = "C"
+    FormatPermissions r
     WS.Cells(r, FieldColumn("ProductCode")).Select
     Exit Sub
 Failed:
@@ -264,7 +365,7 @@ Public Sub OpportunitySave()
     If S(Config.Range("B4").Value2) = "1" Then Err.Raise 5, , "Previous Save outcome is unknown. Refresh and reconcile before saving again."
     Dim rows As New Collection, body As Object, entry As Object, h As Object, i As Object, response As Object, result As Variant
     Dim r As Long, key As Variant, value As Variant, creates As Long, updates As Long, deletes As Long, hc As String, ic As String
-    For r = 3 To LastRow()
+    For r = 5 To LastRow()
         If Len(S(WS.Cells(r, FieldColumn("OpportunityNumber")).Value2)) > 0 Then
             Set entry = CreateObject("Scripting.Dictionary")
             hc = Command(r, "Header"): ic = Command(r, "Item")

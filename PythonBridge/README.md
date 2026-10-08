@@ -2,6 +2,8 @@
 
 Current user documentation: [User Guide](docs/user-guide.md)
 
+Latest VM incremental upgrade (database already through migration 88): [migrations 89-96 deployment notes](docs/vm-upgrade-089-to-096.md).
+
 Company migration documentation starts at: [Company Deployment and Handover Package](deployment/company/README.md)
 
 Technical design references:

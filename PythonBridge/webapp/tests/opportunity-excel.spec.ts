@@ -1,5 +1,6 @@
+import {tcbColumnLabels} from '../src/tcb-columns';
 import {test,expect} from '@playwright/test';
-import {efficiencyFields} from '../src/item-view-fields';
+import {efficiencyFields,shipmentFieldGroups} from '../src/item-view-fields';
 test('Opportunity combined workbook uses both layouts and keeps required columns',async({page})=>{
  let submitted:any;
  await page.route('**/api/**',route=>{
@@ -16,6 +17,8 @@ test('Opportunity combined workbook uses both layouts and keeps required columns
  await page.getByRole('button',{name:'Excel Local Update',exact:true}).click();
  expect((await download).suggestedFilename()).toBe('Opportunity_Local_Update.xlsm');
  expect(submitted.views.header.columns).toContain('CustomerName');
- expect(submitted.views.items.columns).toEqual(['ShelfPrice','ProductCode','ItemDescription','AnnualUnit',...efficiencyFields]);
+ expect(submitted.views.items.columns).toEqual(['ShelfPrice','ProductCode','WeightGrams','AnnualUnit',...shipmentFieldGroups.flatMap(g=>Object.keys(g.fields)),...Object.keys(tcbColumnLabels),'PackagingRequestNumber',...efficiencyFields]);
  expect(submitted.page_size).toBe(25);
+ expect(submitted.views.items.field_version).toBe(10);
+ expect(submitted.views.items.columns).not.toContain('PortCode');
 });

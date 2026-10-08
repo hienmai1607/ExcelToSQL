@@ -45,6 +45,10 @@ main{margin-left:216px;width:calc(100% - 216px);padding:18px 24px 24px}
 .panel{border-radius:7px;box-shadow:none;border-color:var(--border)}
 .table-wrap{max-height:52dvh;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
 .table-wrap th{position:sticky;top:0;z-index:2}
+/* Stick the complete two-row TCB header, not both rows at the same offset. */
+.table-wrap:has(.tcb-column-subgroups) thead{position:sticky;top:0;z-index:5}
+.table-wrap:has(.tcb-column-subgroups) thead th{top:auto}
+.table-wrap:has(.tcb-column-subgroups) thead th:not(:first-child){position:static}
 .table-wrap .pin-first-column th:first-child{z-index:4}
 th{padding:10px 12px;letter-spacing:0;background:#f8fafc}
 td{padding:10px 12px}
@@ -159,7 +163,8 @@ dialog:not([open]){display:none}
 .info-tip{display:inline-flex;vertical-align:middle;align-items:center;justify-content:center;position:relative;width:18px;height:18px;flex:none;margin-left:5px;color:var(--muted);cursor:help;border-radius:50%;outline-offset:3px}
 .info-tip svg{width:14px;height:14px}.info-tip:hover,.info-tip:focus{color:var(--accent)}
 .info-tip:focus-visible{outline:2px solid var(--accent)}
-.info-tip:hover::after,.info-tip:focus::after{content:attr(aria-label);position:absolute;z-index:20;top:22px;right:0;width:max-content;max-width:min(320px,70vw);padding:8px 10px;background:#253848;color:#fff;font-size:11px;font-weight:400;line-height:1.5;white-space:normal;border-radius:5px;box-shadow:0 4px 12px #15243830;pointer-events:none}
+.info-tooltip{position:fixed;inset:auto;margin:0;border:0;box-sizing:border-box;width:max-content;max-width:320px;padding:8px 10px;background:#253848;color:#fff;font-size:12px;font-weight:400;font-style:normal;font-family:inherit;text-transform:none;letter-spacing:normal;text-align:left;line-height:1.5;white-space:normal;overflow-wrap:anywhere;overflow:auto;border-radius:5px;box-shadow:0 4px 12px #15243830;pointer-events:none}
+.info-tooltip:not(:popover-open){display:none}
 .layout-panel{display:flex;flex-direction:column;overflow:hidden!important;padding:0!important;max-height:62dvh}
 .layout-panel-body{min-height:0;overflow:auto;padding:12px 16px;overscroll-behavior:contain}
 .layout-panel-footer{flex:none;padding:8px 16px;background:var(--surface);border-top:1px solid var(--border)}
@@ -301,7 +306,12 @@ button.primary:hover:not(:disabled),[data-theme=dark] button.primary:hover:not(:
 .app input[readonly],.app textarea[readonly],.app .display-only-fields input:not([type=checkbox]):not([type=radio]),.app .display-only-fields select,.app .display-only-fields textarea,.app select.display-value{border:0!important;border-radius:0;background:transparent!important;box-shadow:none;padding-left:0!important;padding-right:0!important;color:var(--display-ink)!important;font-size:13px;opacity:1}
 .app .display-only-fields select,.app select.display-value{appearance:none;background-image:none!important}
 .opportunity-currency input,.opportunity-rate input{font-size:13px}
-.info-tip:hover::after,.info-tip:focus::after{box-sizing:border-box;transform:translateX(var(--info-tip-shift,0px))}
+/* Shipment and costing share compact, labeled fields; help lives in info icons. */
+.shipment-entry-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px 12px}
+.shipment-entry-grid label{display:flex;flex-direction:column;min-width:0;gap:4px}
+.shipment-sections section:first-child .shipment-entry-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media(max-width:1100px){.shipment-entry-grid,.shipment-sections section:first-child .shipment-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:550px){.shipment-entry-grid,.shipment-sections section:first-child .shipment-entry-grid{grid-template-columns:1fr}}
 /* Full item editors share the viewport and compact section rhythm. */
 .record-dialog.opportunity-editor,.record-dialog.request-editor-dialog{width:98vw!important;max-width:2400px!important;height:96dvh!important;max-height:96dvh!important}
 .requirement-sections:not(.response-sections){grid-template-columns:1fr}
@@ -310,14 +320,14 @@ button.primary:hover:not(:disabled),[data-theme=dark] button.primary:hover:not(:
 .packaging-request-layers .packaging-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .packaging-request-layers .packaging-entry-grid>:last-child{grid-column:1/-1}
 @media(min-width:1600px){.packaging-request-layers .packaging-entry-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-.opportunity-product-info{grid-column:1/-1;margin:0}
+.opportunity-product-info{display:contents;margin:0}
 .opportunity-product-section{grid-column:1/-1}
 .record-dialog.opportunity-entry-dialog .opportunity-entry-list{max-height:none;overflow:visible}
 .request-layer-choice>label{display:flex;flex-direction:row;align-items:center;gap:6px}
 .request-layer-choice select{width:220px}
 .opportunity-product-section>h4{font-size:12px;font-weight:600;margin:0 0 6px;line-height:18px}
-.opportunity-product-fields{display:grid;grid-template-columns:1.5fr .6fr .8fr .8fr .8fr;gap:6px 12px}
-.opportunity-product-info .packaging-entry-grid{grid-template-columns:180px auto;justify-content:start}
+.opportunity-product-fields{display:grid;grid-template-columns:minmax(240px,1.9fr) minmax(90px,.5fr) minmax(100px,.7fr) minmax(110px,.7fr) minmax(100px,.7fr) minmax(100px,.5fr) 55px;gap:6px 12px;align-items:start}
+.opportunity-product-info .packaging-entry-grid{display:contents}
 .product-grade-snapshot{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
 .product-grade-snapshot>[role=button]{cursor:pointer;border:1px solid var(--border);border-radius:8px}
 .product-grade-snapshot>[role=button]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -347,3 +357,5 @@ button.primary:hover:not(:disabled),[data-theme=dark] button.primary:hover:not(:
  .response-sections>section[aria-label="Product Info response"] .response-product-summary{grid-column:1/-1}
 }
 @media(max-width:550px){.packaging-request-layers .packaging-entry-grid{grid-template-columns:1fr}.opportunity-product-info .packaging-entry-grid{grid-template-columns:1fr 1fr}.opportunity-product-fields{grid-template-columns:1fr 1fr}.opportunity-product-fields>label:nth-child(2){grid-column:auto}}
+
+.opportunity-entry-fields>.opportunity-protected-fields{display:contents}

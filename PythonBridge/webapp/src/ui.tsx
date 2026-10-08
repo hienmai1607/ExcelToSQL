@@ -1,4 +1,4 @@
-import {Children,useEffect,useRef,useState,type ReactNode,type HTMLAttributes,type CSSProperties} from 'react';
+import {Children,useEffect,useRef,useState,useId,type ReactNode,type HTMLAttributes} from 'react';
 import {createPortal} from 'react-dom';
 import {text} from './api';
 import {Icon,IconButton} from './icons';
@@ -13,9 +13,32 @@ export function Notification({value,error=false,onDismiss}:{value:string;error?:
 }
 export function ErrorNote({value}:{value:string}){return <Notification value={value} error/>}
 export function InfoTip({text}:{text:string}){
- const [shift,setShift]=useState(0);
- function position(node:HTMLElement){const width=Math.min(320,window.innerWidth*.7);setShift(Math.max(0,12-node.getBoundingClientRect().right+width))}
- return <span className="info-tip" tabIndex={0} role="note" aria-label={text} title={text} style={{'--info-tip-shift':shift+'px'} as CSSProperties} onMouseEnter={e=>position(e.currentTarget)} onFocus={e=>position(e.currentTarget)}><Icon name="info"/></span>
+ const trigger=useRef<HTMLSpanElement>(null),tip=useRef<HTMLSpanElement>(null),id=useId();
+ const [open,setOpen]=useState(false);
+ function position(){
+  const node=trigger.current,popup=tip.current;if(!node||!popup)return;
+  const anchor=node.getBoundingClientRect(),dialog=node.closest('dialog')?.getBoundingClientRect();
+  const left=Math.max(8,dialog?dialog.left+8:8),right=Math.min(window.innerWidth-8,dialog?dialog.right-8:window.innerWidth-8);
+  const top=Math.max(8,dialog?dialog.top+8:8),bottom=Math.min(window.innerHeight-8,dialog?dialog.bottom-8:window.innerHeight-8);
+  popup.style.maxWidth=Math.max(1,Math.min(320,right-left))+'px';
+  popup.style.maxHeight=Math.max(1,bottom-top)+'px';
+  const box=popup.getBoundingClientRect();
+  popup.style.left=Math.max(left,Math.min(anchor.left,right-box.width))+'px';
+  const below=anchor.bottom+6;
+  popup.style.top=Math.max(top,Math.min(below+box.height<=bottom?below:anchor.top-box.height-6,bottom-box.height))+'px';
+ }
+ function show(){tip.current?.showPopover();position();setOpen(true)}
+ function hide(){tip.current?.hidePopover();setOpen(false)}
+ useEffect(()=>{
+  if(!open)return;
+  window.addEventListener('resize',position);window.addEventListener('scroll',position,true);
+  return()=>{window.removeEventListener('resize',position);window.removeEventListener('scroll',position,true)};
+ },[open]);
+ return <span ref={trigger} className="info-tip" tabIndex={0} role="note" aria-label={text} aria-describedby={open?id:undefined}
+  onMouseEnter={show} onMouseLeave={()=>{if(document.activeElement!==trigger.current)hide()}} onFocus={show} onBlur={hide}
+  onClick={show} onKeyDown={e=>{if(e.key==='Escape'&&open){e.preventDefault();e.stopPropagation();hide()}}}>
+  <Icon name="info"/><span ref={tip} id={id} role="tooltip" popover="manual" className="info-tooltip">{text}</span>
+ </span>
 }
 export function FieldLabel({children,help}:{children:ReactNode;help?:string}){return <span className="field-label"><span className="field-label-text">{children}</span>{help&&<InfoTip text={help}/>}</span>}
 export function LayoutPanel({children,...props}:HTMLAttributes<HTMLElement>){

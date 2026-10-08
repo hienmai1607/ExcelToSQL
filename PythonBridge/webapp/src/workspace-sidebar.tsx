@@ -21,7 +21,9 @@ export function WorkspaceSidebar({session,tab,onNavigate}:{session:Session;tab:s
    {key:'raw-materials',label:'Raw Material',icon:'package',allowed:has('RawMaterial')},
    {key:'raw-prices',label:'Raw Material Pricing',icon:'price',allowed:has('RawMaterial')},
    {key:'raw-grades',label:'Raw Grade Master',icon:'grade',allowed:has('RawMaterial')}]},
-  {label:'Shared masters',items:[
+{label:'Shared masters',items:[
+   {key:'loss-processes',label:'Loss Process Master',icon:'calculator',allowed:has('Opportunity','Product')},
+   {key:'ports',label:'Ports of Entry',icon:'customer',allowed:has('Opportunity','Customer')},
    {key:'vendors',label:'Vendors',icon:'customer',allowed:has('Packaging','PackagingManager')},
    {key:'conversions',label:'Unit Conversions',icon:'price',allowed:has('Packaging','PackagingManager','RawMaterial')},
    {key:'uoms',label:'Units of Measure',icon:'package',allowed:session.is_admin}]}

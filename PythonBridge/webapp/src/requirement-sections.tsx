@@ -61,7 +61,7 @@ export function requirementError(values:Record<string,string>,original:Record<st
  return '';
 }
 
-export function RequirementSections({values,types=[],pallets=[],child=false,onChange,row,mix}:{values:Record<string,string>;types?:Row[];pallets?:Row[];child?:boolean;shelfLife?:unknown;onChange?:(key:string,value:string)=>void;row?:Row;mix?:MixStructure|null}){
+export function RequirementSections({values,types=[],pallets=[],child=false,showShipment=true,onChange,row,mix}:{values:Record<string,string>;types?:Row[];pallets?:Row[];child?:boolean;showShipment?:boolean;shelfLife?:unknown;onChange?:(key:string,value:string)=>void;row?:Row;mix?:MixStructure|null}){
  const readOnly=!onChange;const structure=child?null:mix??parseMixStructure(row?.ProductMixSnapshot??row?.MixStructure);const mixParent=!!structure;const unitLabel=(layer:string)=>'No of '+layer+(structure?' Mix':'')+' Unit';const unitHelp=mixFormula(structure);
  const layers=layerCount(values.PackagingLayerCount);
  function input(key:string,label:string,help?:string){
@@ -79,7 +79,7 @@ export function RequirementSections({values,types=[],pallets=[],child=false,onCh
    {layers===3&&<div className="packaging-readonly-field"><FieldLabel>No of Tertiary Unit</FieldLabel><p>1</p></div>}
   </div></section>
   <div className="packaging-request-layers" data-layers={layers}>{['Primary','Secondary','Tertiary'].slice(0,layers).map((layer,i)=><section key={layer} aria-label={layer+' packaging requirements'}><h4>{layer} packaging</h4><div className="packaging-entry-grid">{input(layer+'TypeID',readOnly?'Requested '+layer+' Type':layer+' Type')}{input(i===0?'Transparency':layer+'Transparency',layer+' Transparent / opaque')}{requirements(i===0?'':layer)}</div></section>)}</div>
-  {!child&&<section aria-label="Container and Configuration"><h4>Container and Configuration</h4><div className="packaging-entry-grid">{!child&&input('ContainerRequest','Container request')}{input('ConfigurationRequest','Configuration request')}</div></section>}
+  {!child&&showShipment&&<section aria-label="Container and Configuration"><h4>Container and Configuration</h4><div className="packaging-entry-grid">{!child&&input('ContainerRequest','Container request')}{input('ConfigurationRequest','Configuration request')}</div></section>}
   {!child&&values.ConfigurationRequest!=='Floor load'&&<section aria-label="Palletization request"><h4>Palletization</h4><div className="packaging-entry-grid">{input('PalletSize','Pallet size')}{input('PalletStacking','Pallet stacking')}{input('MaxPalletHeightMM','Max pallet height (mm)')}</div></section>}
   {row?.PackagingType!=null&&<section><h4>Legacy packaging type</h4><p>{String(row.PackagingType)}</p></section>}
  </div>;

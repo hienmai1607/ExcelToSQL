@@ -16,13 +16,13 @@ try {
  $data=$book.Worksheets.Item(1);$data.Name='Opportunity'
  $controls=$book.Worksheets.Item(2);$controls.Name='Controls'
  $config=$book.Worksheets.Item(3);$config.Name='_Config'
- $data.Cells.Item(1,1)='Opportunity';$data.Cells.Item(2,1)='Command'
+ $data.Cells.Item(1,1)='Opportunity';$data.Cells.Item(2,1)='Command';$data.Cells.Item(3,1)='Header Command';$data.Cells.Item(4,1)='Editable'
  $controls.Cells.Item(1,1)='Opportunity Excel Local Update'
  $labels=@('Opportunity number prefix','Customer name prefix','Header stage (blank = all)','Page','Opportunities per page (1-500)','Total Opportunities','Bid open from (YYYY-MM-DD)','Bid open to (YYYY-MM-DD)')
  for($i=0;$i -lt $labels.Count;$i++){$controls.Cells.Item($i+3,1)=$labels[$i];$controls.Cells.Item($i+3,2)='0'}
  $controls.Columns.Item(1).ColumnWidth=38;$controls.Columns.Item(2).ColumnWidth=32
  $controls.Range('A12').Value2='Save uses your Windows identity. Development header mode is testing only.'
- $controls.Range('A13').Value2='Header / Item Command: C create, U update, D delete, N unchanged. Draft only.'
+ $controls.Range('A13').Value2='Header / Item Command: C create, U update, D delete, N unchanged. Draft only; processing items allow shipment/cost edits except Configuration and Loading.'
  $controls.Range('A14').Value2='Page size counts headers; all their items stay together. Required columns remain visible.'
  $buttons=@(@('Save','OpportunitySave'),@('Refresh','OpportunityRefresh'),@('Filter','OpportunityFilter'),@('Previous','OpportunityPrevious'),@('Next','OpportunityNext'),@('New Opportunity','OpportunityNew'))
  for($i=0;$i -lt $buttons.Count;$i++){
@@ -30,16 +30,17 @@ try {
   $button.Caption=$buttons[$i][0];$button.OnAction=$buttons[$i][1]
  }
  $legend=@(
-  @('Header required *','Blue: required Header fields. Optional editable Header fields use light blue.',0xEED7BD),
-  @('Item required *','Orange: required Item fields. Optional editable Item fields use light orange.',0x83B1F4),
-  @('Display only','Gray: stages, Product info, responses and metadata. Do not edit.',0xE6E6E7)
+  @('Editable','Green heading: normally editable. Gray italic cells are locked; select one for the reason.',0xCEEFC6),
+  @('Auto calculate','Blue: calculated output. Do not edit.',0xF7EBDD),
+  @('Display only','Gray: display-only or locked cells. Mix children inherit parent shipment/cost inputs.',0xE6E6E7)
  )
  for($i=0;$i -lt $legend.Count;$i++){
   $cell=$controls.Cells.Item(22+$i,1)
   $cell.Value2=$legend[$i][0];$cell.Interior.Color=$legend[$i][2];$cell.Font.Bold=$true
   $controls.Cells.Item(22+$i,2).Value2=$legend[$i][1]
  }
- $controls.Range('A26').Value2='Add item: select an Opportunity data row and press Ctrl+Shift+I (or run OpportunityAddItem).'
+ $controls.Range('A26').Value2='An asterisk (*) identifies required inputs. Gray italic data cells are inherited/locked; select for parent-row guidance.'
+ $controls.Range('A28').Value2='Add item: select an Opportunity data row and press Ctrl+Shift+I (or run OpportunityAddItem).'
  $book.VBProject.VBComponents.Item('ThisWorkbook').CodeModule.AddFromString(@'
 Private Sub Workbook_Activate()
  ' Excel can reject OnKey while focus moves to/from Protected View.

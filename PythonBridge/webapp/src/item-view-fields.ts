@@ -1,4 +1,9 @@
-/** Web editor fields only. Legacy Excel field catalogs remain unchanged. */
+import {tcbColumnGroups,tcbColumnLabels} from './tcb-columns';
+import {costSections} from './shipment-sections';
+export const shipmentFieldGroups=[
+ {title:'Shipment',fields:{ContainerRequest:'Configuration request',ConfigurationRequest:'Loading request',Incoterm:'Incoterm',PortOfEntryName:'Port of Entry',ContainerSizeFT:'Container'} as Record<string,string>},
+ ...costSections.map(section=>({title:section.title,fields:Object.fromEntries(section.fields.map(field=>[field.key,field.label]))})),
+];
 export const productFields:Record<string,string>={
  ProductCode:'Product',ProductName:'Product name',AnnualUnit:'Annual units',
  WeightGrams:'Net weight (g)',ShelfLifeDays:'Shelf life (days)',ItemStage:'Stage',NutDensity:'Nut density (g/ml)',UsedVolumeML:'Used volume (ml)',
@@ -32,10 +37,13 @@ export const linkedRequestFields:Record<string,string>={PackagingRequestNumber:'
 export const calculatedFields=new Set(['UsedVolumeML','LayersPerContainer','LayersPerPallet','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','UnitsPerPallet','CalculatedCartonsPerContainer','NetWeightPerContainerKG','NetWeightPerContainerFloorKG']);
 export const efficiencyFields=['PalletHeightMM','CartonEfficiencyKGM3','RelativeCartonEfficiencyPct','PalletUtilizationPct','PalletHeightEfficiencyPct'];
 efficiencyFields.forEach(key=>calculatedFields.add(key));
-export function itemFieldGroups(domain:'opportunity'|'requests'){
+Object.keys(tcbColumnLabels).forEach(key=>calculatedFields.add(key));
+export function itemFieldGroups(domain:'opportunity'|'requests'):{title:string;subgroup?:string;fields:Record<string,string>}[]{
  return [
   {title:'Product Info',fields:{...productFields,...(domain==='opportunity'?{EstPctAwarded:'Estimated award %',ShelfPrice:'Shelf price'}:{PIC:'Current PIC'})}},
-  {title:'Packaging Request',fields:requestFields},
+  {title:'Packaging Request',fields:domain==='opportunity'?Object.fromEntries(Object.entries(requestFields).filter(([key])=>!['ContainerRequest','ConfigurationRequest'].includes(key))):requestFields},
+  ...(domain==='opportunity'?shipmentFieldGroups:[]),
+  ...(domain==='opportunity'?tcbColumnGroups:[]),
   {title:'Packaging Responses',fields:{...(domain==='opportunity'?linkedRequestFields:{}),...responseFields}},
  ];
 }

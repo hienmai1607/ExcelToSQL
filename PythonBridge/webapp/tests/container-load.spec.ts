@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '@playwright/test';
+import {allowedContainerTypes} from '../src/container-loading';
 
 async function setup(page:Page,configuration='Both',overrides:Record<string,unknown>={}){
  const writes:any[]=[];
@@ -18,7 +19,7 @@ async function setup(page:Page,configuration='Both',overrides:Record<string,unkn
  await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
  await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
- if(row.ItemStage!=='Approved')await editor.getByLabel('Container type',{exact:true}).selectOption(row.ContainerRequest==='Reefer'?'20RC':'20DC');
+ if(row.ItemStage!=='Approved')await editor.getByLabel('Container type',{exact:true}).selectOption(allowedContainerTypes(row.ContainerRequest,row.ShipmentContainerSizeFT)[0]);
  return {writes,editor};
 }
 
@@ -207,4 +208,13 @@ test('shipping height above clearance yields zero totals, independent of maximum
  await expect(editor.getByLabel('Max pallet height (mm)',{exact:true})).toHaveValue('');
  await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('0');
  await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('0');
+});
+
+test('new PCR size snapshots constrain Dry and Reefer response choices',async({page})=>{
+ const {editor}=await setup(page,'Both',{ContainerRequest:'Dry',ShipmentContainerSizeFT:'40FT'});
+ await expect(editor.getByLabel('Container type',{exact:true}).locator('option')).toHaveText(['Choose container type','40DC','40HC']);
+});
+test('40FT Reefer response retains 40RHC without introducing 40RC',async({page})=>{
+ const {editor}=await setup(page,'Floor load',{ContainerRequest:'Reefer',ShipmentContainerSizeFT:'40FT'});
+ await expect(editor.getByLabel('Container type',{exact:true}).locator('option')).toHaveText(['Choose container type','40RHC']);
 });

@@ -4,6 +4,7 @@ import re
 from decimal import Decimal
 from pydantic import BaseModel, Field, model_validator, field_validator
 from product_grades import InitialGrade, OpportunityGradeTree
+from shipment_fields import ShipmentCostInfo as ShipmentCostModel
 from fastapi import HTTPException
 from db import get_raw_cursor
 from typing import Literal
@@ -49,8 +50,10 @@ OPPORTUNITYITEM_FIELDS = ["PalletSize","PalletStacking","MaxPalletHeightM","Cont
 WEB_ITEM_FIELDS = ["PrimaryTypeID", "SecondaryTypeID", "SecondaryTransparency", "NumberOfPrimary", "WebPackagingRequirements",
                   "PackagingLayerCount", "TertiaryTypeID", "TertiaryTransparency", "NumberOfSecondary"]
 WEB_ITEM_FIELDS += ["MaxPalletHeightMM","ProductGradeSnapshot","SecondaryRecyclableRequirement","SecondaryRecycledContent","SecondaryMetalizedAluminum","SecondarySpecialComments","TertiaryRecyclableRequirement","TertiaryRecycledContent","TertiaryMetalizedAluminum","TertiarySpecialComments"]
-PARENT_LOGISTICS_FIELDS.add("MaxPalletHeightMM")
+PARENT_LOGISTICS_FIELDS.update(("MaxPalletHeightMM", "ShipmentCostInfo"))
+WEB_ITEM_FIELDS.append("ShipmentCostInfo")
 class ItemFields(BaseModel):
+    ShipmentCostInfo: ShipmentCostModel | None = None
     MaxPalletHeightMM: int | None = Field(None, ge=1, le=999999999)
     ProductGradeSnapshot: OpportunityGradeTree | None = None
     SecondaryRecyclableRequirement: str | None = Field(None, max_length=200)
@@ -158,7 +161,7 @@ def consume(cursor):
 
 def sql_error(exc):
     message=str(exc)
-    if any(str(code) in message for code in range(52951,52964)):
+    if any(str(code) in message for code in (*range(52951,52964),52996,52997,52998)):
         match=re.search(r"\[SQL Server\](.*?)(?:\s*\(529\d+\))",message)
         return match.group(1).strip() if match else "Check required fields, exchange rate, ownership and processing locks."
     if "(547)" in message:
@@ -178,15 +181,21 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                         if old is not None and old!=model.product_id:
                             model.ProductGradeSnapshot=None
                 from opportunity_mix import split_child_edits
-                normal, child_results = split_child_edits(cursor, models[1], scalar_params[0])
+                from shipment_fields import split_shipment_edits
+                remaining, shipment_results = split_shipment_edits(cursor, models[1], scalar_params[0])
+                normal, child_results = split_child_edits(cursor, remaining, scalar_params[0])
+                child_results.extend(shipment_results)
                 nums = {r.row_num for r in normal}
                 groups = [groups[0], [r for r in groups[1] if r[0] in nums]]
                 models_for_save = [models[0], normal]
             else:
                 models_for_save = models
             placeholders=",".join("?" for _ in range(len(groups)+len(scalar_params)))
-            cursor.execute("{CALL "+proc+" ("+placeholders+")}", *groups, *scalar_params)
-            sets=consume(cursor)
+            if any(groups):
+                cursor.execute("{CALL "+proc+" ("+placeholders+")}", *groups, *scalar_params)
+                sets=consume(cursor)
+            else:
+                sets=[[] for _ in groups]
             if len(sets)!=len(groups):
                 failures=[r for rows in sets for r in rows if r.get("Status")=="ERROR"]
                 if failures:

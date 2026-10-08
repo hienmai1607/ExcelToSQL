@@ -11,14 +11,20 @@ test('linked PCR migrates existing Opportunity layouts once and can remain hidde
  await panel.getByRole('group',{name:'Visible columns',exact:true}).getByLabel('Current linked PCR',{exact:true}).uncheck();
  await panel.getByRole('button',{name:'Save layout to profile'}).click();
  await expect(panel.getByRole('status')).toContainText('saved');
- expect(profile().settings.opportunity.items.field_version).toBe(8);
+ expect(profile().settings.opportunity.items.field_version).toBe(10);
  expect(profile().settings.opportunity.items.columns).toContain('SelectedContainerType');
  expect(profile().settings.opportunity.items.columns).not.toContain('PackagingRequestNumber');
  expect(itemFieldLabels('requests')).not.toHaveProperty('PackagingRequestNumber');
+ expect(profile().settings.opportunity.items.columns).toContain('FreightUSDPerContainer');
+ await panel.getByRole('group',{name:'Visible columns',exact:true}).getByLabel('Freight ($/Container)',{exact:true}).uncheck();
+ await panel.getByRole('button',{name:'Save layout to profile'}).click();
+ await expect(panel.getByRole('status')).toContainText('saved');
+ expect(profile().settings.opportunity.items.columns).not.toContain('FreightUSDPerContainer');
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await page.getByRole('button',{name:'View details',exact:true}).click();
  await page.getByRole('button',{name:'Packaging Responses',exact:true}).click();
  await expect(table.getByRole('columnheader',{name:/Current linked PCR/})).toHaveCount(0);
+ expect(profile().settings.opportunity.items.columns).not.toContain('FreightUSDPerContainer');
 });
 
 async function setup(page:Page,opportunityView?:Record<string,unknown>){

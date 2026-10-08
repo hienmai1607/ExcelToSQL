@@ -1,0 +1,89 @@
+.opportunity-loss-dialog{width:min(1250px,96vw);max-width:96vw}
+.opportunity-loss-dialog [role=tablist]{display:flex;gap:8px;margin:16px 0}
+.opportunity-loss-dialog [role=tab][aria-selected=true]{background:var(--accent,#176d68);color:white}
+.opportunity-loss-copy{display:flex;align-items:end;gap:12px;margin:16px 0;flex-wrap:wrap}
+.opportunity-loss-copy label{flex:1;min-width:200px}
+.opportunity-loss-dialog details{border:1px solid var(--border);border-radius:8px;margin:12px 0;padding:12px}
+.opportunity-loss-dialog summary{font-weight:600;cursor:pointer}
+.opportunity-loss-dialog details>label{margin:12px 0}
+.opportunity-loss-dialog .loss-child{margin-left:20px}
+.opportunity-loss-dialog .loss-select{display:flex;flex-direction:row;align-items:center;gap:8px}
+.opportunity-packaging-loss-table{table-layout:fixed;min-width:700px}
+.opportunity-packaging-loss-table th:first-child{width:60px}
+.opportunity-packaging-loss-table th:nth-child(2){width:40%}
+.opportunity-packaging-loss-table td input:not([type=checkbox]){min-width:0;width:100%}
+.opportunity-packaging-loss-table .loss-child td:nth-child(2){padding-left:30px}
+.opportunity-loss-dialog [aria-label="Review Opportunity losses"]{border-top:1px solid var(--border);margin-top:16px;padding-top:12px}
+.opportunity-loss-dialog .actions{flex-wrap:wrap}
+.opportunity-loss-dialog .field-label{display:inline-flex;align-items:center;align-self:flex-start;text-align:left}
+
+.opportunity-loss-dialog [role=tablist]{flex-wrap:wrap}
+.commercial-price-table{min-width:950px}
+.commercial-price-table th:nth-child(3){width:40%}
+.commercial-price-table td select{min-width:0;width:100%}
+.opportunity-loss-dialog [aria-label="Raw Pricing"] details>label{margin:12px 0}
+
+.commercial-price-table td input[type=number]{min-width:120px;width:100%}
+.direct-grade-price .field-label{gap:6px;white-space:nowrap}
+.direct-grade-price input[type=checkbox]{width:auto}
+.opportunity-loss-dialog .tcb-grade-editor{margin:8px 0}
+
+.opportunity-loss-dialog [aria-label="TCB Review items"]>details>section{margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}
+.opportunity-loss-dialog [aria-label="TCB Review items"]>details>section>label{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+
+.product-loss-scroll{margin:14px 0;max-width:100%;overflow-x:auto}
+.product-loss-horizontal{width:100%;min-width:100%;table-layout:fixed;border-collapse:collapse}
+.product-loss-horizontal th,.product-loss-horizontal td{border:1px solid var(--border);padding:10px;text-align:left;vertical-align:middle}
+.product-loss-horizontal th:first-child{width:150px;min-width:150px}
+.product-loss-horizontal th:not(:first-child),.product-loss-horizontal td{min-width:300px;width:300px}
+.product-loss-horizontal td input,.product-loss-horizontal td select{width:100%;min-width:0}
+
+.product-loss-code{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.product-loss-inputs{display:flex;align-items:center;gap:8px}
+.product-loss-horizontal .product-loss-inputs select{flex:1;min-width:0}
+.product-loss-horizontal .product-loss-inputs input{flex:0 0 90px;width:90px}
+
+.product-loss-formula{display:flex;align-items:flex-end;gap:12px;margin:12px 0;overflow-x:auto}
+.product-loss-formula>label{display:flex;flex:1;flex-direction:column;gap:6px;min-width:240px}
+.product-loss-formula>button,.product-loss-formula>.product-loss-result{flex-shrink:0;white-space:nowrap}
+.product-loss-formula>.product-loss-result{flex:0 0 auto;min-width:140px}
+.product-loss-result>output{line-height:42px;white-space:nowrap}
+
+.tcb-review-header-line{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.tcb-review-header-line p{margin:0}
+.tcb-analysis-table{border-collapse:collapse;min-width:700px;width:100%;margin-bottom:20px}
+.tcb-analysis-table th,.tcb-analysis-table td{padding:10px 12px;border:1px solid var(--border);vertical-align:top;text-align:left;min-width:190px}
+.tcb-analysis-table th:first-child{min-width:260px}
+.tcb-analysis-table small{display:block;margin-top:5px;font-weight:400;color:var(--muted)}
+.tcb-analysis-table td{font-variant-numeric:tabular-nums}
+.tcb-analysis-table .analysis-total{font-weight:700;background:var(--surface-alt,#f3f8f7)}
+.tcb-analysis-table .analysis-section-start>*{border-top:4px solid var(--accent);padding-top:18px}
+.tcb-packaging-scroll{max-width:100%;overflow-x:auto;margin:12px 0}
+.tcb-packaging-table{width:100%;min-width:440px;border-collapse:collapse;table-layout:fixed}
+.tcb-packaging-table th,.tcb-packaging-table td{border:1px solid var(--border);padding:10px 12px;text-align:left;vertical-align:middle}
+.tcb-packaging-table th{background:var(--surface-alt,#f3f8f7)}
+.tcb-packaging-table th:first-child{width:170px}
+.tcb-packaging-table td input:not([type=checkbox]){width:100%;min-width:0;max-width:100%}
+.tcb-packaging-price-loss{display:flex;align-items:center;gap:12px}
+.tcb-packaging-price-loss output{flex:1;min-width:0;white-space:nowrap}
+.tcb-packaging-price-loss input:not([type=checkbox]){flex:0 0 100px;width:100px}
+.tcb-packaging-table:has(th:nth-child(4)){min-width:800px}
+.tcb-packaging-table:has(th:nth-child(3)){min-width:590px}
+.tcb-packaging-pallet{margin-top:12px}
+.tcb-product-scroll{max-width:100%;overflow-x:auto;margin:12px 0}
+.tcb-product-table{width:100%;min-width:850px;table-layout:fixed;border-collapse:collapse}
+.tcb-product-table th,.tcb-product-table td{border:1px solid var(--border);padding:10px 12px;text-align:left;vertical-align:bottom}
+.tcb-product-table th{background:var(--surface-alt,#f3f8f7)}
+.tcb-product-table th{width:33.333%}
+.tcb-product-cost-ratio{display:flex;align-items:flex-end;gap:10px}
+.tcb-product-table label{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.tcb-product-table td input:not([type=checkbox]){width:100%;min-width:0;max-width:100%;box-sizing:border-box}
+.tcb-product-table output{display:flex;align-items:center;min-height:42px;white-space:nowrap}
+.tcb-product-table .field-label{display:inline-flex;align-items:center;justify-content:flex-start;text-align:left}
+.analysis-incomplete{color:var(--muted)}
+.product-loss-ratio{flex:0 0 90px;min-width:0}
+.tcb-packaging-ratio{flex:0 0 100px;min-width:0}
+.tcb-field-error{display:block;color:var(--error,#a33024);font-size:12px;white-space:normal;margin-top:4px}
+.tcb-validation-summary,.tcb-error-banner{padding:12px;border:1px solid var(--error,#a33024);border-radius:6px;background:var(--surface)}
+.tcb-validation-summary button{text-align:left;white-space:normal}
+.opportunity-loss-dialog [aria-invalid=true]{border-color:var(--error,#a33024)}

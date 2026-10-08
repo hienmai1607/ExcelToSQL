@@ -46,7 +46,7 @@ test('mix parent slots offer only Secondary/Tertiary master orders and save cros
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),root=form.getByRole('region',{name:'Item 1',exact:true});
  await root.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const component=form.getByRole('region',{name:'Item 1.1',exact:true});
- await root.getByText('Packaging requirements',{exact:true}).click();await component.getByText('Packaging requirements',{exact:true}).click();
+ await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await component.getByText('Packaging requirements',{exact:true}).click();await component.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  for(const layer of ['Primary','Secondary'])await expect(root.getByLabel(layer+' Type',{exact:true}).locator('option')).toHaveText(['Choose '+layer.toLowerCase()+' type','Tray','Shipping case','Shipping carton','PET jar','Storage case']);
  await expect(root.getByLabel('Tertiary Type',{exact:true}).locator('option')).toHaveText(['Choose tertiary type','Shipping case','Shipping carton']);
  await expect(component.getByLabel('Primary Type',{exact:true}).locator('option')).toHaveText(['Choose primary type','Primary bag','PET jar']);
@@ -64,7 +64,7 @@ test('mix counts explain composition and Grades opens the saved Product structur
  await setup(page,[{...parent,PackagingLayerCount:2},child]);
  await page.getByRole('button',{name:'Edit Opportunity OPP-MIX',exact:true}).click();
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),root=form.getByRole('region',{name:'Item 1',exact:true});
- await root.getByText('Packaging requirements',{exact:true}).click();
+ await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  await expect(root.getByLabel('No of Primary Mix Unit',{exact:true})).toBeVisible();
  await expect(root.getByText('No of Secondary Mix Unit',{exact:true})).toBeVisible();
  await expect(root.getByRole('note',{name:'Mix Product = 1.25 × Almonds',exact:true})).toHaveCount(2);
@@ -93,12 +93,12 @@ test('child final layer offers non-shipping types while the mix parent requires 
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),root=form.getByRole('region',{name:'Item 1',exact:true});
  await root.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const component=form.getByRole('region',{name:'Item 1.1',exact:true});
- await root.getByText('Packaging requirements',{exact:true}).click();
- await component.getByText('Packaging requirements',{exact:true}).click();
+ await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await component.getByText('Packaging requirements',{exact:true}).click();await component.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  await expect(root.getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','Carton']);
  await expect(component.getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','Jar','Carton']);
  await component.getByLabel('Secondary Type',{exact:true}).selectOption('12');
- for(const name of ['Container request','Configuration request','Pallet size','Max pallet height (mm)'])await expect(component.getByLabel(name,{exact:true})).toHaveCount(0);
+ for(const name of ['Pallet size','Max pallet height (mm)'])await expect(component.getByLabel(name,{exact:true})).toHaveCount(0);
 });
 const rv='AAAAAAAAAAE=';
 const header={OpportunityID:1,OpportunityNumber:'OPP-MIX',HeaderStage:'Draft',HeaderRowVersion:rv,CustomerID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',ExchangeRateVNDPerUSD:25000,ExchangeRateCustomerCurrencyPerUSD:1,OpportunityDesc:'Mix launch',BidOpen:'2026-09-01',BidClose:'2026-10-01'};
@@ -145,9 +145,9 @@ test('new mix previews numbered children, calculates units and saves child packa
  await root.getByLabel('Annual units *').fill('1000');
  await expect(first.getByLabel('Annual units',{exact:true})).toHaveValue('1,250');
  await first.getByText('Packaging requirements',{exact:true}).click();
- await root.getByText('Packaging requirements',{exact:true}).click();
- await root.getByLabel('Configuration request',{exact:true}).selectOption('Pallet load');
- for(const label of ['Pallet size','Pallet stacking','Max pallet height (mm)','Container request','Configuration request']){
+ await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await root.getByLabel('Loading request',{exact:true}).selectOption('Pallet load');
+ for(const label of ['Pallet size','Pallet stacking','Max pallet height (mm)']){
   await expect(first.getByLabel(label,{exact:true})).toHaveCount(0);
   await expect(root.getByLabel(label,{exact:true})).toBeVisible();
  }
@@ -188,7 +188,7 @@ test('saved child remains editable while parent packaging is processing',async({
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true});
  await form.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const entry=form.getByRole('region',{name:'Item 1.1',exact:true});
- await entry.getByText('Packaging requirements',{exact:true}).click();
+ await entry.getByText('Packaging requirements',{exact:true}).click();await entry.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  await entry.getByLabel('Primary Type',{exact:true}).selectOption('12');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('OPP-MIX updated');
@@ -205,17 +205,17 @@ test('copy between mix parent and child respects parent-only logistics and Produ
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true});
  await form.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const root=form.getByRole('region',{name:'Item 1',exact:true}),entry=form.getByRole('region',{name:'Item 1.1',exact:true});
- await root.getByText('Packaging requirements',{exact:true}).click();await entry.getByText('Packaging requirements',{exact:true}).click();
- await root.getByLabel('Container request',{exact:true}).selectOption('Dry');
- await root.getByLabel('Configuration request',{exact:true}).selectOption('Both');
+ await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await entry.getByText('Packaging requirements',{exact:true}).click();await entry.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await root.getByLabel('Configuration request',{exact:true}).selectOption('Dry');
+ await root.getByLabel('Loading request',{exact:true}).selectOption('Both');
  await root.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');
  await root.getByLabel('Pallet stacking',{exact:true}).selectOption('Single');
  await root.getByLabel('Primary Type',{exact:true}).selectOption('11');
  await entry.locator('.packaging-copy > button').click();await page.getByRole('dialog',{name:'Choose packaging source'}).getByLabel('Copy packaging from item').selectOption({label:'Item 1 - PRD-MIX - Mixed nuts'});
  await page.getByRole('dialog',{name:'Choose packaging source'}).getByRole('button',{name:'Copy packaging',exact:true}).click();
  await expect(entry.getByLabel('Primary Type',{exact:true})).toHaveValue('11');
- await expect(entry.getByLabel('Configuration request',{exact:true})).toHaveCount(0);
- await expect(entry.getByLabel('Container request',{exact:true})).toHaveCount(0);
+ await expect(entry.getByLabel('Loading request',{exact:true})).toHaveAttribute('readonly','');
+ await expect(entry.getByLabel('Configuration request',{exact:true})).toHaveAttribute('readonly','');
  await expect(entry.getByLabel('Pallet size',{exact:true})).toHaveCount(0);
  await expect(entry.getByLabel('Shelf life (days)',{exact:true}).first()).toHaveValue('180');
  await expect(entry.getByLabel('Annual units',{exact:true})).toHaveValue('12.5');
@@ -223,7 +223,7 @@ test('copy between mix parent and child respects parent-only logistics and Produ
  await root.locator('.packaging-copy > button').click();await page.getByRole('dialog',{name:'Choose packaging source'}).getByLabel('Copy packaging from item').selectOption({label:'Item 1.1 - PRD-ALM - Almonds'});
  await page.getByRole('dialog',{name:'Choose packaging source'}).getByRole('button',{name:'Copy packaging',exact:true}).click();
  await expect(root.getByLabel('Primary Type',{exact:true})).toHaveValue('12');
- await expect(root.getByLabel('Container request',{exact:true})).toHaveValue('Dry');
+ await expect(root.getByLabel('Configuration request',{exact:true})).toHaveValue('Dry');
  await expect(root.getByLabel('Pallet size',{exact:true})).toHaveValue('1.1x1.1M');
  await expect(root.getByLabel('Pallet stacking',{exact:true})).toHaveValue('Single');
  await expect(root.getByLabel('Shelf life (days)',{exact:true}).first()).toHaveValue('365');

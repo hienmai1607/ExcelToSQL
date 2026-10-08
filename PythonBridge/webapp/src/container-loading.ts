@@ -3,8 +3,9 @@ import {type Row} from './api';
 export const containerTypes=['20DC','40DC','40HC','20RC','40RHC'] as const;
 export const containerCountKeys=['PalletsPerContainer','CartonsPerContainerFloor'] as const;
 type Profile=Record<string,string|null>;
-export function allowedContainerTypes(family:unknown){
- return family==='Dry'?containerTypes.slice(0,3):family==='Reefer'?containerTypes.slice(3):[...containerTypes];
+export function allowedContainerTypes(family:unknown,size?:unknown){
+ const types=family==='Dry'?containerTypes.slice(0,3):family==='Reefer'?containerTypes.slice(3):[...containerTypes];
+ return size==='20FT'||size==='40FT'?types.filter(type=>type.startsWith(String(size).slice(0,2))):types;
 }
 export function parseContainerProfiles(value:unknown):Record<string,Profile>{
  try{

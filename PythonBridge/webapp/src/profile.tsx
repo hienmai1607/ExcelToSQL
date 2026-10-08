@@ -9,7 +9,7 @@ export const columnLabels={CustomerName:'Customer',MarketCode:'Market',CurrencyC
 export type Column=keyof typeof columnLabels;
 export type SortRule={column:Column;direction:'asc'|'desc'};
 export type Filter='customer_name'|'market_id'|'status'|'currency_id'|'created_by';
-export type Settings={list_layouts?:Partial<Record<'unit-conversions'|'packaging-dimensions',{page_size:number}>>;column_widths?:Record<string,number>;requests?:OpportunityViews;opportunity?:OpportunityViews;masters?:Partial<Record<MasterEntity,MasterLayout>>;sort:SortRule[];columns:Column[];filters:Filter[];customer_name:string;market_id:string;currency_id:string;created_by:string;status:string;page_size:number;dark:boolean;nav_hidden:boolean};
+export type Settings={list_layouts?:Partial<Record<'unit-conversions'|'packaging-dimensions',{page_size:number}>>;column_widths?:Record<string,number>;requests?:OpportunityViews;opportunity?:OpportunityViews;shared_masters?:Partial<Record<'ports'|'loss-processes',MasterLayout>>;masters?:Partial<Record<MasterEntity,MasterLayout>>;sort:SortRule[];columns:Column[];filters:Filter[];customer_name:string;market_id:string;currency_id:string;created_by:string;status:string;page_size:number;dark:boolean;nav_hidden:boolean};
 export const defaults:Settings={sort:[{column:'CustomerName',direction:'asc'}],columns:['CustomerName','MarketCode','CurrencyCode','Status','UpdatedAt'],filters:['customer_name','market_id','status'],customer_name:'',market_id:'',currency_id:'',created_by:'',status:'',page_size:25,dark:false,nav_hidden:false};
 type Profile={settings:Settings;version:number};
 type Context={profile:Profile;ready:boolean;error:string;saving:boolean;save:(s:Settings)=>Promise<void>;reload:()=>void;setAppearance:(s:Partial<Settings>)=>void};

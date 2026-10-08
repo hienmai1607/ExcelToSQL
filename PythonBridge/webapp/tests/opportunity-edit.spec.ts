@@ -21,6 +21,13 @@ async function setup(page:Page,locked=false){
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  return {writes,profile:()=>profile};
 }
+test('Opportunity editor omits the legacy Loss processes label and launcher',async({page})=>{
+ await setup(page);await page.getByRole('button',{name:'Edit Opportunity OPP-1',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true});
+ await expect(form.getByRole('button',{name:/Loss processes for item/})).toHaveCount(0);
+ await expect(form.getByText('Loss processes',{exact:true})).toHaveCount(0);
+ await expect(form.getByRole('button',{name:/grade/i}).first()).toBeVisible();
+});
 test('saved item weight stays captured even when master weight changed',async({page})=>{
  const state=await setup(page);
  await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,CustomerID:1,ProductCode:'Almonds',ProductName:'Roasted almonds',WeightGrams:999},{ID:5,CustomerID:1,ProductCode:'Pecans',ProductName:'Pecan pack',WeightGrams:450}]}}));

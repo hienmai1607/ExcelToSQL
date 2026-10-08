@@ -7,6 +7,8 @@ from packaging_api import execute
 from packing_way import packing_way
 from packaging_efficiency import response_derived
 from web_item_fields import WEB_ITEM_FIELDS
+from shipment_columns import SHIPMENT_COLUMNS, shipment_columns
+from tcb_analysis_columns import TCB_COLUMNS, add_tcb_columns
 
 HEADER_COLUMNS = {"OpportunityNumber", "CustomerName", "OpportunityDesc", "BidOpen", "BidClose", "HeaderStage", "ItemCount", "CustomerCurrencyCode", "ExchangeRateVNDPerUSD", "ExchangeRateCustomerCurrencyPerUSD"}
 from packaging_fields import OPPORTUNITYITEM_FIELDS, PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS, RETIRED_RESPONSE_COLUMNS
@@ -14,7 +16,7 @@ MIX_COLUMNS = {"ItemNumber","MixUnitQuantity","ShelfLifeDays"}
 ITEM_COLUMNS = {"ProductCode", "ItemDescription", "AnnualUnit", "EstPctAwarded", "ShelfPrice", "ItemStage", "ProductName", "WeightGrams", "Category", "Grade", "MixRatioPct", "PackagingRequestNumber", "PackagingResponseStage", *OPPORTUNITYITEM_FIELDS, *PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS}
 
 ITEM_COLUMNS |= MIX_COLUMNS
-VIEW_ITEM_COLUMNS = ITEM_COLUMNS | WEB_ITEM_FIELDS
+VIEW_ITEM_COLUMNS = ITEM_COLUMNS | WEB_ITEM_FIELDS | SHIPMENT_COLUMNS | TCB_COLUMNS
 
 class OpportunityView(BaseModel):
     page_size: int = Field(25, ge=1, le=500, strict=True)
@@ -24,7 +26,7 @@ class OpportunityView(BaseModel):
     sort: list[MasterSort] = Field(default_factory=list, max_length=644)
     filters: list[str] | None = Field(None, max_length=5)
     values: dict[str, str] = Field(default_factory=dict, max_length=5)
-    field_version: int = Field(1, ge=1, le=8)
+    field_version: int = Field(1, ge=1, le=10)
     prefix_columns: list[str] | None = Field(None, max_length=64)
 
 def validate_view(view, allowed):
@@ -110,7 +112,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         ), PageHeaders AS (
             SELECT * FROM Ranked ORDER BY SortPosition OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
         )
-        SELECT h.*,i.ID ItemID,i.ProductID,p.ProductCode,p.ProductName,i.ProductNetWeightGrams AS WeightGrams,i.ItemDescription,
+        SELECT h.*,i.TCBCostInfo AS _TCBCostInfo,i.ID ItemID,i.ProductID,p.ProductCode,p.ProductName,i.ProductNetWeightGrams AS WeightGrams,i.ItemDescription,
             CONVERT(VARCHAR(40),i.AnnualUnit) AnnualUnit,
             i.ParentItemID,i.MixUnitQuantity,i.MixChildNumber,mix.MixVersionID,(SELECT StructureJSON FROM dbo.v_OpportunityMixStructure WHERE ParentItemID=i.ID) MixStructure,
             CONVERT(VARCHAR(20),(SELECT COUNT(*) FROM dbo.OpportunityItem root
@@ -123,7 +125,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             active_request.Stage AS OpenPackagingRequestStage,
             x.Category,x.Grade,x.MixRatioPct,logistics.PalletSize,logistics.PalletStacking,logistics.MaxPalletHeightM,logistics.ContainerRequest,logistics.ConfigurationRequest,x.PackagingType,x.RecyclableRequirement,x.RecycledContent,x.Transparency,x.MetalizedAluminum,p.ShelfLifeDays,x.SpecialComments,
             i.PrimaryTypeID,i.SecondaryTypeID,i.SecondaryTransparency,i.NumberOfPrimary,i.PackagingLayerCount,i.PackagingLayerCount RequestedLayerCount,i.TertiaryTypeID,i.TertiaryTransparency,i.NumberOfSecondary,
-            logistics.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
+            port_entry.PortName AS PortOfEntryName,logistics.ShipmentCostInfo,logistics.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.TertiaryTypeID) AS TertiaryTypeName,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.PrimaryTypeID) AS PrimaryTypeName,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.SecondaryTypeID) AS SecondaryTypeName,
@@ -141,7 +143,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.UnitsPerTertiary END UnitsPerTertiary,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.NutDensity END NutDensity,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.UsedVolumeML END UsedVolumeML,
-            response.ProductMixSnapshot,
+            response.ProductMixSnapshot,response.ShipmentContainerSizeFT,
             CAST(CASE WHEN i.ParentItemID IS NULL AND mix.ParentItemID IS NOT NULL THEN 1 ELSE 0 END AS BIT) IsMixParent,
             CASE WHEN i.ParentItemID IS NULL AND (@CanReadDraft=1 OR x.PackagingResponseStage='Approved') THEN
               (SELECT child.ID ItemID,child_oi.ProductID,
@@ -185,6 +187,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         LEFT JOIN dbo.Product p ON p.ID=i.ProductID
         LEFT JOIN dbo.OpportunityMixSnapshot mix ON mix.ParentItemID=COALESCE(i.ParentItemID,i.ID)
         LEFT JOIN dbo.v_OpportunityItemPackaging x ON x.OpportunityItemID=i.ID LEFT JOIN dbo.OpportunityItem logistics ON logistics.ID=COALESCE(i.ParentItemID,i.ID)
+        LEFT JOIN dbo.PortOfEntry port_entry ON port_entry.ID=TRY_CONVERT(INT,JSON_VALUE(logistics.ShipmentCostInfo,'$.PortOfEntryID'))
         LEFT JOIN dbo.PackagingConfigurationRequestItem response ON response.ID=x.PackagingRequestItemID
         LEFT JOIN dbo.PackagingConfigurationRequestItem parent_container ON parent_container.RequestID=response.RequestID AND parent_container.OpportunityItemID=i.ParentItemID
         LEFT JOIN dbo.PkgPricingMaster primary_pricing ON primary_pricing.RequestItemID=response.ID AND primary_pricing.PackagingOrder='Primary' AND primary_pricing.IsCurrent=1
@@ -199,6 +202,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         SELECT COUNT(*) Total FROM dbo.Opportunity o JOIN dbo.Customer c ON c.ID=o.CustomerID WHERE {where};
     """, [username, username, *params, (page-1)*page_size, page_size, *params])
     for row in result[0]:
+        row.update(shipment_columns(row))
         # Responses use the immutable request product/configuration snapshot, not current product weight.
         visible=row.pop("PackingWayVisible",False)
         weight=row.pop("PackingProductWeight",None)
@@ -213,4 +217,4 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             row.pop(order+"LayerPricingSnapshot",None)
         row.pop("EfficiencyPalletAreaMM2",None)
         row.update(values if visible else {key:None for key in values})
-    return {"rows": result[0], "total": result[1][0]["Total"], "page": page, "page_size": page_size}
+    return {"rows": add_tcb_columns(result[0]), "total": result[1][0]["Total"], "page": page, "page_size": page_size}

@@ -5,7 +5,7 @@ import os
 import re
 import zipfile
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from xml.sax.saxutils import escape
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -14,22 +14,27 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Literal
 from auth import AccessContext, get_access_context
 from packaging_api import require, execute
-from opportunity_views import OpportunityViews, OpportunityView, HEADER_COLUMNS, ITEM_COLUMNS, sorted_grid
+from opportunity_views import OpportunityViews, OpportunityView, HEADER_COLUMNS, VIEW_ITEM_COLUMNS, sorted_grid
 from packaging_fields import OPPORTUNITYITEM_FIELDS, PARENT_LOGISTICS_FIELDS
 from product_excel_api import sheet, header_styles
+from shipment_columns import SHIPMENT_COLUMNS, SHIPMENT_LABELS, shipment_columns
+from shipment_fields import ShipmentCostInfo
+from tcb_analysis_columns import TCB_LABELS
+from opportunity_excel_sheet import workbook_sheet, format_styles
+ITEM_COLUMNS = VIEW_ITEM_COLUMNS - {'ShipmentCostInfo'}
 from schemas import OpportunityBatchRequest
 
 router=APIRouter(prefix="/api/workbench/opportunity-excel",tags=["Opportunity Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Opportunity_Local_Update.xlsm"
 HEADER_REQUIRED=["OpportunityNumber","CustomerName","OpportunityDesc","BidOpen","BidClose","CustomerCurrencyCode","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"]
-ITEM_REQUIRED=["ProductCode","ItemDescription","AnnualUnit"]
+ITEM_REQUIRED=["ProductCode","AnnualUnit"]
 HEADER_EDITABLE={"CustomerName","OpportunityDesc","BidOpen","BidClose","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"}
-ITEM_EDITABLE={"ProductCode","ItemDescription","AnnualUnit","EstPctAwarded","ShelfPrice",*OPPORTUNITYITEM_FIELDS}
+ITEM_EDITABLE={"ProductCode","ItemDescription","AnnualUnit","EstPctAwarded","ShelfPrice",*OPPORTUNITYITEM_FIELDS,*SHIPMENT_COLUMNS}
 META=["_OpportunityID","_ItemID","_HeaderVersion","_ItemVersion","_Original"]
 AUTH="""IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID
 WHERE u.UserName=? AND u.IsActive=1 AND a.Scope IN('Admin','Opportunity'))
 THROW 52744,'Opportunity access is required for this action.',1; """
-LABELS={"ItemNumber":"Item number","MixUnitQuantity":"Mix component quantity","OpportunityNumber":"Opportunity / new group key","CustomerName":"Customer","OpportunityDesc":"Description",
+LABELS={**TCB_LABELS,**SHIPMENT_LABELS,"ContainerRequest":"Configuration request","ConfigurationRequest":"Loading request","ItemNumber":"Item number","MixUnitQuantity":"Mix component quantity","OpportunityNumber":"Opportunity / new group key","CustomerName":"Customer","OpportunityDesc":"Description",
 "BidOpen":"Bid open","BidClose":"Bid close","HeaderStage":"Stage","CustomerCurrencyCode":"Customer currency",
 "ExchangeRateVNDPerUSD":"Exchange rate VND per USD","ExchangeRateCustomerCurrencyPerUSD":"Exchange rate Customer Currency per USD","ItemCount":"Items","ProductCode":"Product code",
 "ItemDescription":"Description","AnnualUnit":"Annual units","EstPctAwarded":"Estimated award %",
@@ -51,10 +56,11 @@ class View(BaseModel):
   return self
 
 def workbook_row(row):
+ row={**row,**shipment_columns(row)}
  row={k:str(v) if isinstance(v,(Decimal,date,datetime)) else v for k,v in row.items()}
  values={**row,"HeaderCommand":"N","ItemCommand":"N","_OpportunityID":row.get("OpportunityID"),
  "_ItemID":row.get("ItemID"),"_HeaderVersion":row.get("HeaderRowVersion"),"_ItemVersion":row.get("ItemRowVersion")}
- values["_Original"]=json.dumps({k:row.get(k) for k in HEADER_COLUMNS|ITEM_COLUMNS|{"ParentItemID"}},default=str,ensure_ascii=False)
+ values["_Original"]=json.dumps({k:row.get(k) for k in HEADER_COLUMNS|ITEM_COLUMNS|{"ParentItemID","HasOpenPackagingRequest"}},default=str,ensure_ascii=False)
  return values
 
 def read_page(body,ctx):
@@ -110,10 +116,9 @@ def build(body,data,base):
    if k in HEADER_REQUIRED+ITEM_REQUIRED:label+=" *"
    if k not in HEADER_EDITABLE|ITEM_EDITABLE and k!="OpportunityNumber":label+=" [display]"
   labels.append(label)
- rows=[labels,keys]+[[r.get(k) for k in keys] for r in data["rows"]]
- config=[["Version","1"],["API",base.rstrip("/")],["Layout",body.model_dump_json()],["Pending","0"],["LoadedPage",body.page],
+ config=[["Version","2"],["API",base.rstrip("/")],["Layout",body.model_dump_json()],["Pending","0"],["LoadedPage",body.page],
  ["HeaderEditable","|".join(sorted(HEADER_EDITABLE))],["ItemEditable","|".join(sorted(ITEM_EDITABLE))],
- ["Required","|".join(HEADER_REQUIRED+ITEM_REQUIRED)]]
+ ["Required","|".join(HEADER_REQUIRED+ITEM_REQUIRED)],["ShipmentEditable","|".join(sorted(SHIPMENT_COLUMNS))],keys]
  with zipfile.ZipFile(TEMPLATE) as z:
   styles,header_ids=header_styles(z.read("xl/styles.xml").decode())
   # Distinct header and item groups, with darker required fields; display remains gray.
@@ -124,11 +129,20 @@ def build(body,data,base):
   for old,new in (("FFFFF2CC","FFF4B183"),("FFDDEBF7","FFFCE4D6")):
    left,sep,right=style_text.rpartition(old);style_text=left+new+right if sep else style_text
   styles=style_text.encode()
+  styles,category_ids=header_styles(styles.decode())
+  category_xml=styles.decode()
+  # Replace only the newly appended fills, before either replacement introduces another match.
+  left,sep,right=category_xml.rpartition("FFDDEBF7")
+  category_xml=left+"FFC6EFCE"+right
+  left,sep,right=category_xml.rpartition("FFFFF2CC")
+  styles=(left+"FFDDEBF7"+right).encode()
+  category_ids={"calculated":category_ids["required"],"editable":category_ids["editable"],"display":category_ids["display"]}
   ids=[]
   for k in keys:
    palette=header_ids if k in HEADER_COLUMNS or k=="HeaderCommand" else item_ids
    kind="required" if k in HEADER_REQUIRED+ITEM_REQUIRED else "editable" if k in HEADER_EDITABLE|ITEM_EDITABLE or k in ("HeaderCommand","ItemCommand") else "display"
    ids.append(palette[kind])
+  styles,ids,category_ids,body_id=format_styles(styles.decode(),ids,category_ids,keys,HEADER_COLUMNS)
   control=z.read("xl/worksheets/sheet2.xml").decode()
   values=body.views.header.values if body.views.header else {}
   inputs={"B3":values.get("opportunity_number",""),"B4":values.get("customer_name",""),"B5":values.get("stage",""),
@@ -136,7 +150,7 @@ def build(body,data,base):
   for ref,v in inputs.items():
    control,count=re.subn(r'<c\b[^>]*\br="'+ref+r'"[^>]*>.*?</c>',lambda _: '<c r="'+ref+'" t="inlineStr"><is><t>'+escape(str(v))+'</t></is></c>',control,count=1,flags=re.S)
    if count!=1:raise RuntimeError("Opportunity control template is incomplete.")
-  replacements={"xl/styles.xml":styles,"xl/worksheets/sheet1.xml":sheet(rows,hidden,True,True,ids),
+  replacements={"xl/styles.xml":styles,"xl/worksheets/sheet1.xml":workbook_sheet(keys,labels,data["rows"],hidden,ids,category_ids,HEADER_COLUMNS,HEADER_EDITABLE|ITEM_EDITABLE,HEADER_REQUIRED+ITEM_REQUIRED,SHIPMENT_COLUMNS,PARENT_LOGISTICS_FIELDS,body_id),
    "xl/worksheets/sheet2.xml":control.encode(),"xl/worksheets/sheet3.xml":sheet(config)}
   stream=io.BytesIO()
   with zipfile.ZipFile(stream,"w",zipfile.ZIP_DEFLATED) as out:
@@ -195,6 +209,30 @@ def resolve(ctx,table,column,value):
  if len(found)!=1:raise ValueError(column+" is not found or is ambiguous.")
  return found[0]["ID"]
 
+def merge_shipment(ctx,original,changes,header):
+ raw=original.get("ShipmentCostInfo")
+ shipment=json.loads(raw) if isinstance(raw,str) and raw else dict(raw or {})
+ for key,value in changes.items():
+  if key=="PortOfEntryName":
+   if value is None or str(value).strip()=="":
+    shipment["PortOfEntryID"]=None
+   elif value!=original.get("PortOfEntryName"):
+    customer=resolve(ctx,"Customer","CustomerName",header["CustomerName"])
+    ports=execute(AUTH+"""SELECT p.ID FROM dbo.PortOfEntry p JOIN dbo.Customer c ON c.ID=p.CustomerID
+     WHERE p.CustomerID=? AND p.MarketID=c.MarketID AND p.Status='Active' AND p.PortName=?""",
+     [ctx.username,customer,str(value).strip()])[0]
+    if len(ports)!=1:raise ValueError("Choose an active Port of Entry name for this Customer and Market.")
+    shipment["PortOfEntryID"]=ports[0]["ID"]
+  else:
+   value=None if value is None or str(value).strip()=="" else value
+   if key=="InterestMonths" and value is not None:
+    try:number=Decimal(str(value))
+    except InvalidOperation:raise ValueError("Interest months must be whole nonnegative months.")
+    if not number.is_finite() or number!=number.to_integral_value():raise ValueError("Interest months must be whole nonnegative months.")
+    value=int(number)
+   shipment[key]=value
+ return ShipmentCostInfo(**shipment).model_dump(mode="json",exclude_unset=True) if any(v is not None for v in shipment.values()) else None
+
 def prepare(group,ctx):
  first=group[0];existing=document_rows(ctx,first.opportunity_id) if first.opportunity_id else []
  source=existing[0] if existing else {}
@@ -232,18 +270,32 @@ def prepare(group,ctx):
   if row.item_id and not original:raise ValueError("Item does not belong to this Opportunity.")
   if command!="C" and not row.item_id:raise ValueError("New item requires Item Command C.")
   if row.item_id and row.item_version!=original["ItemRowVersion"]:raise ValueError("Item changed. Refresh before saving.")
-  if original and (original["ItemStage"]!="Draft" or original.get("HasOpenPackagingRequest")):raise ValueError("Item is processing or not Draft.")
+  if original and original["ItemStage"]!="Draft":raise ValueError("Only Draft items can be edited.")
+  shipment_changes={k:v for k,v in row.item_changes.items() if k in SHIPMENT_COLUMNS}
+  if original.get("ParentItemID") and shipment_changes:
+   raise ValueError("Shipment, Logistics, Co-Man and Others belong to the Mix parent.")
+  if original.get("HasOpenPackagingRequest") and (command!="U" or set(row.item_changes)-SHIPMENT_COLUMNS):
+   raise ValueError("Item is processing; only Shipment and cost inputs can be edited. Configuration and Loading remain locked.")
+  shipment=None
+  if shipment_changes:
+   shipment=merge_shipment(ctx,original,shipment_changes,values)
+  if original and command=="U" and shipment_changes and not (set(row.item_changes)-SHIPMENT_COLUMNS):
+   items.append(dict(RowNum=row.row,Command="U",ID=row.item_id,RowVersion=row.item_version,
+    OpportunityNumber=first.number,ShipmentCostInfo=shipment))
+   continue
   if original.get("ParentItemID") and (command!="U" or set(row.item_changes)-set(OPPORTUNITYITEM_FIELDS)):
    raise ValueError("Mix child Product and Annual units are read-only; only Packaging requirements can be edited.")
   if original.get("ParentItemID") and set(row.item_changes)&PARENT_LOGISTICS_FIELDS:
    raise ValueError("Pallet and Container requirements belong to the parent item only.")
   value={**original,**row.item_changes}
+  if not value.get("ItemDescription"):value["ItemDescription"]=value.get("ProductName") or value.get("ProductCode")
   if command!="D":
    for k in ITEM_REQUIRED:
     if value.get(k) is None or str(value[k]).strip()=="":raise ValueError(k+" is required.")
   item={k:value.get(k) for k in ("ItemDescription","AnnualUnit","EstPctAwarded","ShelfPrice")}
   # Only extensions actually changed are passed, preserving hidden values.
   item.update({k:v for k,v in row.item_changes.items() if k in OPPORTUNITYITEM_FIELDS})
+  if shipment_changes:item["ShipmentCostInfo"]=shipment
   item.update(RowNum=row.row,Command=command,ID=row.item_id,RowVersion=row.item_version,OpportunityNumber=first.number,
    ProductID=resolve(ctx,"Product","ProductCode",value["ProductCode"]) if "ProductCode" in row.item_changes or not original else original["ProductID"])
   items.append(item)

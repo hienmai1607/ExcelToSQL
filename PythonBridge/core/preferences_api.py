@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from customer_sort import SortRule, unique_sort
+from shared_master_views import check_shared_layout
 from master_models import Entity, MasterLayout, check_layout, ColumnWidth
 from opportunity_views import OpportunityViews
 from request_views import RequestViews
@@ -31,6 +32,13 @@ class Settings(BaseModel):
     column_widths: dict[Column | Literal["_Actions"], ColumnWidth] = Field(default_factory=dict,max_length=9)
     requests: RequestViews = Field(default_factory=RequestViews)
     opportunity: OpportunityViews = Field(default_factory=OpportunityViews)
+    shared_masters: dict[Literal["loss-processes","ports"], MasterLayout] = Field(default_factory=dict)
+    @field_validator("shared_masters")
+    @classmethod
+    def validate_shared_layouts(cls, layouts):
+        for entity, layout in layouts.items():
+            check_shared_layout(entity,layout)
+        return layouts
     masters: dict[Entity, MasterLayout] = Field(default_factory=dict)
     @field_validator("masters")
     @classmethod

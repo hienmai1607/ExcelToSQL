@@ -66,7 +66,7 @@ export function ResponseSections({values,requestedLayers,netWeight,configuration
   const display=dimensionDisplay(dimensions);
   return <label className="captured-dimensions" aria-label={order+' captured dimensions'}><span>{display.label}</span><span className="captured-dimensions-value">{display.value}</span></label>;
  };
- const containerSelector=<label><FieldLabel>Container type</FieldLabel><select aria-label="Container type" value={values.SelectedContainerType||''} disabled={loading} onChange={e=>onChange('SelectedContainerType',e.target.value)}><option value="">Choose container type</option>{allowedContainerTypes(product?.ResponseContainerFamily??product?.ContainerRequest).map(kind=><option key={kind} value={kind}>{kind}</option>)}</select></label>;
+ const containerSelector=<label><FieldLabel>Container type</FieldLabel><select aria-label="Container type" value={values.SelectedContainerType||''} disabled={loading} onChange={e=>onChange('SelectedContainerType',e.target.value)}><option value="">Choose container type</option>{allowedContainerTypes(product?.ResponseContainerFamily??product?.ContainerRequest,product?.ShipmentContainerSizeFT).map(kind=><option key={kind} value={kind}>{kind}</option>)}</select></label>;
  return <div className="requirement-sections response-sections">
  <section aria-label="Product Info response"><h4>Product Info</h4><div className="packaging-entry-grid">
   <div className="response-product-summary"><strong>{text(product?.ProductCode)} · {text(product?.ProductName)}</strong><span>Net weight: {numberDisplay('WeightGrams',netWeight)??'—'} g · Annual units: {numberDisplay('AnnualUnit',product?.AnnualUnit)??'—'}</span></div>

@@ -1,5 +1,6 @@
 import type {ButtonHTMLAttributes} from 'react';
 const paths={
+ analysis:'M3 3v18h18 M7 16v-5 M12 16V7 M17 16v-8 M6 7l5-3 5 1 5-3',
  copy:'M9 9h12v12H9z M5 15H3V3h12v2',
  attachment:'m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3 M6 14l9-9',
  check:'m5 12 4 4L19 6',

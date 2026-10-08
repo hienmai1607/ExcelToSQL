@@ -49,7 +49,7 @@ class PalletLookup(unittest.TestCase):
 
     def test_http_lookup_adds_fresh_pallets_without_mutating_cached_choices(self):
         cached = {"customers": [], "products": [], "mix_children": [], "currencies": []}
-        with patch.object(main, "cached", return_value=cached), patch.object(main, "run_read_query", side_effect=lambda proc, params: self.lookup(params[0])) as read:
+        with patch.object(main, "cached", return_value=cached), patch.object(main, "run_read_query", side_effect=lambda proc, params: self.lookup(params[0]) if proc == 'dbo.usp_OpportunityPalletLookup_Read' else execute('EXEC '+proc+' ?', params)[0]) as read:
             result = main.opportunity_lookups_read(self.ctx.username, True, frozenset())
             self.assertEqual(result["pallets"], self.lookup(self.ctx.username))
             saved = self.save()

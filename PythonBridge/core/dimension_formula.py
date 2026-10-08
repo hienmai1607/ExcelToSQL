@@ -4,9 +4,10 @@ import re
 from decimal import Decimal, DecimalException, ROUND_HALF_UP, localcontext
 
 
-def _expression(formula, allow_constant=False):
+def _expression(formula, allow_constant=False, variable_names=None):
+    names = frozenset(variable_names) if variable_names is not None else frozenset(("D1","D2","D3"))
     formula = formula.strip()
-    if not formula or len(formula) > 200 or not re.fullmatch(r"[D1230-9.+*/()\s-]+", formula):
+    if not formula or len(formula) > 200 or not re.fullmatch(r"[A-Z0-9.+*/()\s-]+", formula):
         raise ValueError("Use D1, D2, D3, decimal numbers, parentheses and + - * / only.")
     try:
         tree = ast.parse(formula, mode="eval")
@@ -19,7 +20,7 @@ def _expression(formula, allow_constant=False):
     def check(node, depth=0):
         if depth > 16:
             raise ValueError("Formula is too deeply nested.")
-        if isinstance(node, ast.Name) and node.id in ("D1", "D2", "D3"):
+        if isinstance(node, ast.Name) and node.id in names:
             variables.add(node.id)
         elif isinstance(node, ast.Constant) and type(node.value) in (int, float):
             source = ast.get_source_segment(formula, node)
@@ -44,8 +45,8 @@ def formula_variables(formula: str, allow_constant=False) -> frozenset[str]:
     return _expression(formula, allow_constant)[2]
 
 
-def _calculate(formula: str, dimensions: dict[str, Decimal], quantity: str, allow_constant=False) -> Decimal:
-    formula, tree, variables = _expression(formula, allow_constant)
+def _calculate(formula: str, dimensions: dict[str, Decimal], quantity: str, allow_constant=False, variable_names=None, loss=False) -> Decimal:
+    formula, tree, variables = _expression(formula, allow_constant, variable_names)
     missing = variables.difference(dimensions)
     if missing:
         raise ValueError("Enter test values for " + ", ".join(sorted(missing)) + ".")
@@ -78,7 +79,9 @@ def _calculate(formula: str, dimensions: dict[str, Decimal], quantity: str, allo
         with localcontext() as context:
             context.prec = 50
             result = visit(tree).quantize(Decimal("0.000000001"), rounding=ROUND_HALF_UP)
-            if result <= 0 or result >= Decimal("1e19"):
+            if loss and not 0 <= result <= 100:
+                raise ValueError("Calculated Product loss must be from 0 to 100%.")
+            if not loss and (result <= 0 or result >= Decimal("1e19")):
                 raise ValueError("Calculated " + quantity + " must be positive and fit 19 whole digits and 9 decimals.")
             return result
     except DecimalException as exc:

@@ -37,6 +37,7 @@ export function numberDisplay(key:string,value:unknown):string|null{
 
 export function isNumericField(key:string){return ['SupplierDimensionID','SupplierD1','SupplierD2','SupplierD3','SupplierAreaPerPriceUnit'].includes(key)||palletCapacityKeys.includes(key)||efficiencyNumbers.has(key)||['NutDensity','UsedVolumeML','TareWeight','Width','Length','PalletAreaMM2','PrimaryPricePerUnit','SecondaryPricePerUnit','TertiaryPricePerUnit','RequestedLayerCount','ResponseLayerCount','NumberOfPrimary','NumberOfSecondary','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','ThirdPMMOQ','CalculatedCartonsPerContainer','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','NetWeightPerContainerKG','NetWeightPerContainerFloorKG'].includes(key)||money.has(key)||numeric.has(key)}
 export function opportunityDisplay(row:Record<string,unknown>,key:string):string|null{
+ if(key.startsWith('TCB')&&key.endsWith('PerUnit')){const amount=decimalDisplay(row[key],6);return amount?amount+' '+(key.includes('Customer')?String(row.CustomerCurrencyCode??''):'USD'):null;}
  const value=numberDisplay(key,row[key]);
  if(value===null)return null;
  const currency=String(row.CustomerCurrencyCode??row.CurrencyCode??'').trim();

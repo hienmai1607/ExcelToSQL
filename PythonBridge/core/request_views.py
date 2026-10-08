@@ -141,7 +141,7 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
           i.PalletSize,
           i.PalletStacking,
           i.MaxPalletHeightM,
-          i.ContainerRequest,
+            i.ContainerRequest,i.ShipmentContainerSizeFT,
           COALESCE(NULLIF(i.ContainerRequest,N''),parent_container.ContainerRequest) ResponseContainerFamily,
           i.ConfigurationRequest,i.PackagingType,i.RecyclableRequirement,i.RecycledContent,i.Transparency,i.MetalizedAluminum,i.ShelfLifeDays,i.SpecialComments,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.FirstPMType END FirstPMType,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.SecondPMType END SecondPMType,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.UnitsPerCarton END UnitsPerCarton,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.PackagingDescription END PackagingDescription,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.FirstPMMOQ END FirstPMMOQ,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.SecondPMMOQ END SecondPMMOQ,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.PalletType END PalletType,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.CartonsPerLayer END CartonsPerLayer,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.LayersPerPallet END LayersPerPallet,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.PacksPerPallet END PacksPerPallet,CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.CartonsPerContainer END CartonsPerContainer,

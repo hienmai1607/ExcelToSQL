@@ -451,10 +451,7 @@ test('response field help stays next to label text in both themes and on mobile'
     expect(gap).toBeGreaterThanOrEqual(3);expect(gap).toBeLessThanOrEqual(6);
     expect(Math.abs(icon.y+icon.height/2-text.y-text.height/2)).toBeLessThan(2);
     await field.getByRole('note').focus();
-    const tooltip=await field.getByRole('note').evaluate(el=>{
-     const style=getComputedStyle(el,'::after'),box=el.getBoundingClientRect(),shift=new DOMMatrix(style.transform).m41;
-     return {left:box.right+shift-parseFloat(style.width),right:box.right+shift};
-    });
+    const tooltip=await page.getByRole('tooltip').evaluate(el=>{const box=el.getBoundingClientRect();return {left:box.left,right:box.right}});
     expect(tooltip.left).toBeGreaterThanOrEqual(0);expect(tooltip.right).toBeLessThanOrEqual(width);
    }
    await expect(editor.locator('label>.info-tip')).toHaveCount(0);
