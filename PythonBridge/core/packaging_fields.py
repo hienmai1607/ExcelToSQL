@@ -13,11 +13,12 @@ ContainerType = Literal["20DC", "40DC", "40HC", "20RC", "40RHC"]
 
 class ContainerLoadProfile(BaseModel):
     model_config = {"extra": "forbid"}
+    CartonsPerContainer: int | None = Field(None, ge=1, le=2147483647)
     LayersPerContainer: int | None = Field(None, ge=0, le=2147483647)
     PalletsPerContainer: int | None = Field(None, ge=0, le=2147483647)
     CartonsPerContainerFloor: int | None = Field(None, ge=1, le=2147483647)
 
-    @field_validator("LayersPerContainer", "PalletsPerContainer", "CartonsPerContainerFloor", mode="before")
+    @field_validator("LayersPerContainer", "PalletsPerContainer", "CartonsPerContainerFloor", "CartonsPerContainer", mode="before")
     @classmethod
     def whole_count(cls, value):
         if isinstance(value, bool):
@@ -92,13 +93,16 @@ class ItemFields(BaseModel):
             raise ValueError("Barrier requirement is retired. Shelf life is read-only from Product Master. Download a fresh workbook.")
         return values
 
-RETIRED_RESPONSE_COLUMNS = {"BarrierRequirement", "PalletType", "PMCost", "PMCostCurrencyCode"}
+RETIRED_RESPONSE_COLUMNS = {"BarrierRequirement", "PalletType", "PMCost", "PMCostCurrencyCode", "LayersPerContainer", "CartonsPerContainerFloor", "NetWeightPerContainerFloorKG"}
 PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS = ["FirstPMType","SecondPMType","UnitsPerCarton","PackagingDescription","FirstPMMOQ","SecondPMMOQ","CartonsPerLayer","LayersPerPallet","PacksPerPallet","CartonsPerContainer"]
 WEB_RESPONSE_FIELDS = ["NutDensity","ResponseLayerCount","ThirdPMType","ThirdPMMOQ","UnitsPerTertiary",
                        "LayersPerContainer","PalletsPerContainer","CartonsPerContainerFloor",
                        "ResponsePalletSize","ResponsePalletStacking","ResponseMaxPalletHeightMM","HeightMM"]
-WEB_RESPONSE_FIELDS += ["SelectedContainerType", "ContainerLoadProfiles", "SameConfig"]
+WEB_RESPONSE_FIELDS += ["SelectedContainerType", "ContainerLoadProfiles", "SameConfig", "ApplicableNetWeightGrams"]
 class ResponseFields(BaseModel):
+    ApplicableNetWeightGrams: Decimal | None = Field(None, max_digits=18, decimal_places=6, ge=0, allow_inf_nan=False)
+    NutDensityDefaultUpdate: bool = Field(False, strict=True)
+    NutDensityDefaultRowVersion: str | None = None
     SameConfig: bool | None = Field(None, strict=True)
     SelectedContainerType: ContainerType | None = None
     ContainerLoadProfiles: dict[ContainerType, ContainerLoadProfile] | None = None
@@ -122,7 +126,7 @@ class ResponseFields(BaseModel):
     CartonsPerLayer: int | None = Field(None, ge=1, le=2147483647)
     LayersPerPallet: int | None = Field(None, ge=1, le=2147483647)
     PacksPerPallet: int | None = Field(None, ge=1)
-    CartonsPerContainer: int | None = Field(None, ge=1)
+    CartonsPerContainer: int | None = Field(None, ge=1, le=2147483647)
 
     @model_validator(mode="after")
     def legacy_pallet_count(self):
@@ -161,7 +165,7 @@ def consume(cursor):
 
 def sql_error(exc):
     message=str(exc)
-    if any(str(code) in message for code in (*range(52951,52964),52996,52997,52998)):
+    if any(str(code) in message for code in (*range(52951,52964),52964,52996,52997,52998)):
         match=re.search(r"\[SQL Server\](.*?)(?:\s*\(529\d+\))",message)
         return match.group(1).strip() if match else "Check required fields, exchange rate, ownership and processing locks."
     if "(547)" in message:
@@ -170,6 +174,9 @@ def sql_error(exc):
 
 def enriched_batch(proc, groups, scalar_params, models, kinds):
     """One transaction for original fields + extensions; never commit a partial save."""
+    if kinds == ["Opportunity","OpportunityItem"]:
+        from shipment_fields import validate_new_shipment
+        validate_new_shipment(models[1])
     with get_raw_cursor() as cursor:
         cursor.execute("SET XACT_ABORT ON; BEGIN TRANSACTION")
         try:
@@ -333,6 +340,8 @@ def enriched_response(payload, ctx):
             for saved in result:
                 row=by_num[saved["RowNum"]]
                 extra=additional(row,"PackagingConfigurationRequestItem")
+                from response_loading import prepare_loading_fields
+                extra=prepare_loading_fields(cursor,row,extra)
                 if extra.get('HeightMM') is not None:
                     # Decimal validation permits trailing zeros beyond the stored scale.
                     extra['HeightMM']=format(Decimal(extra['HeightMM']).quantize(Decimal('0.01')),'f')
@@ -344,6 +353,8 @@ def enriched_response(payload, ctx):
                 from pkg_pricing_api import save_calculations
                 save_calculations(cursor, ctx, row, saved["NewRowVersion"])
                 saved["NewRowVersion"]=bytes_to_b64(saved["NewRowVersion"])
+            from grade_density import save_density_defaults
+            save_density_defaults(cursor,ctx,payload.rows)
             if owns_transaction: cursor.execute("COMMIT TRANSACTION")
             return {"results":result}
         except Exception as exc:

@@ -7,7 +7,7 @@ router = APIRouter(prefix="/api/workbench", tags=["Workbench"])
 
 @router.get("/session")
 def session(ctx: AccessContext = Depends(get_access_context)):
-    return {"user_id": ctx.user_id, "username": ctx.username, "scopes": sorted(ctx.scopes), "is_admin": ctx.is_admin}
+    return {"user_id": ctx.user_id, "username": ctx.username, "scopes": sorted(ctx.scopes), "is_admin": ctx.is_admin, **({"permissions":ctx.permissions} if ctx.permissions is not None else {})}
 
 @router.get("/pics")
 def pics(ctx: AccessContext = Depends(get_access_context)):

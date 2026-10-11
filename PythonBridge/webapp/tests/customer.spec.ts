@@ -1,3 +1,4 @@
+import {captureRevealScrolls,expectReveal} from './reveal-scroll';
 import {test,expect,type Page} from '@playwright/test';
 const customer={ID:7,CustomerName:'Northstar Foods',MarketID:1,MarketCode:'US',CurrencyID:2,CurrencyCode:'USD',Status:'Active',RowVersion:'AAAAAAAAAAE=',CreatedAt:'2026-09-19'};
 async function setup(page:Page,result='OK'){
@@ -20,7 +21,7 @@ async function fill(page:Page){
 }
 test('Customer-only access, validation, confirmation and create payload',async({page})=>{
  const writes=await setup(page);
- await expect(page.getByRole('button',{name:'Opportunities'})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'Opportunities'})).toHaveCount(0);
  await page.getByRole('button',{name:'New customer',exact:true}).click();
  await page.getByRole('button',{name:'Review & save'}).click();
  await expect(page.getByText('Enter a customer name.')).toBeVisible();expect(writes).toHaveLength(0);
@@ -29,6 +30,33 @@ test('Customer-only access, validation, confirmation and create payload',async({
  await expect(page.getByRole('status')).toContainText('1 customer(s) created');
  expect(writes[0].rows[0]).toEqual({RowNum:1,Command:'C',ID:null,CustomerName:'Acme Foods',MarketID:1,CurrencyID:2,Status:null,RowVersion:null});
  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('new customer section becomes visible above the sticky save actions',async({page},info)=>{
+ await page.setViewportSize({width:1280,height:720});await setup(page);
+ await page.getByRole('button',{name:'New customer',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'New customer',exact:true});
+ for(let index=2;index<=4;index++)await dialog.getByRole('button',{name:'+ Add customer section',exact:true}).click();
+ const last=dialog.getByRole('region',{name:'Customer 4',exact:true});
+ await expect.poll(()=>last.evaluate(section=>{
+  const box=section.getBoundingClientRect(),dialog=section.closest('dialog')!;
+  const header=dialog.querySelector('.customer-editor-heading')!.getBoundingClientRect(),save=dialog.querySelector('.batch-actions')!.getBoundingClientRect(),add=dialog.querySelector('.add-section')!.getBoundingClientRect();
+  return box.top>=header.bottom-1&&box.bottom<=add.top+1&&add.bottom<=save.top+1&&dialog.scrollTop>0;
+ })).toBe(true);
+ await dialog.screenshot({path:info.outputPath('added-customer-visible.png')});
+});
+
+test('Add customer smoothly reveals only the newly added section',async({page})=>{
+ await captureRevealScrolls(page);await setup(page);
+ await page.getByRole('button',{name:'New customer',exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).revealScrolls.length)).toBe(0);
+ await page.getByRole('button',{name:'+ Add customer section',exact:true}).click();
+ await expectReveal(page,null);
+ await page.getByRole('region',{name:'Customer 2',exact:true}).getByLabel('Customer name *').fill('New customer');
+ expect(await page.evaluate(()=>(window as any).revealScrolls.length)).toBe(1);
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await page.getByRole('button',{name:'+ Add customer section',exact:true}).click();
+ await expectReveal(page,null,'auto');
 });
 test('edit retains input on row-level conflict and sends original version',async({page})=>{
  const writes=await setup(page,'ERROR');await page.getByRole('button',{name:'Edit Northstar Foods'}).click();

@@ -17,6 +17,7 @@ class DimensionInput(Input):
     PackagingTypeID: int = Field(ge=1)
     ParentDimensionID: int | None = Field(None, ge=1)
     ParentDimensionRowVersion: str | None = None
+    ConversionOutputUoMID: int | None = Field(None, ge=1, le=2147483647)
     D1: str = Field(min_length=1, max_length=100)
     D2: str | None = Field(None, max_length=100)
     D3: str | None = Field(None, max_length=100)
@@ -64,6 +65,8 @@ class DimensionSave(DimensionInput):
 
     @model_validator(mode="after")
     def identity(self):
+        if "ConversionOutputUoMID" in self.model_fields_set and self.ConversionOutputUoMID is None and (self.ConvertFromParentFormula or self.ConvertFromSupplierFormula) and self.Status=="Active":
+            raise ValueError("Choose the shared formula output UoM for both conversion formulas.")
         if self.ID is None and self.RowVersion is not None:
             raise ValueError("Create cannot have a RowVersion.")
         rv(self.RowVersion, self.ID is not None)
@@ -123,7 +126,7 @@ def lookups(ctx: AccessContext = Depends(get_access_context)):
     ORDER BY p.PackagingOrder,p.PackagingType,p.ID;
     SELECT d.ID,d.PackagingTypeID,d.D1Name AS D1,d.D2Name AS D2,d.D3Name AS D3,
      d.D1UoMID,d.D2UoMID,d.D3UoMID,d.SquareMeterFormula,d.VolumeFormula,
-     d.OccupiedM2Formula,d.OccupiedM3Formula,d.ConvertFromParentFormula,d.ConvertFromSupplierFormula,
+     d.OccupiedM2Formula,d.OccupiedM3Formula,d.ConvertFromParentFormula,d.ConvertFromSupplierFormula,d.ConversionOutputUoMID,(SELECT UoMCode FROM dbo.UoM WHERE ID=d.ConversionOutputUoMID) AS ConversionOutputUnit,
      d.OccupiedFormulaNeedsReview,d.FormulaNeedsReview,d.RowVersion,d.Status,p.PackagingType
     FROM dbo.PackagingDimension d JOIN dbo.PackagingType p ON p.ID=d.PackagingTypeID
     WHERE p.ParentTypeID IS NULL ORDER BY d.ID;""", [ctx.username])
@@ -141,7 +144,7 @@ def read(page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100),
     WHERE (? IS NULL OR d.Status=?) AND (p.PackagingType LIKE ? OR CONCAT(d.OccupiedM2Formula,N' ',d.OccupiedM3Formula) LIKE ? OR CONCAT(d.ConvertFromParentFormula,N' ',d.ConvertFromSupplierFormula) LIKE ?);
     SELECT d.ID,d.PackagingTypeID,d.D1Name AS D1,d.D2Name AS D2,d.D3Name AS D3,
      d.D1UoMID,d.D2UoMID,d.D3UoMID,d.SquareMeterFormula,d.VolumeFormula,d.FormulaNeedsReview,
-     d.OccupiedM2Formula,d.OccupiedM3Formula,d.ConvertFromParentFormula,d.ConvertFromSupplierFormula,d.OccupiedFormulaNeedsReview,
+     d.OccupiedM2Formula,d.OccupiedM3Formula,d.ConvertFromParentFormula,d.ConvertFromSupplierFormula,d.ConversionOutputUoMID,(SELECT UoMCode FROM dbo.UoM WHERE ID=d.ConversionOutputUoMID) AS ConversionOutputUnit,d.OccupiedFormulaNeedsReview,
      d.ParentDimensionID,d.ParentDimensionRowVersion,d.ParentTypeID,d.EffectiveSquareMeterFormula,d.EffectiveVolumeFormula,
      d.Status,d.RowVersion,d.CreatedAt,d.UpdatedAt,p.PackagingOrder,p.PackagingType,p.PriceBasis,p.RootShipping AS Shipping,
      u1.UoMCode AS D1Unit,u2.UoMCode AS D2Unit,u3.UoMCode AS D3Unit,
@@ -188,20 +191,23 @@ def save(payload: DimensionSave, ctx: AccessContext = Depends(get_access_context
         payload.D1UoMID, payload.D2UoMID, payload.D3UoMID,
         payload.Status, payload.FormulaReviewed,
         payload.ParentDimensionID, rv(payload.ParentDimensionRowVersion, payload.ParentDimensionID is not None),
-        *[getattr(payload, role) for role in FORMULA_ROLES]]
+        *[getattr(payload, role) for role in FORMULA_ROLES],payload.ConversionOutputUoMID,int('ConversionOutputUoMID' in payload.model_fields_set)]
     return {"row": execute("EXEC dbo.usp_PackagingDimension_SaveV2 " + ",".join("?" for _ in parameters) + ";", parameters)[0][0]}
 
 
 @router.post("/preview-formula")
 def preview_formula(payload: FormulaRoleTest, ctx: AccessContext = Depends(get_access_context)):
     read_access(ctx)
-    sets = execute(AUTH + """SELECT ID,Status FROM dbo.UoM WHERE ID IN(?,?,?);
+    sets = execute(AUTH + """SELECT ID,UoMCode,Status FROM dbo.UoM WHERE ID IN(?,?,?,?);
       SELECT ParentTypeID,RootTypeID,RootShipping AS Shipping,PriceBasis,Status FROM dbo.v_PackagingTypeDimensionContext WHERE ID=?;""",
-      [ctx.username,payload.D1UoMID,payload.D2UoMID,payload.D3UoMID,payload.PackagingTypeID])
+      [ctx.username,payload.D1UoMID,payload.D2UoMID,payload.D3UoMID,payload.ConversionOutputUoMID,payload.PackagingTypeID])
     if not sets[1] or sets[1][0]["Status"] != "Active":
         raise HTTPException(422, "Choose an active Packaging Type.")
     kind = sets[1][0]
     occupied = payload.FormulaRole.startswith("Occupied")
+    output_unit=next((u for u in sets[0] if u["ID"]==payload.ConversionOutputUoMID),None)
+    if not occupied and payload.ConversionOutputUoMID is not None and (not output_unit or output_unit["Status"]!="Active"):
+        raise HTTPException(422,"Choose an active shared formula output UoM.")
     if occupied and (kind["ParentTypeID"] is not None or not kind["Shipping"]):
         raise HTTPException(422, "Occupied formulas apply only to Shipping parents.")
     if not occupied and kind["ParentTypeID"] is None:
@@ -229,6 +235,7 @@ def preview_formula(payload: FormulaRoleTest, ctx: AccessContext = Depends(get_a
     unit = "m³" if payload.FormulaRole == "OccupiedM3Formula" else "m²" if occupied or kind["PriceBasis"] == "Square meter" else "base units"
     try:
         evaluate = (volume_formula if payload.FormulaRole == "OccupiedM3Formula" else area_formula) if occupied else conversion_formula
+        if not occupied and output_unit:unit=output_unit["UoMCode"]
         return {"FormulaRole": payload.FormulaRole, "Value": str(evaluate(formula, values)), "OutputUnit": unit, "CalculationStatus": "Ready"}
     except ValueError as exc:
         return {"FormulaRole": payload.FormulaRole, "Value": None, "OutputUnit": unit, "CalculationStatus": str(exc)}

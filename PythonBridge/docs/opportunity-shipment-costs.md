@@ -10,8 +10,8 @@ percentage and months inputs do not have repetitive info icons.
 - A regular product maintains its own section.
 - A Mix parent owns the whole section; children display inherited values read-only.
   No costs or shipment selections are duplicated onto child Opportunity rows.
-- After an item is sent for packaging, Configuration request and Loading request
-  stay locked. Incoterm, Port of Entry, Container size and all Logistics, Co-Man
+- After an item is sent for packaging, Container Type and Loading request
+  stay locked. Incoterm, Port of Entry and all Logistics, Co-Man
   and Others inputs remain editable on regular products and Mix parents.
   Product Info and Packaging requirements remain locked; children still inherit
   read-only. Existing Draft workflow, access and row-version checks still apply.
@@ -22,9 +22,15 @@ percentage and months inputs do not have repetitive info icons.
   is a nonnegative whole number.
 - These are stored inputs, not a landed-cost or margin calculation engine.
 - Shipment Incoterm choices are CFA, DDP, EXW and FOB.
-- Configuration request is Dry/Reefer; Loading request is Pallet load/Floor load/Both.
-  Existing stored transport values, including Both, remain visible and preserved.
-  The internal database names ContainerRequest and ConfigurationRequest are unchanged.
+- Container Type replaces Configuration request and Container size in the editor.
+  Choices are 20DC, 20RC, 40DC, 40HC and 40RHC. Loading request remains
+  Pallet load/Floor load/Both. Container Type and Pallet size are required for
+  new or fully edited root items, including floor loads. Mix children inherit.
+  The internal ContainerRequest and ConfigurationRequest names are unchanged;
+  ContainerSizeFT is derived for compatibility, not a separate user input.
+  Legacy family/size pairs resolve automatically only when unambiguous. Existing
+  Dry/40FT and Both requests require an explicit type choice on the next full edit.
+  Shipment-only cost edits and workflow commands preserve legacy requirements.
 
 ## Port of Entry master
 
@@ -41,9 +47,11 @@ preserves Port IDs, row versions and Opportunity links; new records use names on
 
 ## Packaging Request snapshots
 
-New PCRs capture Configuration request, Loading request and Container size once.
+New PCRs capture the exact Container Type, Loading request and derived size once.
 Mix children requested alone still capture their Opportunity parent's selections.
-Later Opportunity edits do not change existing PCR snapshots.
+Later Opportunity edits do not change existing PCR snapshots. Exact-type PCRs
+permit only that type in response selections and incoming loading profiles.
+Older family/size snapshots retain their historical response options:
 
 | Container size | Dry response choices | Reefer response choices |
 | --- | --- | --- |
@@ -71,6 +79,10 @@ For a VM already migrated through **88**:
 7. Maintain the required Customer/Market ports in Ports of Entry.
 
 Earlier deployments must apply missing migrations through 88 first.
+For the new required Container Type/Pallet behavior, apply migration
+**sql/98_required_container_type_pallet.sql** after 97, then deploy matching
+backend and frontend files and restart the API. Migration 98 is rerunnable and
+does not rewrite Opportunity items or existing PCR snapshots.
 Migrations 89 and 90 are rerunnable, add no financial backfill, and do not clear
 history. Run 90 after any rerun of 89, because 90 supplies the current Port save
 procedure signature. New Excel downloads include layout-based section headings,
@@ -81,3 +93,32 @@ Focused checks:
 - webapp/tests/shipment.spec.ts
 - webapp/tests/container-load.spec.ts
 - webapp/tests/requirement-sections.spec.ts
+- tests/python/required_container_type_contract.py
+
+## Revised shipment cost inputs (migration 102)
+
+Apply sql/102_shipment_cost_units.sql after 101, then deploy matching core and
+rebuilt webapp/dist and restart the API. This rerunnable migration updates only
+validation procedures; it does not rewrite saved financial inputs or PCRs.
+
+- Floor load cost (USD/MT) is visible for Floor/Both only. Analysis charges
+  USD/MT x each product's applicable weight in grams / 1,000,000. Pallet excludes
+  this cost; Floor excludes pallet cost; Both combines both in one result.
+- Clearance is entered in customer currency per pallet. USD/pallet is displayed
+  next to the input using the Opportunity exchange rate. Analysis divides this
+  USD amount by all smallest units per pallet. Existing USD/container amounts
+  retain their original basis until a new customer-currency pallet amount is entered.
+- Interest days / 30 / 12 replaces months / 12. Historical months display as
+  days using 30 days/month and retain an equivalent calculation.
+- Select Margin % of costs through Interest, or Margin USD/lb x product weight
+  in grams / 453.59237. Only the selected basis is saved.
+- Payment term days is informational and separate from Payment Term %.
+- Co-Man fields are visible only for DDP; changing Incoterm hides but does not
+  delete previously saved values.
+- Packing Way quantities align with their matching layer sections, with multiplication
+  signs between Primary, Secondary and Tertiary quantities, not clear buttons. Section headings use the
+  item gutter, with I/II/III identifying packaging layers. Five-field desktop
+  rows collapse to two or one column on narrower screens.
+
+New inputs are available in Opportunity layouts and editable Excel columns;
+TCB outputs remain calculated, display-only Excel columns.

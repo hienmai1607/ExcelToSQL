@@ -3,13 +3,13 @@ import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
 test('packaging pricing navigation displays its full label',async({page})=>{
  await setup(page);
- const button=page.getByRole('button',{name:'Packaging Material Pricing',exact:true}),label=button.locator('.nav-text');
- await expect(label).toHaveText('Packaging Material Pricing');
+ const button=page.getByRole('button',{name:'Packaging Pricing',exact:true}),label=button.locator('.nav-text');
+ await expect(label).toHaveText('Packaging Pricing');
  expect(await label.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
  await page.setViewportSize({width:390,height:844});
  await expect(label).toBeVisible();
  expect(await label.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
- await button.click();await expect(page.getByRole('heading',{name:'Packaging Material Pricing',exact:true})).toBeVisible();
+ await button.click();await expect(page.getByRole('heading',{name:'Packaging Pricing',exact:true})).toBeVisible();
 });
 const view=(columns:string[],page_size=25)=>({columns,page_size,sort:[],filters:[],values:{},field_version:3});
 async function setup(page:Page,scope='Admin'){
@@ -43,7 +43,7 @@ async function setup(page:Page,scope='Admin'){
  return {writes,reads,profile:()=>profile};
 }
 async function requests(page:Page){
- await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
+ await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
 }
 async function openEditor(page:Page){
  await requests(page);await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
@@ -98,7 +98,7 @@ test('density is in Product Info and each Packing Way weight sits below its matc
 
 test('record IDs open the editor; item totals show lines and product links jump to the response',async({page})=>{
  await setup(page);await requests(page);
- const table=page.getByRole('table',{name:'Packaging requests',exact:true});
+ const table=page.getByRole('table',{name:'Packaging Requests',exact:true});
  await expect(table.locator('tbody td').first().getByRole('button',{name:'Edit request PCR-1'})).toHaveText('PCR-1');
  await table.getByRole('button',{name:'View request',exact:true}).click();
  const lines=page.getByRole('table',{name:'Packaging request items',exact:true});
@@ -122,11 +122,12 @@ test('independent header, Item View and Edit View page sizes persist and restore
  await itemLayout.getByRole('button',{name:'Close layout'}).click();
  await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request'});
+ page.on('dialog',dialog=>dialog.accept());
  await editor.getByLabel('Rows per page',{exact:true}).fill('15');await editor.getByLabel('Rows per page',{exact:true}).press('Enter');
  await editor.getByRole('button',{name:'Save item page size',exact:true}).click();await expect(editor.getByRole('status')).toContainText('page size saved');
  expect(state.profile().settings.requests.header.page_size).toBe(40);
  expect(state.profile().settings.requests.items.page_size).toBe(10);
- expect(state.profile().settings.requests.editor_page_size).toBe(15);
+ await expect.poll(()=>state.profile().settings.requests.editor_page_size).toBe(15);
  await editor.getByRole('button',{name:'Close request editor',exact:true}).click();
  await page.getByRole('button',{name:'View request',exact:true}).click();
  await page.getByRole('button',{name:'Request item layout',exact:true}).click();

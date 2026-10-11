@@ -35,7 +35,7 @@ async function open(page:Page,failSecond=false,commercial=false,direct=false,roo
  });
  await page.goto('/workbench/');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await page.getByRole('button',{name:'View details',exact:true}).click();
- await page.getByRole('button',{name:'Product Info',exact:true}).click();
+ await page.getByRole('button',{name:'TCB Review',exact:true}).click();
  await page.getByRole('button',{name:root===10?'TCB Review for MIX item 10':'TCB Review for LOCKED item 13',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'TCB Review',exact:true});
  await expect(dialog.getByLabel('Packaging loss ratio item '+root+' layer 1',{exact:true})).toBeVisible();
@@ -283,7 +283,7 @@ test('TCB direct prices can be changed and saved twice without closing the popup
  expect(writes[1].Prices[0].DirectUSDPerLb).toBe('5');
 });
 
-test('TCB Review launcher is parent-only in Product Info and scopes standalone items separately',async({page})=>{
+test('TCB Review launcher is parent-only in TCB Review and scopes standalone items separately',async({page})=>{
  const {dialog}=await open(page,false,true);
  await dialog.getByRole('button',{name:'Close TCB Review',exact:true}).click();
  const parent=page.getByRole('button',{name:'TCB Review for MIX item 10',exact:true});
@@ -292,11 +292,11 @@ test('TCB Review launcher is parent-only in Product Info and scopes standalone i
  await expect(page.getByRole('button',{name:/Edit all item losses/})).toHaveCount(0);
  await page.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  await expect(page.getByRole('button',{name:/TCB Review for CHILD/})).toHaveCount(0);
- for(const name of ['All Fields','Packaging Request','Packaging Responses']){
+ for(const name of ['All Fields','Product Info','Packaging Request','Packaging Responses']){
   await page.getByRole('button',{name,exact:true}).click();
   await expect(parent).toHaveCount(0);await expect(standalone).toHaveCount(0);
  }
- await page.getByRole('button',{name:'Product Info',exact:true}).click();
+ await page.getByRole('button',{name:'TCB Review',exact:true}).click();
  await standalone.click();
  await expect(dialog.getByLabel('Packaging loss ratio item 13 layer 1',{exact:true})).toBeDisabled();
  await expect(dialog.getByLabel('Packaging loss ratio item 10 layer 1',{exact:true})).toHaveCount(0);
@@ -421,7 +421,7 @@ test('Analysis icon shows one child-only table, preserves edits and does not sav
  await expect(pallet.getByRole('columnheader',{name:/MIX/})).toHaveCount(0);
  const shared=pallet.getByRole('row').filter({has:page.getByRole('rowheader',{name:'Parent Packaging ($/unit)',exact:true})});
  expect(await shared.getByRole('cell').allTextContents()).toEqual(['0.07 USD','0.07 USD']);
- const palletCost=pallet.getByRole('row').filter({has:page.getByRole('rowheader',{name:'Pallet ($/unit)',exact:true})});
+ const palletCost=pallet.getByRole('row').filter({has:page.getByRole('rowheader',{name:'Pallet & Floor cost ($/unit)',exact:true})});
  expect(await palletCost.getByRole('cell').allTextContents()).toEqual(['0.04 USD','0.04 USD']);
  await expect(pallet.getByRole('row').filter({has:page.getByRole('rowheader',{name:'FOB ($/unit)',exact:true})}).getByText('Incomplete',{exact:true})).toHaveCount(0);
  expect(writes).toHaveLength(0);
@@ -452,14 +452,15 @@ test('Analysis flags incomplete costs without writes and formula failures keep t
  expect(writes).toHaveLength(0);
 });
 
-test('Both is deferred in a single child Analysis table without separate loading results',async({page})=>{
+test('Both combines loading costs in a single child Analysis table without separate results',async({page})=>{
  const {dialog,writes}=await open(page,false,true,false,10,true);
+ await dialog.getByLabel('Pallet cost ($/EA)',{exact:true}).fill('12');
  await dialog.getByRole('button',{name:'Analysis',exact:true}).click();
  const analysis=dialog.getByRole('region',{name:'TCB Analysis',exact:true});
  await expect(analysis.getByRole('table')).toHaveCount(1);
  await expect(analysis.getByRole('heading',{name:/Pallet load|Floor load/})).toHaveCount(0);
  const row=analysis.getByRole('row').filter({has:page.getByRole('rowheader',{name:'FOB ($/unit)',exact:true})});
- await expect(row.getByText('Incomplete',{exact:true})).toHaveCount(2);
- await expect(row.getByText(/loading calculation is deferred/).first()).toBeVisible();
+ await expect(row.getByText('Incomplete',{exact:true})).toHaveCount(0);
+ await expect(row.getByText(/loading calculation is deferred/)).toHaveCount(0);
  expect(writes).toHaveLength(0);
 });

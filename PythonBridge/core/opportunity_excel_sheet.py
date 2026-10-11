@@ -59,7 +59,7 @@ def subgroup(key, group):
     if key in {"CartonsPerContainerFloor","NetWeightPerContainerFloorKG"}:
         return "Floor load"
     if key in {"SelectedContainerType","LayersPerContainer","PalletsPerContainer","CalculatedCartonsPerContainer","NetWeightPerContainerKG","CartonsPerContainer"}:
-        return "Pallet load"
+        return "Container Load"
     if key.startswith(("Secondary","SecondPM")):
         return "Secondary packaging"
     if key.startswith(("Tertiary","ThirdPM")):
@@ -152,7 +152,7 @@ def workbook_sheet(keys, labels, records, hidden, header_ids, category_ids, head
     merges.set("count",str(len(merges)))
     if not len(merges):
         root.remove(merges)
-    choices = {"HeaderCommand":"N,C,U,D","ItemCommand":"N,C,U,D","ContainerRequest":"Dry,Reefer",
+    choices = {"HeaderCommand":"N,C,U,D","ItemCommand":"N,C,U,D","ContainerRequest":"20DC,20RC,40DC,40HC,40RHC",
                "ConfigurationRequest":"Pallet load,Floor load,Both","Incoterm":"CFA,DDP,EXW,FOB","ContainerSizeFT":"20FT,40FT"}
     validations = ET.SubElement(root,q("dataValidations"))
     for key,options in choices.items():

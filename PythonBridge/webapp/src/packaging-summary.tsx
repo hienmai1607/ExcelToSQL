@@ -39,14 +39,14 @@ function Logistics({summary,exchange}:{summary:Summary;exchange:OpportunityCurre
  const cartons=quantity(root.CartonsPerLayer),layers=quantity(root.LayersPerPallet,true),cartonsPerPallet=cartons&&layers?multiply(cartons,layers):null;
  const containers=allowedContainerTypes(root.ResponseContainerFamily??root.ContainerRequest,root.ShipmentContainerSizeFT);
  const branches=(floor:boolean)=><div className="summary-container-branches">{containers.map(kind=>{
-  const profile=profiles[kind]??(root.SelectedContainerType===kind?{PalletsPerContainer:root.PalletsPerContainer==null?null:String(root.PalletsPerContainer),CartonsPerContainerFloor:root.CartonsPerContainerFloor==null?null:String(root.CartonsPerContainerFloor)}:{});
-  const result:SummaryRow={...(root.SelectedContainerType===kind?{LayersPerContainer:root.LayersPerContainer,NetWeightPerContainerKG:root.NetWeightPerContainerKG,NetWeightPerContainerFloorKG:root.NetWeightPerContainerFloorKG}:{}),...objectValue(results[kind])},cartonCount=floor?profile.CartonsPerContainerFloor:result.CalculatedCartonsPerContainer??(root.SelectedContainerType===kind?root.CalculatedCartonsPerContainer:null);
-  const weight=floor?result.NetWeightPerContainerFloorKG:result.NetWeightPerContainerKG;
+  const profile=profiles[kind]??(root.SelectedContainerType===kind?{PalletsPerContainer:root.PalletsPerContainer==null?null:String(root.PalletsPerContainer),CartonsPerContainer:root.CalculatedCartonsPerContainer==null?null:String(root.CalculatedCartonsPerContainer)}:{});
+  const result:SummaryRow={...(root.SelectedContainerType===kind?{LayersPerContainer:root.LayersPerContainer,NetWeightPerContainerKG:root.NetWeightPerContainerKG,NetWeightPerContainerFloorKG:root.NetWeightPerContainerFloorKG}:{}),...objectValue(results[kind])},cartonCount=floor?(profile.CartonsPerContainer??result.CalculatedCartonsPerContainer??(root.SelectedContainerType===kind?root.CalculatedCartonsPerContainer:null)):(result.CalculatedCartonsPerContainer??(root.SelectedContainerType===kind?root.CalculatedCartonsPerContainer:null));
+  const weight=floor?(result.NetWeightPerContainerFloorKG??result.NetWeightPerContainerKG):result.NetWeightPerContainerKG;
   const complete=profiles[kind]!=null||root.SelectedContainerType===kind;
-  return <article className="summary-node summary-container" key={kind} aria-label={(floor?'Floor':'Pallet')+' load '+kind}>
+  return <article className="summary-node summary-container" key={kind} aria-label={'Container Load '+kind}>
    <h4>{kind}</h4>{!complete&&<small>Not configured</small>}
-   <table className="summary-details" aria-label={kind+' '+(floor?'floor':'pallet')+' load details'}><tbody>{!floor&&<><Detail label="Pallet / Container" value={shown(profile.PalletsPerContainer)}/><Detail label="Layer / Container" value={shown(result.LayersPerContainer)}/></>}
-    <Detail label={floor?'Carton / Container Floor':'Carton / Container'} value={shown(cartonCount)}/>
+   <table className="summary-details" aria-label={kind+' '+(floor?'floor':'pallet')+' load details'}><tbody>{!floor&&<><Detail label="Pallet / Container" value={shown(profile.PalletsPerContainer)}/></>}
+    <Detail label="Carton / Container" value={shown(cartonCount)}/>
     <Detail label="Net weight / Container (kg)" value={shown(weight)}/>
     <Detail label="Packaging subtotal / Container" value={price(scaleCost(summary.root.total,quantity(cartonCount,true)))}/>
    </tbody></table>
@@ -55,15 +55,15 @@ function Logistics({summary,exchange}:{summary:Summary;exchange:OpportunityCurre
  return <section className="summary-logistics" aria-label="Shipping configuration tree">
   <div className="summary-edge">Last layer → Shipping configurations</div>
   <div className={'summary-loading-paths'+(load.pallet&&load.floor?' summary-both-loads':'')}>
-   {load.pallet&&<section className="summary-loading-branch" aria-label="Palletization branch"><article className="summary-node summary-pallet">
+   {<section className="summary-loading-branch" aria-label="Palletization branch"><article className="summary-node summary-pallet">
     <h3>Palletization</h3><table className="summary-details" aria-label="Palletization details"><tbody><Detail label="Pallet size" value={root.ResponsePalletSize}/><Detail label="Pallet stacking" value={root.ResponsePalletStacking}/>
      <Detail label="Cartons / layer" value={shown(root.CartonsPerLayer)}/><Detail label="Layers / pallet" value={shown(root.LayersPerPallet)}/>
      <Detail label="Cartons / pallet" value={quantityDisplay(cartonsPerPallet)}/><Detail label="Pallet height (mm)" value={shown(root.PalletHeightMM)}/>
      <Detail label="Net weight / pallet (kg)" value={shown(root.NetWeightPerPalletKG)}/>
      <Detail label="Packaging subtotal / pallet" value={price(scaleCost(summary.root.total,cartonsPerPallet))}/>
      <Detail label="Pallet cost" value="Not configured — excluded" help="Reserved for future Pallet Master pricing. An unset pallet cost is not treated as zero."/>
-    </tbody></table></article><div className="summary-edge">× Pallets / Container</div>{branches(false)}</section>}
-   {load.floor&&<section className="summary-loading-branch" aria-label="Floor load branch"><div className="summary-node summary-floor"><h3>Floor load</h3><p>× Last-layer cartons / Container</p></div><div className="summary-edge">Containers</div>{branches(true)}</section>}
+    </tbody></table></article>{load.pallet&&<><div className="summary-edge">× Pallets / Container</div>{branches(false)}</>}</section>}
+   {load.floor&&<section className="summary-loading-branch" aria-label="Container Load branch"><div className="summary-node summary-floor"><h3>Container Load</h3><p>× Last-layer cartons / Container</p></div><div className="summary-edge">Containers</div>{branches(true)}</section>}
   </div>
  </section>;
 }

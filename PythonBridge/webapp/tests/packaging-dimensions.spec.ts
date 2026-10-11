@@ -4,12 +4,12 @@ const area='D1*D2/1000000',volume='D1*D2*D3/1000000000',consumption='(D2*2+25)*D
 async function setup(page:Page,{scope='Admin',review=false,conflict=false,child=false}={}){
  const writes:any[]=[],previews:any[]=[];
  const parent={ID:1,RowVersion:rv,PackagingTypeID:1,ParentTypeID:null,PackagingOrder:'Secondary',PackagingType:'RSC',Shipping:true,PriceBasis:'Count',D1:'Length',D2:'Width',D3:'Height',D1UoMID:2,D2UoMID:2,D3UoMID:2,D1Unit:'mm',D2Unit:'mm',D3Unit:'mm',OccupiedM2Formula:review?null:area,OccupiedM3Formula:volume,ConvertFromParentFormula:null,ConvertFromSupplierFormula:null,OccupiedFormulaNeedsReview:review,Status:'Active'};
- const row=child?{...parent,ID:2,PackagingTypeID:2,ParentTypeID:1,RootTypeID:1,ParentDimensionID:1,ParentDimensionRowVersion:rv,PackagingType:'Film',PriceBasis:'Square meter',OccupiedM2Formula:null,OccupiedM3Formula:null,ConvertFromParentFormula:consumption,ConvertFromSupplierFormula:area}:parent;
+ const row=child?{...parent,ID:2,PackagingTypeID:2,ParentTypeID:1,RootTypeID:1,ParentDimensionID:1,ParentDimensionRowVersion:rv,PackagingType:'Film',PriceBasis:'Square meter',OccupiedM2Formula:null,OccupiedM3Formula:null,ConvertFromParentFormula:consumption,ConvertFromSupplierFormula:area,ConversionOutputUoMID:3,ConversionOutputUnit:'m2'}:parent;
  await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{user_id:1,username:'Tester',scopes:[scope],is_admin:scope==='Admin'}});
   if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],page_size:25,dark:false,nav_hidden:false,masters:{}},version:0}});
-  if(path==='/api/packaging/dimensions/lookups')return route.fulfill({json:{uoms:[{ID:1,UoMCode:'m',Status:'Active'},{ID:2,UoMCode:'mm',Status:'Active'}],parentDimensions:[parent],packagingTypes:[
+  if(path==='/api/packaging/dimensions/lookups')return route.fulfill({json:{uoms:[{ID:1,UoMCode:'m',Status:'Active'},{ID:2,UoMCode:'mm',Status:'Active'},{ID:3,UoMCode:'m2',Status:'Active'},{ID:4,UoMCode:'mm2',Status:'Active'}],parentDimensions:[parent],packagingTypes:[
    {ID:1,RootTypeID:1,ParentTypeID:null,PackagingType:'RSC',PackagingOrder:'Secondary',Shipping:true,PriceBasis:'Count',Status:'Active'},
    {ID:2,RootTypeID:1,ParentTypeID:1,PackagingType:'Film',PackagingOrder:'Secondary',Shipping:true,PriceBasis:'Square meter',Status:'Active'},
    {ID:3,RootTypeID:3,ParentTypeID:null,PackagingType:'Pillow',PackagingOrder:'Primary',Shipping:false,PriceBasis:'Square meter',Status:'Active'},
@@ -21,7 +21,7 @@ async function setup(page:Page,{scope='Admin',review=false,conflict=false,child=
    if(fx==='D1/0')return route.fulfill({json:{FormulaRole:body.FormulaRole,Value:null,CalculationStatus:'Formula divides by zero.'}});
    if(fx==='D1**2')return route.fulfill({status:422,json:{detail:'Powers are not supported.'}});
    const value=fx==='1'?1:body.FormulaRole==='OccupiedM3Formula'?d1*d2*d3/1e9:fx===consumption?(d2*2+25)*d1/1e6:d1*d2/1e6;
-   return route.fulfill({json:{FormulaRole:body.FormulaRole,Value:String(value),OutputUnit:body.FormulaRole==='OccupiedM3Formula'?'m³':'m²',CalculationStatus:'Ready'}});
+   return route.fulfill({json:{FormulaRole:body.FormulaRole,Value:String(value),OutputUnit:body.ConversionOutputUoMID&&!body.FormulaRole.startsWith('Occupied')?(body.ConversionOutputUoMID===4?'mm2':'m2'):body.FormulaRole==='OccupiedM3Formula'?'m³':'m²',CalculationStatus:'Ready'}});
   }
   if(path==='/api/packaging/dimensions'){
    if(route.request().method()==='POST'){writes.push(route.request().postDataJSON());return route.fulfill(conflict?{status:409,json:{detail:'Concurrency conflict. Refresh first.'}}:{json:{row:{ID:row.ID,RowVersion:rv}}})}
@@ -58,6 +58,19 @@ test('Shipping parent exposes only occupied formulas and fixes D3 as Height',asy
  await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
  expect(state.writes[0]).toMatchObject({OccupiedM2Formula:area,OccupiedM3Formula:volume,ConvertFromParentFormula:null,ConvertFromSupplierFormula:null});
  expect(state.writes[0]).not.toHaveProperty('SquareMeterFormula');
+});
+
+test('Add belongs to Dimension ID and the editor Close stays visible while scrolling',async({page})=>{
+ await setup(page);await page.setViewportSize({width:1280,height:600});
+ const table=page.getByRole('table',{name:'Packaging dimensions'});
+ await expect(table.getByRole('columnheader').first().getByRole('button',{name:'New packaging dimension'})).toBeVisible();
+ await expect(page.locator('.dimension-page .view-toolbar').getByRole('button',{name:'New packaging dimension'})).toHaveCount(0);
+ await expect(table.getByRole('button',{name:/Test calculation for/})).toHaveCount(0);
+ const dialog=await edit(page);await dialog.evaluate(el=>{el.scrollTop=el.scrollHeight});
+ const close=dialog.getByRole('button',{name:'Close dimension editor'});
+ await expect(close).toBeInViewport();
+ expect(await close.evaluate(el=>{const box=el.getBoundingClientRect(),dialog=el.closest('dialog')!.getBoundingClientRect();return box.top>=dialog.top&&box.bottom<=dialog.bottom})).toBe(true);
+ await close.click();await expect(dialog).toHaveCount(0);
 });
 test('Child names and units are editable independently of its Shipping parent',async({page})=>{
  const state=await setup(page,{child:true});const dialog=await edit(page,true);
@@ -162,8 +175,10 @@ test('Formula errors do not persist test inputs',async({page})=>{
 });
 test('Read-only formula preview permits calculation and Close without writes',async({page})=>{
  const state=await setup(page,{scope:'PackagingManager'});
- await page.getByRole('button',{name:'Test calculation for packaging dimension 1',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'Test packaging dimension',exact:true});
+ await expect(page.getByRole('button',{name:/Test calculation for packaging dimension/})).toHaveCount(0);
+ await page.getByRole('button',{name:'View packaging dimension 1',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'View packaging dimension',exact:true});
+ await dialog.getByText('Test Calculation',{exact:true}).click();
  await expect(dialog.getByLabel('Occupied m² fx',{exact:true})).toBeDisabled();
  await dialog.getByLabel('D1 Test value',{exact:true}).fill('200');
  await dialog.getByLabel('D2 Test value',{exact:true}).fill('100');
@@ -184,4 +199,31 @@ test('Concurrency conflict leaves draft open without automatic retries',async({p
  await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
  await expect(dialog.getByText('Concurrency conflict. Refresh first.',{exact:true})).toBeVisible();
  expect(state.writes).toHaveLength(1);await expect(dialog).toBeVisible();
+});
+test('One shared output UoM is saved and sent to both formula previews',async({page})=>{
+ const state=await setup(page,{child:true});const dialog=await edit(page,true);
+ const unit=dialog.getByLabel('Formula output UoM',{exact:true});
+ await expect(unit).toHaveCount(1);await expect(unit).toHaveValue('3');
+ await values(page);
+ await dialog.getByLabel('Supplier D1 Test value',{exact:true}).fill('1000');
+ await dialog.getByLabel('Supplier D2 Test value',{exact:true}).fill('500');
+ await dialog.getByRole('button',{name:'Test calculation',exact:true}).click();
+ await expect(dialog.getByLabel('Convert from parent fx result',{exact:true})).toHaveValue('0.045');
+ expect(state.previews).toHaveLength(2);
+ expect(state.previews.every(p=>p.ConversionOutputUoMID===3)).toBeTruthy();
+ await unit.selectOption('4');
+ await expect(dialog.getByLabel('Convert from parent fx result',{exact:true})).toHaveValue('');
+ await expect(dialog.getByLabel('Convert from supplier fx result',{exact:true})).toHaveValue('');
+ await dialog.getByRole('button',{name:'Test calculation',exact:true}).click();
+ await expect(dialog.getByLabel('Convert from supplier fx result',{exact:true})).toHaveValue('0.5');
+ expect(state.previews.slice(2).every(p=>p.ConversionOutputUoMID===4)).toBeTruthy();
+ await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
+ expect(state.writes[0]).toMatchObject({ConversionOutputUoMID:4});
+});
+test('Active conversion formulas cannot save without shared output UoM',async({page})=>{
+ const state=await setup(page,{child:true});const dialog=await edit(page,true);
+ await dialog.getByLabel('Formula output UoM',{exact:true}).selectOption('');
+ await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
+ expect(state.writes).toHaveLength(0);
+ await expect(dialog.getByLabel('Formula output UoM',{exact:true})).toBeFocused();
 });

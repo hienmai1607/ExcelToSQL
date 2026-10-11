@@ -17,7 +17,7 @@ function display(value:DecimalInteger|null){
 }
 export function loadSections(configuration:unknown){
  const value=String(configuration??'').trim();
- return {pallet:value!=='Floor load',floor:value==='Floor load'||value==='Both'};
+ return {pallet:value!=='Floor load'&&value!=='Both',floor:value==='Floor load'||value==='Both'};
 }
 export function palletLayers(values:Record<string,string>):string{
  const raw=values.HeightMM;
@@ -29,7 +29,7 @@ export function palletLayers(values:Record<string,string>):string{
  return count<=2147483647n?count.toString():'';
 }
 export function packingWeights(netWeight:unknown,values:Record<string,string>,configuration?:unknown){
- const layers=layerCount(values.ResponseLayerCount),primary=weightValue(netWeight);
+ const layers=layerCount(values.ResponseLayerCount),primary=weightValue(values.ApplicableNetWeightGrams||netWeight);
  const secondary=layers>=2?multiply(primary,unitCount(values.UnitsPerCarton)):null;
  const tertiary=layers===3?multiply(secondary,unitCount(values.UnitsPerTertiary)):null;
  const last=[primary,secondary,tertiary][layers-1];
@@ -41,9 +41,9 @@ export function packingWeights(netWeight:unknown,values:Record<string,string>,co
  const cartons=unitCount(values.CartonsPerLayer),containerCount=containerLayers(values);
  const containerLayerCount=containerCount!==''?BigInt(containerCount):null;
  const pallets=values.SelectedContainerType&&values.PalletsPerContainer==='0'?0n:unitCount(values.PalletsPerContainer);
- const containerCartons=load.pallet&&pallets!==null&&cartons!==null&&containerLayerCount!==null?pallets*cartons*containerLayerCount:null;
+ const containerCartons=load.pallet&&pallets!==null&&cartons!==null&&layersPerPallet!==null?pallets*cartons*layersPerPallet*(values.ResponsePalletStacking==='Double'?2n:1n):load.floor?unitCount(values.CartonsPerContainer):null;
  const container=multiply(last,containerCartons);
- const floor=load.floor?multiply(last,unitCount(values.CartonsPerContainerFloor)):null;
+ const floor=load.floor?multiply(last,unitCount(values.CartonsPerContainer)):null;
  return {primary:display(primary),secondary:display(secondary),tertiary:display(tertiary),layersPerPallet:count,layersPerContainer:containerCount,unitsPerPallet:unitsPerPallet?.toLocaleString('en-US')||'',
   palletKG:display(pallet?{...pallet,scale:pallet.scale+3}:null),
   containerCartons:containerCartons?.toLocaleString('en-US')??'',

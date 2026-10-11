@@ -27,14 +27,14 @@ from schemas import OpportunityBatchRequest
 router=APIRouter(prefix="/api/workbench/opportunity-excel",tags=["Opportunity Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Opportunity_Local_Update.xlsm"
 HEADER_REQUIRED=["OpportunityNumber","CustomerName","OpportunityDesc","BidOpen","BidClose","CustomerCurrencyCode","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"]
-ITEM_REQUIRED=["ProductCode","AnnualUnit"]
+ITEM_REQUIRED=["ProductCode","AnnualUnit","PalletSize","ContainerRequest"]
 HEADER_EDITABLE={"CustomerName","OpportunityDesc","BidOpen","BidClose","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"}
 ITEM_EDITABLE={"ProductCode","ItemDescription","AnnualUnit","EstPctAwarded","ShelfPrice",*OPPORTUNITYITEM_FIELDS,*SHIPMENT_COLUMNS}
 META=["_OpportunityID","_ItemID","_HeaderVersion","_ItemVersion","_Original"]
 AUTH="""IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID
 WHERE u.UserName=? AND u.IsActive=1 AND a.Scope IN('Admin','Opportunity'))
 THROW 52744,'Opportunity access is required for this action.',1; """
-LABELS={**TCB_LABELS,**SHIPMENT_LABELS,"ContainerRequest":"Configuration request","ConfigurationRequest":"Loading request","ItemNumber":"Item number","MixUnitQuantity":"Mix component quantity","OpportunityNumber":"Opportunity / new group key","CustomerName":"Customer","OpportunityDesc":"Description",
+LABELS={"ApplicableNetWeightGrams":"Applicable Net weight (g)",**TCB_LABELS,**SHIPMENT_LABELS,"ContainerRequest":"Container Type","ConfigurationRequest":"Loading request","ItemNumber":"Item number","MixUnitQuantity":"Mix component quantity","OpportunityNumber":"Opportunity / new group key","CustomerName":"Customer","OpportunityDesc":"Description",
 "BidOpen":"Bid open","BidClose":"Bid close","HeaderStage":"Stage","CustomerCurrencyCode":"Customer currency",
 "ExchangeRateVNDPerUSD":"Exchange rate VND per USD","ExchangeRateCustomerCurrencyPerUSD":"Exchange rate Customer Currency per USD","ItemCount":"Items","ProductCode":"Product code",
 "ItemDescription":"Description","AnnualUnit":"Annual units","EstPctAwarded":"Estimated award %",
@@ -159,6 +159,7 @@ def build(body,data,base):
 
 @router.post("/download")
 def download(body:View,request:Request,ctx:AccessContext=Depends(get_access_context)):
+ if not ctx.is_admin and ctx.permissions is not None and ctx.permissions.get("opportunities")!="edit":return readonly(body,ctx)
  require(ctx,"Opportunity")
  if not TEMPLATE.exists():raise HTTPException(503,"Opportunity Excel template is not installed.")
  base=os.environ.get("EXCEL_API_BASE_URL",str(request.base_url))
@@ -225,12 +226,25 @@ def merge_shipment(ctx,original,changes,header):
     shipment["PortOfEntryID"]=ports[0]["ID"]
   else:
    value=None if value is None or str(value).strip()=="" else value
-   if key=="InterestMonths" and value is not None:
+   if key in ("InterestMonths","InterestDays","PaymentTermDays") and value is not None:
     try:number=Decimal(str(value))
-    except InvalidOperation:raise ValueError("Interest months must be whole nonnegative months.")
-    if not number.is_finite() or number!=number.to_integral_value():raise ValueError("Interest months must be whole nonnegative months.")
+    except InvalidOperation:raise ValueError("Interest and payment durations must be whole nonnegative values.")
+    if not number.is_finite() or number!=number.to_integral_value():raise ValueError("Interest and payment durations must be whole nonnegative values.")
     value=int(number)
    shipment[key]=value
+ if "InterestDays" in changes:
+  shipment["InterestMonths"]=None
+ if "ImportClearanceCustomerPerPallet" in changes and shipment.get("ImportClearanceCustomerPerPallet") is not None:
+  shipment["ImportClearanceUSDPerContainer"]=None
+ mode=changes.get("MarginMode")
+ if "MarginPct" in changes and "MarginUSDPerLb" in changes and changes["MarginPct"] is not None and changes["MarginUSDPerLb"] is not None:
+  raise ValueError("Choose only one Margin basis.")
+ if mode is None:
+  if "MarginUSDPerLb" in changes and shipment.get("MarginUSDPerLb") is not None:mode="USDPerLb"
+  elif "MarginPct" in changes and shipment.get("MarginPct") is not None:mode="Percent"
+ if mode in ("Percent","USDPerLb"):
+  shipment["MarginMode"]=mode
+  shipment["MarginPct" if mode=="USDPerLb" else "MarginUSDPerLb"]=None
  return ShipmentCostInfo(**shipment).model_dump(mode="json",exclude_unset=True) if any(v is not None for v in shipment.values()) else None
 
 def prepare(group,ctx):
@@ -290,7 +304,7 @@ def prepare(group,ctx):
   value={**original,**row.item_changes}
   if not value.get("ItemDescription"):value["ItemDescription"]=value.get("ProductName") or value.get("ProductCode")
   if command!="D":
-   for k in ITEM_REQUIRED:
+   for k in (key for key in ITEM_REQUIRED if not original.get("ParentItemID") or key not in ("PalletSize","ContainerRequest")):
     if value.get(k) is None or str(value[k]).strip()=="":raise ValueError(k+" is required.")
   item={k:value.get(k) for k in ("ItemDescription","AnnualUnit","EstPctAwarded","ShelfPrice")}
   # Only extensions actually changed are passed, preserving hidden values.
@@ -332,3 +346,10 @@ def save(body:Batch,ctx:AccessContext=Depends(get_access_context)):
     found={k:v for k,v in fresh[0].items() if k not in ITEM_COLUMNS and k not in ("ItemID","ItemRowVersion","ProductID")}
    results.append(dict(row=r.row,status="OK",message="Saved. Refresh to reload the complete page.",values=workbook_row(found) if found else None))
  return {"results":results}
+
+@router.post("/readonly")
+def readonly(body:View,ctx:AccessContext=Depends(get_access_context)):
+ from workspace_readonly import readonly_workbook
+ data=read_page(body,ctx)
+ columns=list(dict.fromkeys([*body.views.header.columns,*body.views.items.columns]))
+ return readonly_workbook(columns,data["rows"],LABELS,"opportunity-readonly.xlsx")

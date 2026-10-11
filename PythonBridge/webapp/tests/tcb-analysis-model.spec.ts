@@ -24,7 +24,7 @@ test('child Analysis uses exact unit conversions and sequential interest and mar
  expect(analysisRows).toHaveLength(28);expect(scenarios).toHaveLength(1);
  expect(scenarios[0].columns.map(c=>c.id)).toEqual([11]);
  expect(values(scenarios[0].columns[0]).slice(0,12)).toEqual(['1.8','0.2','0','0.01','0.5','0.2','0.1','0.2','0.301','0.3311','3.6421','5.46315']);
- drafts[0].row.ConfigurationRequest='Floor load';
+ drafts[0].row.ConfigurationRequest='Floor load';drafts[0].row.ContainerLoadResults={"20DC":{CalculatedCartonsPerContainer:200}};
  expect(values(buildTCBAnalysis(drafts)[0].columns[0]).slice(3,12)).toEqual(['0','0.5','0.2','0.1','0.1','0.29','0.319','3.509','5.2635']);
 });
 test('unequal Mix quantities allocate shared costs equally without a parent column',()=>{
@@ -38,15 +38,24 @@ test('unequal Mix quantities allocate shared costs equally without a parent colu
  expect(values(first)[2]).toBe('0.06666667');expect(values(first)[3]).toBe('0.00333333');
  expect(values(first)[5]).toBe('0.06666667');expect(values(first)[7]).toBe('0.06666667');
 });
-test('Both has one child-only result and loading-dependent totals remain deferred',()=>{
+test('Both has one child-only result with pallet plus floor cost',()=>{
  const drafts=pair();drafts[0].row.ConfigurationRequest='Both';
- const scenarios=buildTCBAnalysis(drafts);
- expect(scenarios).toHaveLength(1);expect(scenarios[0].label).toBe('20DC');
- const col=scenarios[0].columns[0];
- for(const index of [3,7,8,9,10,11])expect(col.cells[index].value).toBeNull();
- expect(col.cells[3].issues.join(' ')).toContain('deferred');
- expect(values(col).slice(0,3)).toEqual(['1.8','0.2','0']);
+ drafts[0].row.ShipmentCostInfo={FloorLoadUSDPerMT:'100'};
+ drafts[1].row.ApplicableNetWeightGrams='150';
+ const scenario=buildTCBAnalysis(drafts)[0];
+ expect(scenario.columns.map(c=>c.id)).toEqual([11]);
+ expect(values(scenario.columns[0])[3]).toBe('0.025');
+ expect(scenario.columns[0].cells[10].value).not.toBeNull();
 });
+
+test('days, USD-per-lb margin and customer clearance use exact revised units',()=>{
+ const d=draft();d.row.ShipmentCostInfo={InterestPct:'12',InterestDays:30,MarginMode:'USDPerLb',MarginUSDPerLb:'.5',ImportClearanceCustomerPerPallet:'150',PaymentTermDays:999};
+ const actual=values(buildTCBAnalysis([d])[0].columns[0]);
+ expect(actual[8]).toBe('0.0201');expect(actual[9]).toBe('0.5');expect(actual[14]).toBe('0.1');
+ d.row.ShipmentCostInfo={...d.row.ShipmentCostInfo as object,PaymentTermDays:0};
+ expect(values(buildTCBAnalysis([d])[0].columns[0])).toEqual(actual);
+});
+
 test('standalone products use their own costs and Mix parents without children remain excluded',()=>{
  const scenarios=buildTCBAnalysis([draft()]);
  expect(scenarios).toHaveLength(1);expect(scenarios[0].columns.map(c=>c.id)).toEqual([1]);
@@ -107,7 +116,7 @@ test('destination costs and shared fee gross-up produce CFR and DDP without doub
  const base=7.4916255,gross=base/.9;
  const expected=[1,.46421,.1,.2,.3,.2853155,.4,.5,.6,gross*.02,gross*.03,gross*.04,gross*.01,4.6421,gross,gross*1.5];
  expected.forEach((value,i)=>expect(actual[i+12]).toBeCloseTo(value,7));
- d.row.ConfigurationRequest='Floor load';
+ d.row.ConfigurationRequest='Floor load';d.row.ContainerLoadResults={"20DC":{CalculatedCartonsPerContainer:200}};
  expect(values(buildTCBAnalysis([d])[0].columns[0])[12]).toBe('0.5');
  expect(values(buildTCBAnalysis([d])[0].columns[0])[16]).toBe('0.3');
  d.row.CustomerCurrencyCode='USD';
@@ -128,7 +137,7 @@ test('Mix logistics allocate equally per smallest child unit and invalid fees ca
  }
  root.row.ConfigurationRequest='Both';
  const deferred=buildTCBAnalysis([root,a,b])[0].columns[0];
- expect(deferred.cells[12].value).toBeNull();expect(deferred.cells[26].value).toBeNull();
+ expect(deferred.cells[12].value).not.toBeNull();expect(deferred.cells[26].value).toBeNull();
 });
 test('custom loss formulas require current server result and use unrounded percentages',()=>{
  const d=draft(11,{formula:'L1'});d.steps[0].LossPct='20';const drafts=pair(d);

@@ -105,6 +105,7 @@ class MixReadsSQL(ProfileFixture, unittest.TestCase):
         created = self.request([self.parent, self.child] if children else [self.parent])
         self.header = created['header']['ID']
         self.root_req = next(r['ID'] for r in created['items'] if r['OpportunityItemID'] == self.parent)
+        self.cur.execute('UPDATE dbo.PackagingConfigurationRequestItem SET CartonsPerContainerFloor=100 WHERE ID=?',self.root_req)
         self.child_req = next((r['ID'] for r in created['items'] if r['OpportunityItemID'] == self.child), None)
         if self.child_req:
             self.req = self.child_req
@@ -151,6 +152,15 @@ class MixReadsSQL(ProfileFixture, unittest.TestCase):
         for key in ('UsedVolumeML', 'MixNetWeightGrams', 'CartonEfficiencyKGM3', 'RelativeCartonEfficiencyPct'):
             with self.assertRaises(ValidationError):
                 api.ResponseRow(RowNum=1, ID=self.root_req, RowVersion='AAAAAAAAAAE=', **{key: 999})
+
+    def test_mix_parent_cannot_override_applicable_weight(self):
+        from fastapi import HTTPException
+        self.request_mix()
+        self.req=self.root_req
+        version=self.cur.execute("SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",self.req).fetchval()
+        with self.assertRaises(HTTPException) as error:self.save(ApplicableNetWeightGrams=999)
+        self.assertEqual(error.exception.status_code,422)
+        self.assertEqual(version,self.cur.execute("SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",self.req).fetchval())
 
     def test_opportunity_role_cannot_use_unapproved_child_density_even_if_parent_is_approved(self):
         self.request_mix()

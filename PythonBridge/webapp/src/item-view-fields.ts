@@ -1,16 +1,16 @@
 import {tcbColumnGroups,tcbColumnLabels} from './tcb-columns';
 import {costSections} from './shipment-sections';
 export const shipmentFieldGroups=[
- {title:'Shipment',fields:{ContainerRequest:'Configuration request',ConfigurationRequest:'Loading request',Incoterm:'Incoterm',PortOfEntryName:'Port of Entry',ContainerSizeFT:'Container'} as Record<string,string>},
- ...costSections.map(section=>({title:section.title,fields:Object.fromEntries(section.fields.map(field=>[field.key,field.label]))})),
+ {title:'Shipment',fields:{ContainerRequest:'Container Type',ConfigurationRequest:'Loading request',FloorLoadUSDPerMT:'Floor load cost ($/MT)',Incoterm:'Incoterm',PortOfEntryName:'Port of Entry'} as Record<string,string>},
+ ...costSections.map(section=>({title:section.title,fields:Object.fromEntries([...section.fields.map(field=>[field.key,field.label]),...(section.title==='Others'?[['MarginMode','Margin basis']]:[])])})),
 ];
 export const productFields:Record<string,string>={
  ProductCode:'Product',ProductName:'Product name',AnnualUnit:'Annual units',
- WeightGrams:'Net weight (g)',ShelfLifeDays:'Shelf life (days)',ItemStage:'Stage',NutDensity:'Nut density (g/ml)',UsedVolumeML:'Used volume (ml)',
+ WeightGrams:'Net weight (g)',ApplicableNetWeightGrams:'Applicable Net weight (g)',ShelfLifeDays:'Shelf life (days)',ItemStage:'Stage',NutDensity:'Nut density (g/ml)',UsedVolumeML:'Used volume (ml)',
 };
 export const requestFields:Record<string,string>={
  RequestedLayerCount:'Requested packaging layers',PalletSize:'Pallet size',PalletStacking:'Pallet stacking',MaxPalletHeightMM:'Max pallet height (mm)',
- ContainerRequest:'Container request',ConfigurationRequest:'Configuration request',
+ ContainerRequest:'Container Type',ConfigurationRequest:'Loading request',
  PrimaryTypeName:'Requested Primary Type',Transparency:'Primary Transparent / opaque',
  SecondaryTypeName:'Requested Secondary Type',NumberOfPrimary:'No of Primary Unit',SecondaryTransparency:'Secondary Transparent / opaque',
  TertiaryTypeName:'Requested Tertiary Type',NumberOfSecondary:'No of Secondary Unit',TertiaryTransparency:'Tertiary Transparent / opaque',
@@ -30,11 +30,10 @@ export const responseFields:Record<string,string>={
  CartonsPerLayer:'Cartons / layer',LayersPerPallet:'Layers / pallet',UnitsPerPallet:'Units / pallet',NetWeightPerPalletKG:'Net weight / pallet (kg)',
  PalletHeightMM:'Pallet height (mm)',CartonEfficiencyKGM3:'Carton Efficiency (kg/m3)',RelativeCartonEfficiencyPct:'Relative carton efficiency %',
  PalletUtilizationPct:'Pallet Utilization %',PalletHeightEfficiencyPct:'Pallet height efficiency %',
- LayersPerContainer:'Layers / container',PalletsPerContainer:'Pallets / container',CalculatedCartonsPerContainer:'Cartons / container',NetWeightPerContainerKG:'Net weight / container (kg)',
- CartonsPerContainerFloor:'Cartons / container floor',NetWeightPerContainerFloorKG:'Net weight / container floor (kg)',
+ PalletsPerContainer:'Pallets / container',CalculatedCartonsPerContainer:'Cartons / container',NetWeightPerContainerKG:'Net weight / container (kg)',
 };
 export const linkedRequestFields:Record<string,string>={PackagingRequestNumber:'Current linked PCR'};
-export const calculatedFields=new Set(['UsedVolumeML','LayersPerContainer','LayersPerPallet','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','UnitsPerPallet','CalculatedCartonsPerContainer','NetWeightPerContainerKG','NetWeightPerContainerFloorKG']);
+export const calculatedFields=new Set(['ApplicableNetWeightGrams','UsedVolumeML','LayersPerContainer','LayersPerPallet','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','UnitsPerPallet','CalculatedCartonsPerContainer','NetWeightPerContainerKG','NetWeightPerContainerFloorKG']);
 export const efficiencyFields=['PalletHeightMM','CartonEfficiencyKGM3','RelativeCartonEfficiencyPct','PalletUtilizationPct','PalletHeightEfficiencyPct'];
 efficiencyFields.forEach(key=>calculatedFields.add(key));
 Object.keys(tcbColumnLabels).forEach(key=>calculatedFields.add(key));

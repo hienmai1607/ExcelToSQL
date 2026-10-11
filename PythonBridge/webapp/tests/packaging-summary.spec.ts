@@ -48,7 +48,7 @@ async function setup(page:Page,root:any=normal,childRows:any[]=[],fail=false,opp
  }};
 }
 
-test('normal packaging tree shows layers, dimensions, price flow and both shipping branches without writes',async({page},info)=>{
+test('normal packaging tree shows layers, dimensions, price flow and one unified container branch without writes',async({page},info)=>{
  const {open,writes}=await setup(page);const dialog=await open();
  await expect(dialog.getByRole('region',{name:'Packaging response tree',exact:true})).toBeVisible();
  const layers=dialog.locator('.summary-layer-chain .summary-node');await expect(layers).toHaveCount(3);
@@ -60,11 +60,10 @@ test('normal packaging tree shows layers, dimensions, price flow and both shippi
  expect(await dialog.locator('.summary-edge').first().evaluate(el=>getComputedStyle(el,'::before').width)).toBe('3px');
  const table=dialog.getByRole('region',{name:'Smallest unit packaging costs',exact:true});await expect(table).toContainText('140.00 VND');
  await expect(dialog.getByRole('region',{name:'Palletization branch',exact:true})).toBeVisible();
- await expect(dialog.getByRole('region',{name:'Floor load branch',exact:true})).toBeVisible();
- await expect(dialog.locator('.summary-container')).toHaveCount(10);
- await expect(dialog.getByRole('article',{name:'Pallet load 20DC',exact:true})).toContainText('5,400');
- await expect(dialog.getByRole('article',{name:'Floor load 20DC',exact:true})).toContainText('900');
- await expect(dialog.getByRole('article',{name:'Pallet load 40HC',exact:true})).toContainText('Not configured');
+ await expect(dialog.getByRole('region',{name:'Container Load branch',exact:true})).toBeVisible();
+ await expect(dialog.locator('.summary-container')).toHaveCount(5);
+ await expect(dialog.getByRole('article',{name:'Container Load 20DC',exact:true})).toContainText('900');
+ await expect(dialog.getByRole('article',{name:'Container Load 40HC',exact:true})).toContainText('Not configured');
  await expect(dialog).toContainText('Not configured — excluded');
  await dialog.screenshot({path:info.outputPath('normal-packaging-tree.png')});
  await dialog.getByRole('button',{name:'Close Packaging Summary',exact:true}).click();await expect(dialog).toHaveCount(0);
@@ -91,8 +90,8 @@ test('mix tree loads every parent-PCR child and splits shared cost equally down 
 
 for(const family of ['Dry','Reefer'])test('container tree respects '+family+' family and floor-only configuration',async({page})=>{
  const {open}=await setup(page,{...normal,ContainerRequest:family,ConfigurationRequest:'Floor load'});const dialog=await open();
- await expect(dialog.getByRole('region',{name:'Floor load branch',exact:true})).toBeVisible();
- await expect(dialog.getByRole('region',{name:'Palletization branch',exact:true})).toHaveCount(0);
+ await expect(dialog.getByRole('region',{name:'Container Load branch',exact:true})).toBeVisible();
+ await expect(dialog.getByRole('region',{name:'Palletization branch',exact:true})).toBeVisible();
  await expect(dialog.locator('.summary-container h4')).toHaveText(family==='Dry'?['20DC','40DC','40HC']:['20RC','40RHC']);
 });
 
@@ -118,8 +117,7 @@ test('all tree and logistics currency fields use Opportunity master FX and two d
  await expect(primary.getByRole('row').filter({hasText:/^Packaging cost \/ unit/})).toContainText('0.80 EUR');
  const unit=dialog.getByRole('region',{name:'Smallest unit packaging costs',exact:true});
  await expect(unit).toContainText('0.93 EUR');
- await expect(dialog.getByRole('article',{name:'Pallet load 20DC',exact:true})).toContainText('33,602.06 EUR');
- await expect(dialog.getByRole('article',{name:'Floor load 20DC',exact:true})).toContainText('5,600.34 EUR');
+ await expect(dialog.getByRole('article',{name:'Container Load 20DC',exact:true})).toContainText('5,600.34 EUR');
  await expect(dialog).not.toContainText('99.00 EUR');
  expect(writes).toEqual([]);
 });
@@ -149,8 +147,7 @@ test('non-USD prices include USD next to all layer, allocated, pallet and contai
  await expect(costs.getByRole('row').nth(1)).toContainText('0.59 AUD (0.39 USD)');
  await expect(costs).toContainText('1.38 AUD (0.92 USD)');
  await expect(dialog.getByRole('table',{name:'Palletization details',exact:true})).toContainText('496.80 AUD (331.20 USD)');
- await expect(dialog.getByRole('article',{name:'Pallet load 20DC',exact:true})).toContainText('4,968.00 AUD (3,312.00 USD)');
- await expect(dialog.getByRole('article',{name:'Floor load 20DC',exact:true})).toContainText('828.00 AUD (552.00 USD)');
+ await expect(dialog.getByRole('article',{name:'Container Load 20DC',exact:true})).toContainText('828.00 AUD (552.00 USD)');
  expect(writes).toEqual([]);
 });
 test('USD customer prices appear once without a duplicate USD equivalent',async({page})=>{

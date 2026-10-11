@@ -2,7 +2,7 @@ import {test,expect,type Page} from '@playwright/test';
 
 async function setup(page:Page,overrides:Record<string,unknown>={}){
  const writes:any[]=[];
- let row:any={RequestID:1,ItemID:1,ProductCode:'PRD-1',ProductName:'Almonds',ItemStage:'Assigned',PIC:'Admin',PICUserID:1,ItemRowVersion:'AAAAAAAAAAE=',WeightGrams:150,RequestedLayerCount:3,ResponseLayerCount:3,PrimaryTypeName:'Pillow',SecondaryTypeName:'Box',TertiaryTypeName:'Crate',NumberOfPrimary:12,NumberOfSecondary:5,PalletSize:'1.1x1.1M',PalletStacking:'Double',MaxPalletHeightMM:1800,ConfigurationRequest:'Floor load',...overrides};
+ let row:any={RequestID:1,ItemID:1,ProductCode:'PRD-1',ProductName:'Almonds',ItemStage:'Assigned',PIC:'Admin',PICUserID:1,ItemRowVersion:'AAAAAAAAAAE=',WeightGrams:150,RequestedLayerCount:3,ResponseLayerCount:3,PrimaryTypeName:'Pillow',SecondaryTypeName:'Box',TertiaryTypeName:'Crate',NumberOfPrimary:12,NumberOfSecondary:5,PalletSize:'1.1x1.1M',PalletStacking:'Double',MaxPalletHeightMM:1800,ConfigurationRequest:'Floor load',SelectedContainerType:'20DC',CartonsPerContainer:100,...overrides};
  await page.route('**/api/**',route=>{
   const p=new URL(route.request().url()).pathname;
   if(p.endsWith('/session'))return route.fulfill({json:{username:'Admin',user_id:1,is_admin:true,scopes:['Admin']}});
@@ -13,7 +13,7 @@ async function setup(page:Page,overrides:Record<string,unknown>={}){
   if(p==='/api/packaging/response/batch'){const body=route.request().postDataJSON();writes.push(body);row={...row,...body.rows[0],ResponseDefaultsInitialized:true};return route.fulfill({json:{results:[{RowNum:1,Status:'OK'}]}})}
   return route.fulfill({json:{rows:[],total:0}});
  });
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests',exact:true}).click();await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
  return {writes,editor:page.getByRole('dialog',{name:'Edit Packaging request',exact:true})};
 }
 

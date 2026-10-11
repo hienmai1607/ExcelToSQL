@@ -1,3 +1,4 @@
+import {pageAccess} from './workspace-access';
 import {useEffect,useRef,useState} from 'react';
 import {api,call,ApiError,text,type Row} from './api';
 import {Modal,ErrorNote,Badge,Pager,Notification,FieldLabel} from './ui';
@@ -18,7 +19,7 @@ function mixResponseChildren(row:Row,entries:Entry[]){
  try{
   const children=JSON.parse(String(row.MixResponseChildren??'null'));
   if(!Array.isArray(children))return null;
-  return JSON.stringify(children.map((child:Row)=>{const draft=entries.find(entry=>entry.row.ItemID===child.ItemID&&entry.row.RequestID===row.RequestID);return draft?{...child,NutDensity:numericEntryError('NutDensity',draft.values.NutDensity)?null:draft.values.NutDensity}:child}));
+  return JSON.stringify(children.map((child:Row)=>{const draft=entries.find(entry=>entry.row.ItemID===child.ItemID&&entry.row.RequestID===row.RequestID);return draft?{...child,ApplicableNetWeightGrams:draft.values.ApplicableNetWeightGrams||String(draft.row.WeightGrams??''),NutDensity:numericEntryError('NutDensity',draft.values.NutDensity)?null:draft.values.NutDensity}:child}));
  }catch{return null}
 }
 type Entry=ResponseEntry;
@@ -36,7 +37,7 @@ export function RequestEditor({request,canAssign,user,onClose,onSaved,initialPag
  const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[uncertain,setUncertain]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
  const [confirm,setConfirm]=useState(false);
  const [pricingHistory,setPricingHistory]=useState<number|null>(null);
- const canResponse=(r:Row)=>stages.has(String(r.ItemStage))&&(session.is_admin||(session.scopes.includes('Packaging')&&r.PIC===user));
+ const canResponse=(r:Row)=>pageAccess(session,'requests',true)&&stages.has(String(r.ItemStage))&&(session.is_admin||(session.scopes.includes('Packaging')&&r.PIC===user));
  const dirty=entries.some(changed);
  function leave(){if(!busy&&(!dirty||window.confirm('Discard unsaved request changes?')))onClose()}
  function move(action:()=>void,keepDraft=false){if(!busy&&(mixFull&&keepDraft||!dirty||window.confirm('Discard unsaved request changes?')))action()}
@@ -72,7 +73,7 @@ export function RequestEditor({request,canAssign,user,onClose,onSaved,initialPag
   for(const root of entries.filter(e=>isMixParent(e.row)&&sameConfig(e.values.SameConfig)&&saveGroups().some(g=>g.includes(e)))){const issue=mixConfigError(root,entries,canResponse);if(issue){setError(issue);return}}
   for(const e of saveGroups().flat()){
    if(responseDirty(e)){
-    const profileError=containerProfileError(e.values);if(profileError){setError(profileError);return}
+    const profileError=containerProfileError(e.values,e.row.ConfigurationRequest,!!e.row.ParentItemID);if(profileError){setError(profileError);return}
     if(!canResponse(e.row)){setError('This response is not editable. Refresh the request.');return}
     for(const f of responseFields){if(f.readOnly||!responseFieldActive(f.key,e.values,e.row.ConfigurationRequest,!!e.row.ParentItemID,isMixParent(e.row)))continue;const v=e.values[f.key];const typeError=responseTypeError(f.key,v,e.row[f.key],responseTypes.types,e.values.ResponseLayerCount,e.row.ResponseLayerCount??e.row.RequestedLayerCount,!!e.row.ParentItemID,isMixParent(e.row));if(typeError){setError(typeError);return}if(v&&f.numeric&&((v!==String(e.row[f.key]??'')&&numericEntryError(f.key,v))||(f.integer&&(!/^\d+$/.test(v)||Number(v)<=0)))){setError('Check '+f.label+' for '+text(e.row.ProductCode));return}}
 

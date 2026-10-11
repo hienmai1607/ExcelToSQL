@@ -1,10 +1,10 @@
 import type {Row} from './api';import {FieldLabel} from './ui';import {parseMixStructure,mixFormula,type MixStructure} from './mix-structure';
 import {requirementFields,type PackagingField,fieldValues,fieldPayload} from './packaging-fields';
-import {selectableType,layerCount} from './packaging-orders';
+import {selectableType,layerCount} from './packaging-orders';import {requestedContainerType,shipmentValues} from './shipment-sections';
 
-const logistics=['PalletSize','PalletStacking','MaxPalletHeightMM'];
+const logistics=['PalletStacking','MaxPalletHeightMM'];
 const choices:Record<string,string[]>={
- ContainerRequest:['Dry','Reefer','Both'],ConfigurationRequest:['Pallet load','Floor load','Both'],
+ ContainerRequest:['20DC','20RC','40DC','40HC','40RHC'],ConfigurationRequest:['Pallet load','Floor load','Both'],
  PalletStacking:['Single','Double'],Transparency:['Transparent','Opaque','NA'],
  SecondaryTransparency:['Transparent','Opaque','NA'],TertiaryTransparency:['Transparent','Opaque','NA'],PackagingLayerCount:['1','2','3']
 };
@@ -32,7 +32,7 @@ export const webRequirementFields:PackagingField[]=[
  {key:'NumberOfSecondary',label:'Number of Secondary',numeric:true,integer:true}
 ];
 export const webRequirementFieldsFor=(child:boolean)=>webRequirementFields.filter(f=>!child||!f.parentOnly&&f.key!=='ConfigurationRequest');
-export const webRequirementValues=(row?:Row)=>({...fieldValues(row,webRequirementFields),ShelfLifeDays:String(row?.ShelfLifeDays??''),MaxPalletHeightMM:String(row?.MaxPalletHeightMM??(row?.MaxPalletHeightM==null?'':Math.round(Number(row.MaxPalletHeightM)*1000))),PackagingLayerCount:String(row?.PackagingLayerCount??row?.RequestedLayerCount??2)});
+export const webRequirementValues=(row?:Row)=>({...fieldValues(row,webRequirementFields),ContainerRequest:requestedContainerType(fieldValues(row,webRequirementFields),shipmentValues(row?.ShipmentCostInfo))||String(row?.ContainerRequest??''),ShelfLifeDays:String(row?.ShelfLifeDays??''),MaxPalletHeightMM:String(row?.MaxPalletHeightMM??(row?.MaxPalletHeightM==null?'':Math.round(Number(row.MaxPalletHeightM)*1000))),PackagingLayerCount:String(row?.PackagingLayerCount??row?.RequestedLayerCount??2)});
 const orderFor=(key:string)=>key==='PrimaryTypeID'?'Primary':key==='SecondaryTypeID'?'Secondary':key==='TertiaryTypeID'?'Tertiary':null;
 function requirementActive(key:string,values:Record<string,string>){const layers=layerCount(values.PackagingLayerCount);return !((layers<2&&(key.startsWith('Secondary')||key==='NumberOfPrimary'))||(layers<3&&(key.startsWith('Tertiary')||key==='NumberOfSecondary')))}
 export function copyWebRequirements(target:Record<string,string>,source:Record<string,string>,targetChild:boolean,sourceChild:boolean){
@@ -66,21 +66,21 @@ export function RequirementSections({values,types=[],pallets=[],child=false,show
  const layers=layerCount(values.PackagingLayerCount);
  function input(key:string,label:string,help?:string){
   const value=values[key]||'';
-  if(readOnly){const display=key.endsWith('TypeID')?row?.[key.replace('ID','Name')]:value;return <div className="packaging-readonly-field" key={key}><FieldLabel help={help}>{label}</FieldLabel><p>{String(display||'—')}</p></div>}
+  if(readOnly){const display=key.endsWith('TypeID')?row?.[key.replace('ID','Name')]:value;return <div className="packaging-readonly-field" key={key}><FieldLabel help={help}>{label}</FieldLabel><p className={['NumberOfPrimary','NumberOfSecondary'].includes(key)?'packing-fixed-quantity':undefined}>{key==='NumberOfSecondary'&&<span className="packing-multiplier" aria-hidden="true">{String.fromCharCode(215)}</span>}<span>{String(display||'—')}</span></p></div>}
   const order=orderFor(key);
   const options=order?types.filter(t=>selectableType(t,order,values.PackagingLayerCount,child,mixParent)&&t.ParentTypeID==null&&t.Status!=='Block').map(t=>({id:String(t.ID),label:String(t.PackagingType)})):key==='PalletSize'?pallets.map(p=>({id:String(p.PalletSize),label:String(p.PalletSize)})):choices[key]?.map(v=>({id:v,label:v}));
-  return <label key={key}><FieldLabel help={help}>{label}</FieldLabel>{options?<><select aria-label={label} value={value} onChange={e=>onChange!(key,e.target.value)}><option value="">{key==='PalletSize'?'Choose pallet size':'Choose '+label.toLowerCase()}</option>{value&&!options.some(o=>o.id===value)&&<option value={value} disabled>{String(order?row?.[order+'TypeName']||'Existing type #'+value:value)} (existing value — unavailable)</option>}{options.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}</select>{key==='PalletSize'&&!pallets.length&&<small>No active pallets. Admin or Packaging must add records in Pallet Master.</small>}</>:<input aria-label={label} maxLength={webRequirementFields.find(f=>f.key===key)?.max||24} inputMode={['MaxPalletHeightMM','NumberOfPrimary','NumberOfSecondary'].includes(key)?'decimal':undefined} value={value} onChange={e=>onChange!(key,e.target.value)}/>}</label>;
+  return <label key={key}><FieldLabel help={help}>{label}{key==='PalletSize'?' *':''}</FieldLabel>{options?<><select required={key==='PalletSize'} aria-required={key==='PalletSize'} aria-label={label} value={value} onChange={e=>onChange!(key,e.target.value)}><option value="">{key==='PalletSize'?'Choose pallet size':'Choose '+label.toLowerCase()}</option>{value&&!options.some(o=>o.id===value)&&<option value={value} disabled>{String(order?row?.[order+'TypeName']||'Existing type #'+value:value)} (existing value — unavailable)</option>}{options.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}</select>{key==='PalletSize'&&!pallets.length&&<small>No active pallets. Admin or Packaging must add records in Pallet Master.</small>}</>:<span className="packing-quantity-input">{key==='NumberOfSecondary'&&<span className="packing-multiplier" aria-hidden="true">{String.fromCharCode(215)}</span>}<input aria-label={label} maxLength={webRequirementFields.find(f=>f.key===key)?.max||24} inputMode={['MaxPalletHeightMM','NumberOfPrimary','NumberOfSecondary'].includes(key)?'decimal':undefined} value={value} onChange={e=>onChange!(key,e.target.value)}/></span>}</label>;
  }
  const requirements=(prefix:string)=>['RecyclableRequirement','RecycledContent','MetalizedAluminum','SpecialComments'].map((key,i)=>input(prefix+key,['Recyclable requirement','Recycled content','Metalized / aluminum','Special comments'][i]));
+ function packingQuantity(layer:string,index:number){
+  if(index<layers-1)return input(index===0?'NumberOfPrimary':'NumberOfSecondary',unitLabel(layer),unitHelp);
+  return <div className="packaging-readonly-field"><FieldLabel help={unitHelp}>{unitLabel(layer)}</FieldLabel><p className="packing-fixed-quantity">{index>0&&<span className="packing-multiplier" aria-hidden="true">{String.fromCharCode(215)}</span>}<span>1</span></p></div>;
+ }
  return <div className="requirement-sections">
-  <section aria-label="Packing Way request"><div className="response-section-heading"><h4>Packing Way</h4><div className="request-layer-choice">{input('PackagingLayerCount','Requested packaging layers','1: Primary · 2: Primary + Secondary · 3: Primary + Secondary + Tertiary')}</div></div><div className="packing-way-grid" data-layers={layers}>
-   {layers>1?input('NumberOfPrimary',unitLabel('Primary'),unitHelp):<div className="packaging-readonly-field"><FieldLabel help={unitHelp}>{unitLabel('Primary')}</FieldLabel><p>1</p></div>}
-   {layers===3?input('NumberOfSecondary',unitLabel('Secondary'),unitHelp):layers===2&&<div className="packaging-readonly-field"><FieldLabel help={unitHelp}>{unitLabel('Secondary')}</FieldLabel><p>1</p></div>}
-   {layers===3&&<div className="packaging-readonly-field"><FieldLabel>No of Tertiary Unit</FieldLabel><p>1</p></div>}
-  </div></section>
-  <div className="packaging-request-layers" data-layers={layers}>{['Primary','Secondary','Tertiary'].slice(0,layers).map((layer,i)=><section key={layer} aria-label={layer+' packaging requirements'}><h4>{layer} packaging</h4><div className="packaging-entry-grid">{input(layer+'TypeID',readOnly?'Requested '+layer+' Type':layer+' Type')}{input(i===0?'Transparency':layer+'Transparency',layer+' Transparent / opaque')}{requirements(i===0?'':layer)}</div></section>)}</div>
-  {!child&&showShipment&&<section aria-label="Container and Configuration"><h4>Container and Configuration</h4><div className="packaging-entry-grid">{!child&&input('ContainerRequest','Container request')}{input('ConfigurationRequest','Configuration request')}</div></section>}
-  {!child&&values.ConfigurationRequest!=='Floor load'&&<section aria-label="Palletization request"><h4>Palletization</h4><div className="packaging-entry-grid">{input('PalletSize','Pallet size')}{input('PalletStacking','Pallet stacking')}{input('MaxPalletHeightMM','Max pallet height (mm)')}</div></section>}
+  <section aria-label="Packing Way request"><div className="response-section-heading"><h4>Packing Way</h4><div className="request-layer-choice">{input('PackagingLayerCount','Requested packaging layers','1: Primary · 2: Primary + Secondary · 3: Primary + Secondary + Tertiary')}</div></div></section>
+  <div className="packaging-request-layers" data-layers={layers}>{['Primary','Secondary','Tertiary'].slice(0,layers).map((layer,i)=><section key={layer} aria-label={layer+' packaging requirements'}><h4 aria-label={layer+" packaging"} title={layer+" packaging"}><span className="packaging-layer-symbol">{["I","II","III"][i]}</span></h4><div className="layer-packing-way">{packingQuantity(layer,i)}</div><div className="packaging-entry-grid">{input(layer+'TypeID',readOnly?'Requested '+layer+' Type':layer+' Type')}{input(i===0?'Transparency':layer+'Transparency',i===0?'Transparent / opaque':layer+' Transparent / opaque')}{requirements(i===0?'':layer)}</div></section>)}</div>
+  {!child&&showShipment&&<section aria-label="Container and Configuration"><h4>Container and Configuration</h4><div className="packaging-entry-grid">{!child&&input('ContainerRequest','Container Type')}{input('ConfigurationRequest','Configuration request')}</div></section>}
+  {!child&&<section aria-label="Palletization request"><h4>Palletization</h4><div className="packaging-entry-grid">{input('PalletSize','Pallet size')}{values.ConfigurationRequest!=='Floor load'&&<>{input('PalletStacking','Pallet stacking')}{input('MaxPalletHeightMM','Max pallet height (mm)')}</>}</div></section>}
   {row?.PackagingType!=null&&<section><h4>Legacy packaging type</h4><p>{String(row.PackagingType)}</p></section>}
  </div>;
 }

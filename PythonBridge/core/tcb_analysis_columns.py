@@ -11,7 +11,7 @@ TCB_GROUPS = [
    "TCBProductPerUnit": "Product ($/unit)",
    "TCBSelfPackagingPerUnit": "Self Packaging ($/unit)",
    "TCBParentPackagingPerUnit": "Parent Packaging ($/unit)",
-   "TCBPalletPerUnit": "Pallet ($/unit)",
+   "TCBPalletPerUnit": "Pallet & Floor cost ($/unit)",
    "TCBPackingPerUnit": "Packing ($/unit)",
    "TCBInitialDesignPerUnit": "Initial Design ($/unit)",
    "TCBFixedCostsPerUnit": "Fixed costs ($/unit)",
@@ -177,10 +177,10 @@ def add_tcb_columns(rows):
         selected = root.get("SelectedContainerType")
         kind = selected if selected in configured else configured[0] if len(configured)==1 else ""
         mode = root.get("PackingConfiguration") or root.get("ConfigurationRequest")
-        resolved = mode in ("Pallet load","Floor load")
+        resolved = mode in ("Pallet load","Floor load","Both")
         profile = profiles.get(kind,{})
         result = obj(obj(root.get("ContainerLoadResults")).get(kind))
-        cartons = profile.get("CartonsPerContainerFloor",root.get("CartonsPerContainerFloor") if selected==kind else None) if mode=="Floor load" else result.get("CalculatedCartonsPerContainer",root.get("CalculatedCartonsPerContainer") if selected==kind else None)
+        cartons = result.get("CalculatedCartonsPerContainer",root.get("CalculatedCartonsPerContainer") if selected==kind else None)
         container_units = times(times(num(cartons),final_units(root)),total)
         pallet_units = times(num(root.get("UnitsPerPallet")),total)
         awarded = times(times(num(root.get("AnnualUnit")),ratio(root,"EstPctAwarded")),total)
@@ -194,13 +194,16 @@ def add_tcb_columns(rows):
             value = saved(row);own = obj(value.get("Inputs"));weight = num(row.get("WeightGrams"))
             lost = ratio(own,"LossProductPct") if own.get("ProductLossFormula") else loss(own,"LossProductPct")
             product = times(times(num(value.get("ProductUSDPerLb"),True),per(weight,F("453.59237"))),1-lost if lost is not None else None)
-            cells = [product,packaging(row,root),parent_pm,pallet_cost,times(optional(shipping,"PackingUSDPerLb"),per(weight,F("453.59237"))),
+            applicable_weight = num(row.get("ApplicableNetWeightGrams") if "ApplicableNetWeightGrams" in row else row.get("WeightGrams"))
+            floor_cost = times(optional(shipping,"FloorLoadUSDPerMT"),per(applicable_weight,F(1000000))) if mode in ("Floor load","Both") else F(0)
+            loading_cost = plus([pallet_cost,floor_cost])
+            cells = [product,packaging(row,root),parent_pm,loading_cost,times(optional(shipping,"PackingUSDPerLb"),per(weight,F("453.59237"))),
                      per(optional(shipping,"InitialDesignUSD"),awarded),per(optional(shipping,"OtherFixedCostsUSD"),awarded),container("FobbingUSDPerContainer")]
-            cells.append(times(plus(cells),times(ratio(shipping,"InterestPct"),per(optional(shipping,"InterestMonths"),F(12)))))
-            cells.append(times(plus(cells),ratio(shipping,"MarginPct")))
+            cells.append(times(plus(cells),times(ratio(shipping,"InterestPct"),per(optional(shipping,"InterestDays"),F(360)) if shipping.get("InterestDays") is not None else per(optional(shipping,"InterestMonths"),F(12)))))
+            cells.append(times(optional(shipping,"MarginUSDPerLb"),per(weight,F("453.59237"))) if shipping.get("MarginMode") == "USDPerLb" or shipping.get("MarginMode") is None and shipping.get("MarginUSDPerLb") is not None else times(plus(cells),ratio(shipping,"MarginPct")))
             cells.append(plus(cells));cells.append(times(cells[10],rate))
             freight = container("FreightUSDPerContainer")
-            destination = [freight,times(plus([cells[10],freight]),ratio(shipping,"DutyPct")),container("ImportClearanceUSDPerContainer"),
+            destination = [freight,times(plus([cells[10],freight]),ratio(shipping,"DutyPct")),per(per(optional(shipping,"ImportClearanceCustomerPerPallet"),rate),pallet_units) if resolved and shipping.get("ImportClearanceCustomerPerPallet") is not None else container("ImportClearanceUSDPerContainer"),
                            container("PortToWHUSDPerContainer"),pallet("WHCostUSDPerPallet")]
             destination.append(times(plus([cells[10],*destination]),ratio(shipping,"OverageShortageDamagePct")))
             destination.extend([pallet("WHToCoManWHUSDPerPallet"),pallet("CoManOverheadUSDPerPallet"),pallet("FreightToCustomerUSDPerPallet")])

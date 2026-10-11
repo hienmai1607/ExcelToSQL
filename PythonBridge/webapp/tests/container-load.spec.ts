@@ -16,205 +16,174 @@ async function setup(page:Page,configuration='Both',overrides:Record<string,unkn
   return route.fulfill({json:{rows:[],total:0,page:1}});
  });
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
+ await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
  await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
- if(row.ItemStage!=='Approved')await editor.getByLabel('Container type',{exact:true}).selectOption(allowedContainerTypes(row.ContainerRequest,row.ShipmentContainerSizeFT)[0]);
+ if(row.ItemStage!=='Approved'&&!row.ParentItemID)await editor.getByLabel('Container type',{exact:true}).selectOption(allowedContainerTypes(row.ContainerRequest,row.ShipmentContainerSizeFT)[0]);
  return {writes,editor};
 }
 
-test('Both shows container and floor formulas live; saves counts only and reloads',async({page})=>{
- const {writes,editor}=await setup(page);
- const pallet=editor.getByRole('region',{name:'Pallet load response',exact:true});
- const floor=editor.getByRole('region',{name:'Floor load response',exact:true});
- await expect(pallet.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await expect(pallet.getByLabel('Layer / Container',{exact:true})).toHaveAttribute('readonly','');
- await expect(pallet.getByLabel('Pallet / Container',{exact:true})).toHaveValue('20');
- await floor.getByLabel('Carton / Container Floor',{exact:true}).fill('1200');
- await expect(pallet.getByLabel('Carton / Container',{exact:true})).toHaveValue('1,000');
- await expect(pallet.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('500');
- await expect(floor.getByLabel('Net weight / Container Floor (kg)',{exact:true})).toHaveValue('600');
- for(const label of ['Carton / Container','Net weight / Container (kg)','Net weight / Container Floor (kg)'])await expect(editor.getByLabel(label,{exact:true})).toHaveAttribute('readonly','');
- await expect(editor.getByRole('region',{name:'Palletization response',exact:true}).getByLabel('Cartons / container',{exact:true})).toHaveCount(0);
+test('Pallet loading calculates cartons using Layers / pallet and no Layer / Container field',async({page})=>{
+ const {editor,writes}=await setup(page,'Pallet load');
+ await expect(editor.getByRole('region',{name:'Container Load response'})).toBeVisible();
+ await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveCount(0);
+ await expect(editor.getByLabel('Pallet / Container',{exact:true})).toHaveValue('20');
+ await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('400');
+ await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('200');
+ await editor.getByLabel('Max pallet height (mm)',{exact:true}).fill('2000');
+ await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('800');
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
- expect(writes[0].rows[0]).toMatchObject({CartonsPerContainerFloor:'1200',SelectedContainerType:'20DC',ContainerLoadProfiles:{'20DC':{PalletsPerContainer:'20',CartonsPerContainerFloor:'1200'}}});
- for(const key of ['LayersPerContainer','CartonsPerContainer','CalculatedCartonsPerContainer','NetWeightPerContainerKG','NetWeightPerContainerFloorKG'])expect(writes[0].rows[0]).not.toHaveProperty(key);
- await expect(pallet.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('500');
- await expect(floor.getByLabel('Net weight / Container Floor (kg)',{exact:true})).toHaveValue('600');
-});
-
-test('Floor load shows floor counts only; uses the last confirmed packaging weight',async({page})=>{
- const {writes,editor}=await setup(page,'Floor load',{ResponseLayerCount:2,LayersPerContainer:100,PalletsPerContainer:20});
- await expect(editor.getByRole('region',{name:'Pallet load response',exact:true})).toHaveCount(0);
- await editor.getByLabel('Carton / Container Floor',{exact:true}).fill('1200');
- await expect(editor.getByLabel('Net weight / Container Floor (kg)',{exact:true})).toHaveValue('120');
- await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('1');
- await expect(editor.getByLabel('Net weight / Container Floor (kg)',{exact:true})).toHaveValue('12');
- await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
- expect(writes[0].rows[0].CartonsPerContainerFloor).toBe('1200');
- expect(writes[0].rows[0]).not.toHaveProperty('LayersPerContainer');
- expect(writes[0].rows[0]).not.toHaveProperty('PalletsPerContainer');
-});
-
-test('Pallet load excludes floor fields and preserves legacy entries outside the calculated control',async({page})=>{
- const {writes,editor}=await setup(page,'Pallet load',{CartonsPerContainer:777,CartonsPerContainerFloor:1200});
- await expect(editor.getByRole('region',{name:'Floor load response',exact:true})).toHaveCount(0);
- await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('1,000');
- await editor.getByLabel('Max pallet height (mm)',{exact:true}).fill('2000');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('1,000');
- await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
- expect(writes[0].rows[0]).not.toHaveProperty('CartonsPerContainerFloor');
  expect(writes[0].rows[0]).not.toHaveProperty('CartonsPerContainer');
+ expect(writes[0].rows[0]).not.toHaveProperty('LayersPerContainer');
 });
 
-test('container counts reject zero, fractions and overflow; incomplete calculations remain blank',async({page})=>{
- const {writes,editor}=await setup(page,'Both',{HeightMM:null});
- for(const label of ['Carton / Container','Net weight / Container (kg)','Net weight / Container Floor (kg)'])await expect(editor.getByLabel(label,{exact:true})).toHaveValue('');
- for(const label of ['Carton / Container Floor']){
-  for(const value of ['0','-1','1.5','2147483648']){
-   const input=editor.getByLabel(label,{exact:true});await input.fill(value);
-   await editor.getByRole('button',{name:'Review & save',exact:true}).click();
-   await expect(page.getByRole('dialog',{name:'Confirm request save'})).toHaveCount(0);
-   expect(writes).toHaveLength(0);await input.fill('');
+test('quantity and weight columns leave room for dimensions without crossing layer boundaries',async({page},info)=>{
+ const captures=Object.fromEntries(['Primary','Secondary','Tertiary'].map(order=>[order,{LayerCount:3,PackagingTypeName:'Captured '+order,Dimensions:[{Name:'Length',Unit:'mm',Value:'340'},{Name:'Width',Unit:'mm',Value:'145'},{Name:'Height',Unit:'mm',Value:'200'}]}]));
+ const {editor}=await setup(page,'Pallet load',{FirstPMType:'Captured Primary',SecondPMType:'Captured Secondary',ThirdPMType:'Captured Tertiary',LayerDimensionCaptures:captures});
+ await expect(editor.getByLabel('Tertiary dimension height',{exact:true})).toHaveText('200mm');
+ for(const width of [1920,1280,390]){
+  await page.setViewportSize({width,height:900});
+  const layers=editor.locator('.packing-way-layer');
+  for(const layer of await layers.all()){
+   await layer.scrollIntoViewIfNeeded();
+   expect(await layer.evaluate(el=>{
+    const bounds=el.getBoundingClientRect();
+    return Array.from(el.children).every(child=>{const r=child.getBoundingClientRect();return r.left>=bounds.left-1&&r.right<=bounds.right+1&&child.scrollWidth<=child.clientWidth+1});
+   })).toBe(true);
+  }
+  if(width===1920){
+   const columns=await layers.first().locator(':scope>label').evaluateAll(labels=>labels.map(label=>label.getBoundingClientRect().width));
+   expect(columns[0]).toBeLessThanOrEqual(146);expect(columns[1]).toBeLessThanOrEqual(166);
+   expect(columns[2]).toBeGreaterThan(columns[1]);
+   await editor.screenshot({path:info.outputPath('compact-packing-columns.png')});
   }
  }
 });
 
-test('large carton totals remain exact and approved response controls are locked',async({page})=>{
- const {editor}=await setup(page,'Both',{ItemStage:'Approved',SelectedContainerType:'20DC',CartonsPerLayer:2147483647,LayersPerContainer:2147483647,PalletsPerContainer:20,CartonsPerContainerFloor:1200});
- await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue((2147483647n*5n*20n).toLocaleString('en-US'));
- for(const label of ['Layer / Container','Pallet / Container','Carton / Container Floor'])await expect(editor.getByLabel(label,{exact:true})).toBeDisabled();
- await expect(editor.getByRole('button',{name:'Review & save',exact:true})).toBeDisabled();
+test('Double stacking doubles Pallet capacity but not Floor or Both manual counts',async({page})=>{
+ const {editor}=await setup(page,'Pallet load',{ResponsePalletStacking:'Single'});
+ await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('400');
+ await editor.getByLabel('Pallet stacking',{exact:true}).selectOption('Double');
+ await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('800');
+ await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('400');
 });
 
-test('container fields fit 1920x1080 and mobile without horizontal overflow',async({page})=>{
- const {editor}=await setup(page,'Both',{LayersPerContainer:100,PalletsPerContainer:20,CartonsPerContainerFloor:1200});
+for(const mixParent of [false,true])test('Product Info stays in one aligned desktop row for '+(mixParent?'Mix parent':'child product'),async({page})=>{
+ const {editor}=await setup(page,'Pallet load',mixParent?{IsMixParent:true,WeightGrams:750,ProductMixSnapshot:JSON.stringify({items:[{ProductID:1,UnitQuantity:1,WeightGrams:750}]}),MixResponseChildren:JSON.stringify([{ProductID:1,ApplicableNetWeightGrams:750,NutDensity:'0.5'}])}:{ParentItemID:99,NutDensity:'0.5',NutDensityCombinationAvailable:true});
+ const info=editor.getByRole('region',{name:'Product Info response',exact:true});
+ const grid=info.locator('.packaging-entry-grid');
+ const boxes=await grid.locator(':scope > *').evaluateAll(items=>items.map(item=>{const r=item.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right}}));
+ expect(boxes).toHaveLength(6);
+ expect(Math.max(...boxes.map(r=>r.y))-Math.min(...boxes.map(r=>r.y))).toBeLessThan(2);
+ for(let i=1;i<boxes.length;i++)expect(boxes[i].x-boxes[i-1].right).toBeCloseTo(12,0);
+ const bounds=(await grid.boundingBox())!;
+ expect(boxes.at(-1)!.right).toBeLessThanOrEqual(bounds.x+bounds.width+1);
+ await page.setViewportSize({width:390,height:844});
+ expect(await grid.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+ await expect(info.getByLabel(mixParent?'Total Used volume (ml)':'Used volume (ml)',{exact:true})).toBeVisible();
+});
+
+for(const mode of ['Floor load','Both'])test(mode+' has one required manual count, no pallet capacity or Floor section',async({page})=>{
+ const {editor,writes}=await setup(page,mode);
+ await expect(editor.getByLabel('Pallet / Container',{exact:true})).toHaveCount(0);
+ await expect(editor.getByRole('region',{name:'Floor load response'})).toHaveCount(0);
+ await expect(editor.getByLabel('Carton / Container Floor',{exact:true})).toHaveCount(0);
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await expect(editor.getByText('Carton / Container is required for Floor load and Both.',{exact:true})).toBeVisible();
+ expect(writes).toHaveLength(0);
+ await editor.getByLabel('Carton / Container',{exact:true}).fill('1200');
+ await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('600');
+ await editor.getByLabel('Applicable Net weight (g)',{exact:true}).fill('12');
+ await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('720');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
+ expect(writes[0].rows[0]).toMatchObject({CartonsPerContainer:'1200',ApplicableNetWeightGrams:'12',SelectedContainerType:'20DC',ContainerLoadProfiles:{'20DC':{CartonsPerContainer:'1200'}}});
+ for(const key of ['LayersPerContainer','PalletsPerContainer','CartonsPerContainerFloor','NetWeightPerContainerFloorKG'])expect(writes[0].rows[0]).not.toHaveProperty(key);
+});
+
+test('Applicable weight defaults to Product weight and drives response volume and packing weights',async({page})=>{
+ const {editor}=await setup(page,'Pallet load',{NutDensity:'0.5'});
+ await expect(editor.getByLabel('Applicable Net weight (g)',{exact:true})).toHaveValue('10');
+ await expect(editor.getByLabel('Used volume (ml)',{exact:true})).toHaveValue('20');
+ await editor.getByLabel('Applicable Net weight (g)',{exact:true}).fill('12');
+ await expect(editor.getByLabel('Used volume (ml)',{exact:true})).toHaveValue('24');
+ await expect(editor.getByLabel('Primary net weight (g)',{exact:true})).toHaveValue('12');
+ await expect(editor.getByLabel('Secondary net weight (g)',{exact:true})).toHaveValue('120');
+ await expect(editor.getByLabel('Tertiary net weight (g)',{exact:true})).toHaveValue('600');
+});
+
+test('Density default is proposed, changed values require explicit update action',async({page})=>{
+ const {editor,writes}=await setup(page,'Pallet load',{NutDensity:null,NutDensityDefault:'0.6',NutDensityDefaultRowVersion:'AAAAAAAAAAI=',NutDensityCombinationAvailable:true});
+ const density=editor.getByLabel('Nut Density (g/ml)',{exact:true});
+ await expect(density).toHaveValue('0.6');
+ await expect(editor.getByRole('button',{name:'Update grade density default'})).toHaveCount(0);
+ await density.fill('0.7');
+ await editor.getByRole('button',{name:'Update grade density default',exact:true}).click();
+ await expect(editor.getByText('Grade default: 0.6 g/ml - will update on Confirm save')).toBeVisible();
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
+ expect(writes[0].rows[0]).toMatchObject({NutDensity:'0.7',NutDensityDefaultUpdate:true,NutDensityDefaultRowVersion:'AAAAAAAAAAI='});
+});
+test('An ordinary density edit does not opt into changing the shared default',async({page})=>{
+ const {editor,writes}=await setup(page,'Pallet load',{NutDensity:'.6',NutDensityDefault:'0.6',NutDensityDefaultRowVersion:'AAAAAAAAAAI='});
+ await editor.getByLabel('Nut Density (g/ml)',{exact:true}).fill('0.7');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(writes[0].rows[0].NutDensityDefaultUpdate).toBe(false);
+});
+test('New grade combination shows automatic mapping notice',async({page})=>{
+ const {editor}=await setup(page,'Pallet load',{NutDensityCombinationAvailable:true,NutDensityDefault:null});
+ await expect(editor.getByText('New grade combination: default created on save.')).toBeVisible();
+});
+test('Mix parent applicable weight is read-only and sums child applicable weights',async({page})=>{
+ const {editor}=await setup(page,'Pallet load',{IsMixParent:true,WeightGrams:750,
+ ProductMixSnapshot:JSON.stringify({items:[{ProductID:1,UnitQuantity:2,WeightGrams:150},{ProductID:2,UnitQuantity:1,WeightGrams:450}]}),
+ MixResponseChildren:JSON.stringify([{ProductID:1,ApplicableNetWeightGrams:140,NutDensity:'0.5'},{ProductID:2,ApplicableNetWeightGrams:400,NutDensity:'0.5'}])});
+ await expect(editor.getByLabel('Applicable Net weight (g)',{exact:true})).toHaveValue('680');
+ await expect(editor.getByLabel('Applicable Net weight (g)',{exact:true})).toHaveAttribute('readonly','');
+ await expect(editor.getByLabel('Total Used volume (ml)',{exact:true})).toHaveValue('1,360');
+});
+test('Container profiles retain their own manual entries across switches and reload',async({page})=>{
+ const {editor,writes}=await setup(page,'Both',{ContainerRequest:'Dry'});
+ const selector=editor.getByLabel('Container type',{exact:true});
+ await expect(selector.locator('option')).toHaveText(['Choose container type','20DC','40DC','40HC']);
+ await editor.getByLabel('Carton / Container',{exact:true}).fill('100');
+ await selector.selectOption('40HC');
+ await editor.getByLabel('Carton / Container',{exact:true}).fill('200');
+ await selector.selectOption('20DC');
+ await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('100');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
+ expect(writes[0].rows[0].ContainerLoadProfiles).toMatchObject({'20DC':{CartonsPerContainer:'100'},'40HC':{CartonsPerContainer:'200'}});
+});
+test('Invalid manual counts never save',async({page})=>{
+ const {editor,writes}=await setup(page,'Both');
+ for(const value of ['0','-1','1.5','2147483648']){
+  await editor.getByLabel('Carton / Container',{exact:true}).fill(value);
+  await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'Confirm request save'})).toHaveCount(0);
+  expect(writes).toHaveLength(0);
+ }
+});
+test('Approved response fields are locked',async({page})=>{
+ const {editor}=await setup(page,'Both',{ItemStage:'Approved',SelectedContainerType:'20DC',CartonsPerContainer:1200});
+ for(const label of ['Applicable Net weight (g)','Carton / Container','Container type'])await expect(editor.getByLabel(label,{exact:true})).toBeDisabled();
+ await expect(editor.getByRole('button',{name:'Review & save',exact:true})).toBeDisabled();
+});
+test('Container and density controls fit desktop and mobile',async({page})=>{
+ const {editor}=await setup(page,'Both',{CartonsPerContainer:1200,NutDensity:'.7',NutDensityDefault:'0.6'});
  for(const width of [1920,390]){
   await page.setViewportSize({width,height:width===1920?1080:844});
-  for(const label of ['Layer / Container','Pallet / Container','Carton / Container','Net weight / Container (kg)','Carton / Container Floor','Net weight / Container Floor (kg)']){
+  for(const label of ['Applicable Net weight (g)','Carton / Container','Net weight / Container (kg)','Nut Density (g/ml)']){
    const input=editor.getByLabel(label,{exact:true});await input.scrollIntoViewIfNeeded();
    const box=await input.boundingBox();expect(box).not.toBeNull();
    expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
   }
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
  }
-});
-
-test('container families filter choices; type-specific inputs survive switching and reload',async({page})=>{
- const {editor,writes}=await setup(page,'Both',{ContainerRequest:'Dry'});
- const selector=editor.getByLabel('Container type',{exact:true});
- await expect(selector.locator('option')).toHaveText(['Choose container type','20DC','40DC','40HC']);
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await editor.getByLabel('Carton / Container Floor',{exact:true}).fill('100');
- await selector.selectOption('40HC');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await expect(editor.getByLabel('Pallet / Container',{exact:true})).toHaveValue('44');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await editor.getByLabel('Carton / Container Floor',{exact:true}).fill('200');
- await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('2,200');
- await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('1,100');
- await selector.selectOption('20DC');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await expect(editor.getByLabel('Carton / Container Floor',{exact:true})).toHaveValue('100');
- await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
- expect(writes[0].rows[0].ContainerLoadProfiles['40HC']).toMatchObject({PalletsPerContainer:'44',CartonsPerContainerFloor:'200'});
- await selector.selectOption('40HC');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await expect(editor.getByLabel('Carton / Container Floor',{exact:true})).toHaveValue('200');
-});
-
-test('Reefer floor loads use same selector with separate saved counts',async({page})=>{
- const {editor}=await setup(page,'Floor load',{ContainerRequest:'Reefer'});
- const selector=editor.getByLabel('Container type',{exact:true});
- await expect(selector.locator('option')).toHaveText(['Choose container type','20RC','40RHC']);
- await editor.getByLabel('Carton / Container Floor',{exact:true}).fill('100');
- await selector.selectOption('40RHC');
- await expect(editor.getByLabel('Carton / Container Floor',{exact:true})).toHaveValue('');
- await editor.getByLabel('Carton / Container Floor',{exact:true}).fill('200');
- await expect(editor.getByLabel('Net weight / Container Floor (kg)',{exact:true})).toHaveValue('100');
- await selector.selectOption('20RC');
- await expect(editor.getByLabel('Carton / Container Floor',{exact:true})).toHaveValue('100');
- await expect(editor.getByLabel('Net weight / Container Floor (kg)',{exact:true})).toHaveValue('50');
-});
-
-test('changing pallet updates all type capacities; invalid inactive profile blocks review',async({page})=>{
- const {editor,writes}=await setup(page);
- await expect(editor.getByLabel('Container type',{exact:true}).locator('option')).toHaveCount(6);
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await editor.getByLabel('Container type',{exact:true}).selectOption('40HC');
- await editor.getByLabel('Pallet size',{exact:true}).selectOption('1.2x1.2m');
- await expect(editor.getByLabel('Pallet / Container',{exact:true})).toHaveValue('34');
- await editor.getByLabel('Container type',{exact:true}).selectOption('20DC');
- await expect(editor.getByLabel('Pallet / Container',{exact:true})).toHaveValue('15');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await editor.getByLabel('Carton / Container Floor',{exact:true}).fill('1.5');
- await editor.getByLabel('Container type',{exact:true}).selectOption('40HC');
- await editor.getByRole('button',{name:'Review & save',exact:true}).click();
- await expect(page.getByRole('dialog',{name:'Confirm request save'})).toHaveCount(0);
- expect(writes).toHaveLength(0);
-});
-
-test('pallet-load fields share one desktop row',async({page})=>{
- const {editor}=await setup(page);
- const bounds=await Promise.all(['Container type','Layer / Container','Pallet / Container','Carton / Container','Net weight / Container (kg)'].map(label=>editor.getByLabel(label,{exact:true}).boundingBox()));
- expect(new Set(bounds.map(b=>Math.round(b!.y))).size).toBe(1);
-});
-
-
-test('clear selector keeps profiles and requires selection before editing counts',async({page})=>{
- const {editor}=await setup(page);
- const selector=editor.getByLabel('Container type',{exact:true});
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
- await selector.selectOption('');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveAttribute('readonly','');
- await expect(editor.getByLabel('Carton / Container Floor',{exact:true})).toHaveAttribute('readonly','');
- await selector.selectOption('20DC');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('5');
-});
-
-test('20RC uses 2070 mm while every other container uses 2090 mm',async({page})=>{
- const {editor,writes}=await setup(page,'Both',{HeightMM:1040,ResponseMaxPalletHeightMM:1190});
- await expect(editor.getByLabel('Pallet height (mm)',{exact:true})).toHaveValue('1,190');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('2');
- await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('400');
- for(const kind of ['40DC','40HC','40RHC']){
-  await editor.getByLabel('Container type',{exact:true}).selectOption(kind);
-  await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('2');
- }
- await editor.getByLabel('Container type',{exact:true}).selectOption('20RC');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('1');
- await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('180');
- await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('90');
- await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
- expect(writes[0].rows[0]).not.toHaveProperty('LayersPerContainer');
- for(const profile of Object.values(writes[0].rows[0].ContainerLoadProfiles))expect(profile).not.toHaveProperty('LayersPerContainer');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('1');
-});
-
-test('shipping height above clearance yields zero totals, independent of maximum pallet height',async({page})=>{
- const {editor}=await setup(page,'Both',{HeightMM:2300,ResponseMaxPalletHeightMM:2500});
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('0');
- await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('0');
- await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('0');
- await editor.getByLabel('Max pallet height (mm)',{exact:true}).click();
- await editor.getByLabel('Max pallet height (mm)',{exact:true}).fill('');
- await expect(editor.getByLabel('Max pallet height (mm)',{exact:true})).toHaveValue('');
- await expect(editor.getByLabel('Layer / Container',{exact:true})).toHaveValue('0');
- await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('0');
-});
-
-test('new PCR size snapshots constrain Dry and Reefer response choices',async({page})=>{
- const {editor}=await setup(page,'Both',{ContainerRequest:'Dry',ShipmentContainerSizeFT:'40FT'});
- await expect(editor.getByLabel('Container type',{exact:true}).locator('option')).toHaveText(['Choose container type','40DC','40HC']);
-});
-test('40FT Reefer response retains 40RHC without introducing 40RC',async({page})=>{
- const {editor}=await setup(page,'Floor load',{ContainerRequest:'Reefer',ShipmentContainerSizeFT:'40FT'});
- await expect(editor.getByLabel('Container type',{exact:true}).locator('option')).toHaveText(['Choose container type','40RHC']);
 });

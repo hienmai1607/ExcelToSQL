@@ -6,7 +6,7 @@ async function setup(page:Page,scope='Product'){
   const u=new URL(route.request().url()),p=u.pathname;
   if(p.endsWith('/session'))return route.fulfill({json:{username:'Tester',user_id:1,scopes:[scope],is_admin:scope==='Admin'}});
   if(p.endsWith('/preferences')){if(route.request().method()==='POST')profile={settings:route.request().postDataJSON().settings,version:profile.version+1};return route.fulfill({json:profile})}
-  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{customers:[{ID:1,CustomerName:"Northstar",Status:"Active"}],materials:[],currencies:[],creators:[{ID:1,UserName:'Tester'}]}});
+  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:"Northstar",Status:"Active"}],materials:[],currencies:[],creators:[{ID:1,UserName:'Tester'}]}});
   if(p==='/api/workbench/masters/products')return route.fulfill({json:{rows:[{ID:7,CustomerID:1,CustomerName:'Northstar',ProductCode:'P1',ProductName:'Almonds',WeightGrams:'100.00',WeightOz:'3.53',Status:'Active',CreatedByName:'Tester',RowVersion:rv}],total:1,page:1}});
   if(p==='/api/product/batch'){const body=route.request().postDataJSON();writes.push(body);return route.fulfill({json:{results:body.rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
   return route.fulfill({json:{rows:[],total:0}});
@@ -22,11 +22,11 @@ test('Product user gets master; batch grams and ounces use existing write API',a
  const form=page.getByRole('dialog',{name:'New product',exact:true});
  await form.getByLabel('Product name',{exact:true}).fill('Cashews');await form.getByLabel('Weight',{exact:true}).fill('250.123');
  await form.getByLabel('Customer',{exact:true}).selectOption('1');
- await form.getByLabel('Category',{exact:true}).fill('Nuts');
+ await form.getByLabel('Category',{exact:true}).selectOption('Nuts');
  await form.getByRole('button',{name:'Add record section'}).click();
  const second=form.getByRole('region',{name:'Record 2'});
  await second.getByLabel('Customer',{exact:true}).selectOption('1');
- await second.getByLabel('Category',{exact:true}).fill('Nuts');
+ await second.getByLabel('Category',{exact:true}).selectOption('Nuts');
  await second.getByLabel('Product name',{exact:true}).fill('Walnuts');await second.getByLabel('Weight',{exact:true}).fill('8');await second.getByLabel('Weight unit',{exact:true}).selectOption('oz');
  await form.getByRole('button',{name:'Review & save'}).click();expect(state.writes).toHaveLength(0);
  await page.getByRole('button',{name:'Confirm save'}).click();await expect(form).toHaveCount(0);
@@ -54,9 +54,9 @@ test('invalid weights blocked before submission',async({page})=>{
  }
  expect(state.writes).toHaveLength(0);
 });
-test('product view sort, creator filter, profile and export are independent',async({page})=>{
+test('product view sort, creator filter, profile and template are independent',async({page})=>{
  const state=await setup(page);let exported:any;
- await page.route('**/api/workbench/masters/products/export',route=>{exported=route.request().postDataJSON();return route.fulfill({body:'xlsx',contentType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})});
+ await page.route('**/api/workbench/product-excel/download',route=>{exported=route.request().postDataJSON();return route.fulfill({body:'xlsx',contentType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})});
  const request=page.waitForRequest(r=>r.url().includes('/masters/products?')&&new URL(r.url()).searchParams.get('sort')?.includes('WeightGrams')===true);
  await page.getByRole('button',{name:'Sort by Net Weight (g)',exact:true}).click();await request;
  await page.getByRole('button',{name:'Layout options',exact:true}).click();
@@ -66,12 +66,12 @@ test('product view sort, creator filter, profile and export are independent',asy
  await layout.getByRole('button',{name:'Save layout to profile'}).click();await expect(page.getByRole('status')).toContainText('saved');
  expect(state.profile().settings.masters.products.values.created_by).toBe('1');
  expect(state.profile().settings.columns).toEqual(['CustomerName']);
- await page.getByRole('button',{name:'Export current page to Excel',exact:true}).click();
- await expect.poll(()=>exported?.columns).toContain('WeightGrams');
- expect(exported.rows[0]).toContain('100.00');
+ await page.getByRole('button',{name:'Excel local template',exact:true}).click();
+ await expect.poll(()=>exported?.layout.columns).toContain('WeightGrams');
+ expect(exported.page).toBe(1);
 });
 test('unrelated role has no Product master access',async({page})=>{
- await setup(page,'Packaging');await expect(page.getByRole('button',{name:'Products',exact:true})).toBeDisabled();
+ await setup(page,'Packaging');await expect(page.getByRole('button',{name:'Products',exact:true})).toHaveCount(0);
 });
 
 test('product ID column expands and saves its width',async({page})=>{
@@ -109,7 +109,7 @@ test('small desktop sidebar scrolls and workspace uses compact spacing',async({p
  expect(await sidebar.evaluate(el=>getComputedStyle(el).overflowY)).toMatch(/auto|scroll/);
  const cell=page.getByRole('table').first().locator('tbody td').first();
  expect(await cell.evaluate(el=>parseFloat(getComputedStyle(el).paddingTop))).toBeLessThanOrEqual(10);
- await expect(page.getByRole('button',{name:'Units of Measure',exact:true})).toBeInViewport();
+ await page.getByRole('button',{name:'Units of Measure',exact:true}).scrollIntoViewIfNeeded();await expect(page.getByRole('button',{name:'Units of Measure',exact:true})).toBeInViewport();await page.getByRole('button',{name:'Dark mode',exact:true}).scrollIntoViewIfNeeded();
  await expect(page.getByRole('button',{name:'Dark mode',exact:true})).toBeInViewport();
  await page.setViewportSize({width:1020,height:430});
  await sidebar.evaluate(el=>{el.scrollTop=el.scrollHeight});

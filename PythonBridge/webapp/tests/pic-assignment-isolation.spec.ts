@@ -15,7 +15,7 @@ async function open(page:Page){
   return route.fulfill({json:{rows:[],total:0}});
  });
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
+ await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
  await page.getByRole('button',{name:'View request',exact:true}).click();
  const table=page.getByRole('table',{name:'Packaging request items',exact:true});
  await expect(table.getByLabel('PIC for item 21',{exact:true})).toBeVisible();

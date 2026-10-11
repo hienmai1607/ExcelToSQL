@@ -1,3 +1,4 @@
+from workspace_access import require_page_edit
 """Customer/Market-scoped Port of Entry master. Maintenance is Admin-only."""
 from typing import Literal, Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -54,7 +55,7 @@ def export(body: SharedExport,ctx: AccessContext=Depends(get_access_context)):
 
 @router.post("")
 def save(payload: PortSave, ctx: AccessContext = Depends(get_access_context)):
-    require(ctx, "Admin")
+    require_page_edit(ctx,"ports")
     try:
         return dict(rows=execute("EXEC dbo.usp_PortOfEntry_Save ?,?,?,?,?,?,?",
           [ctx.username,payload.ID,rv(payload.RowVersion, required=bool(payload.ID)),payload.CustomerID,

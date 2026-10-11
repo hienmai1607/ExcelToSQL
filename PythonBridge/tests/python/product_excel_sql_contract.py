@@ -16,6 +16,7 @@ class ExcelSave(unittest.TestCase):
  cleanup=PackagingFoundation.cleanup
  def setUp(self):
   self.setup_base()
+  self.cur.execute("IF OBJECT_ID('dbo.ProductCategory','U') IS NOT NULL INSERT dbo.ProductCategory(CategoryName) SELECT v.Name FROM (VALUES(N'Excel test category'),(N'Excel test'),(N'Must not save')) v(Name) WHERE NOT EXISTS(SELECT 1 FROM dbo.ProductCategory c WHERE c.CategoryName=v.Name)")
   import re
   for batch in re.split(r"^GO\s*$",(ROOT/"sql/29_product_mix.sql").read_text(),flags=re.M|re.I):
    if batch.strip():

@@ -29,7 +29,7 @@ TEXT_FIELDS={"FirstPMType","SecondPMType","PackagingDescription","CostBasis","Re
 EXTRA={"CostBasis","ResponseNotes","HeightMM","WidthMM","LengthMM"}
 META=["_RequestID","_ItemID","_ItemVersion","_Original"]
 ALL_ITEMS=ITEMS|EXTRA
-LABELS={"RequestNumber":"Request","OpportunityNumber":"Opportunity","CustomerName":"Customer","ResponseDue":"Response due",
+LABELS={"ApplicableNetWeightGrams":"Applicable Net weight (g)","RequestNumber":"Request","OpportunityNumber":"Opportunity","CustomerName":"Customer","ResponseDue":"Response due",
 "RequestStatus":"Status","RequestedAt":"Requested at (UTC+7)","RequestedByName":"Requested by","ItemCount":"Items",
 "ProductCode":"Product code","ItemDescription":"Description","AnnualUnit":"Annual units","PIC":"PIC username",
 "ItemStage":"Stage","FirstPMType":"Primary Type",
@@ -127,6 +127,7 @@ def build(body,data,base):
 
 @router.post("/download")
 def download(body:View,request:Request,ctx:AccessContext=Depends(get_access_context)):
+ if not ctx.is_admin and ctx.permissions is not None and ctx.permissions.get("requests")!="edit":return readonly(body,ctx)
  require(ctx,"Packaging","PackagingManager","Opportunity")
  if not TEMPLATE.exists():raise HTTPException(503,"Packaging Request Excel template is not installed.")
  base=os.environ.get("EXCEL_API_BASE_URL",str(request.base_url))
@@ -207,3 +208,10 @@ def save(body:Batch,ctx:AccessContext=Depends(get_access_context)):
    if exc.status_code>=500:raise
    results.append(dict(row=edit.row,status="ERROR",message=exc.detail))
  return {"results":results}
+
+@router.post("/readonly")
+def readonly(body:View,ctx:AccessContext=Depends(get_access_context)):
+ from workspace_readonly import readonly_workbook
+ data=read_page(body,ctx)
+ columns=list(dict.fromkeys([*body.views.header.columns,*body.views.items.columns]))
+ return readonly_workbook(columns,data["rows"],{},"packaging-readonly.xlsx")

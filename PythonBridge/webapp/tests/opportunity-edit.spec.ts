@@ -1,19 +1,19 @@
 import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
-const header={CustomerCurrencyCode:'USD',ExchangeRateVNDPerUSD:25000,ExchangeRateCustomerCurrencyPerUSD:1,OpportunityID:1,OpportunityNumber:'OPP-1',CustomerID:1,CustomerName:'Northstar',OpportunityDesc:'Retail',BidOpen:'2026-09-01',BidClose:'2026-10-01',HeaderStage:'Draft',HeaderRowVersion:rv};
+const header={ContainerRequest:'20DC',PalletSize:'1.1x1.1M',CustomerCurrencyCode:'USD',ExchangeRateVNDPerUSD:25000,ExchangeRateCustomerCurrencyPerUSD:1,OpportunityID:1,OpportunityNumber:'OPP-1',CustomerID:1,CustomerName:'Northstar',OpportunityDesc:'Retail',BidOpen:'2026-09-01',BidClose:'2026-10-01',HeaderStage:'Draft',HeaderRowVersion:rv};
 const rows=[
  {...header,ItemID:11,ConfigurationRequest:'Pallet load',PalletSize:'Legacy pallet',ProductName:'Roasted almonds',WeightGrams:'100.00',ProductID:2,ProductCode:'Almonds',ItemDescription:'Almond pack',AnnualUnit:100,EstPctAwarded:null,ShelfPrice:20,ItemStage:'Draft',ItemRowVersion:'AAAAAAAAAAI='},
  {...header,ItemID:12,ProductID:3,ProductCode:'Cashews',ItemDescription:'Cashew pack',AnnualUnit:5,EstPctAwarded:0,ShelfPrice:3,ItemStage:'Draft',ItemRowVersion:'AAAAAAAAAAM='},
  {...header,ItemID:13,ProductID:4,ProductCode:'Walnuts',ItemDescription:'Walnut pack',AnnualUnit:20,EstPctAwarded:50,ShelfPrice:null,ItemStage:'In progress',ItemRowVersion:'AAAAAAAAAAQ='}
 ];
-async function setup(page:Page,locked=false){
+async function setup(page:Page,locked=false,packagingLocked=false){
  let profile:any={settings:{dark:false,nav_hidden:false,columns:['CustomerName'],filters:[],sort:[],page_size:25},version:0};
  const writes:any[]=[];
  await page.route('**/api/**',route=>{
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',user_id:10,scopes:['Opportunity'],is_admin:false}});
   if(path==='/api/workbench/preferences'){if(route.request().method()==='POST')profile={settings:route.request().postDataJSON().settings,version:profile.version+1};return route.fulfill({json:profile})}
-  if(path==='/api/opportunity/grid')return route.fulfill({json:{rows:rows.map(r=>({...r,HeaderStage:locked?'In progress':'Draft'})),total:1,page:1}});
+  if(path==='/api/opportunity/grid')return route.fulfill({json:{rows:rows.map(r=>({...r,HasOpenPackagingRequest:packagingLocked,HeaderStage:locked?'In progress':'Draft'})),total:1,page:1}});
   if(path==='/api/opportunity/lookups')return route.fulfill({json:{pallets:[{ID:1,PalletSize:"1.1x1.1M"},{ID:2,PalletSize:"1200x1000MM"}],currencies:[{ID:1,CurrencyCode:'VND',CurrencyName:'Vietnamese Dong'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2}],products:[{ID:2,CustomerID:1,ProductCode:'Almonds',ProductName:'Roasted almonds'},{ID:3,CustomerID:1,ProductCode:'Cashews',ProductName:'Cashew mix'},{ID:4,CustomerID:1,ProductCode:'Walnuts',ProductName:'Walnut pack'},{ID:5,CustomerID:1,ProductCode:'Pecans',ProductName:'Pecan pack'}]}});
   if(path==='/api/opportunity/batch'){const body=route.request().postDataJSON();writes.push(body);return route.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-1'}],item_results:body.item_rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
   return route.fulfill({json:{rows:[],total:0}});
@@ -54,6 +54,15 @@ test('legacy pallet selection remains visible and preserved on unrelated edits',
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('updated');
  expect(state.writes[0].item_rows[0].PalletSize).toBe('Legacy pallet');
+});
+
+test('locked item label does not overlap Product Info',async({page})=>{
+ await setup(page,false,true);
+ await page.getByRole('button',{name:'Edit Opportunity OPP-1',exact:true}).click();
+ const item=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}).getByRole('region',{name:'Item 1',exact:true});
+ const badge=(await item.getByText('Packaging locked',{exact:true}).boundingBox())!;
+ const fields=(await item.locator('.opportunity-entry-fields').boundingBox())!;
+ expect(badge.x+badge.width).toBeLessThanOrEqual(fields.x-4);
 });
 
 test('legacy pallet can be replaced by an active master choice',async({page})=>{
@@ -121,7 +130,7 @@ test('item edit sends changed line version and new items, preserves blanks and l
  await expect(form.getByRole('button',{name:'Remove item 1',exact:true})).toBeDisabled();
  await form.getByRole('button',{name:'Add item',exact:true}).click();
  const added=form.getByRole('region',{name:'Item 4',exact:true});
- await added.getByLabel('Product *').selectOption('5');await added.getByLabel('Annual units *').fill('50');
+ await added.getByLabel('Product *').selectOption('5');await added.getByLabel('Annual units *').fill('50');await added.getByText('Packaging requirements',{exact:true}).click();await added.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');await added.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await added.getByLabel('Container Type',{exact:true}).selectOption('20DC');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save'}).click();
  await expect(page.getByRole('status')).toContainText('updated');
  expect(state.writes[0].item_rows).toHaveLength(2);

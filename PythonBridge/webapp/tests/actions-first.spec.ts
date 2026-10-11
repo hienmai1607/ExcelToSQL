@@ -46,8 +46,8 @@ async function assertPinned(table:Locator,control:Locator){
 }
 test('Packaging Request ID is first and clickable without horizontal scrolling, then stays pinned',async({page},info)=>{
  const writes=await setup(page);
- await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
- const table=page.getByRole('table',{name:'Packaging requests',exact:true}),edit=table.getByRole('button',{name:'Edit request PCR-1',exact:true});
+ await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
+ const table=page.getByRole('table',{name:'Packaging Requests',exact:true}),edit=table.getByRole('button',{name:'Edit request PCR-1',exact:true});
  await expect(edit).toBeInViewport();
  await expect(table.locator('colgroup col').first()).toHaveCSS('width','500px');
  await expect(table.getByRole('columnheader').first()).toContainText('Request');
@@ -80,9 +80,9 @@ test('master Edit stays pinned while data columns scroll',async({page})=>{
  await edit.click();await expect(page.getByRole('dialog',{name:'Edit material',exact:true})).toBeVisible();
 });
 test('request Review controls are first and selected-row backgrounds remain opaque in both themes',async({page})=>{
- await setup(page);await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
+ await setup(page);await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
  await page.getByRole('button',{name:'View request',exact:true}).click();
- const header=page.getByRole('table',{name:'Packaging requests',exact:true}),items=page.getByRole('table',{name:'Packaging request items',exact:true});
+ const header=page.getByRole('table',{name:'Packaging Requests',exact:true}),items=page.getByRole('table',{name:'Packaging request items',exact:true});
  await expect(items.getByRole('columnheader').first()).toContainText('Review');
  const documents=items.getByLabel('PIC for item 1',{exact:true});await documents.scrollIntoViewIfNeeded();await assertPinned(items,documents);
  const cell=header.locator('tbody tr.selected td').first();

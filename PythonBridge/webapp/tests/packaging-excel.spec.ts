@@ -12,7 +12,7 @@ test('Packaging request workbook uses both layouts and mandatory review columns'
  await page.getByRole('button',{name:'Request layout',exact:true}).click();
  await expect(page.getByRole('group',{name:'Visible columns',exact:true}).getByRole('checkbox',{name:'Request',exact:true})).toBeDisabled();
  const download=page.waitForEvent('download');
- await page.getByRole('button',{name:'Excel Local Update',exact:true}).click();
+ await page.getByRole('button',{name:'Excel local template',exact:true}).click();
  expect((await download).suggestedFilename()).toBe('Packaging_Request_Local_Update.xlsm');
  expect(submitted.views.header.columns).toContain('RequestNumber');
  expect(submitted.views.items.columns).toContain('FirstPMType');

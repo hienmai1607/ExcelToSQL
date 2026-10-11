@@ -159,7 +159,7 @@ in percent; codes L1, L2, etc. follow top-to-bottom order and renumber on remova
 Product Loss Formula supports decimal constants, loss codes, parentheses and
 + - * /, with the same bounded Decimal arithmetic engine as dimensions.
 Use Test calculation to check it. For 5% and 10%, the sequential formula is
-100-(100-L1)*(100-L2)/100 = 14.5%. Blank preserves sequential-yield calculation.
+1-(1-L1)*(1-L2) = 14.5%. Variables are decimal ratios (5% = 0.05); results are automatically multiplied by 100 for percentage output. Do not divide L variables by 100 or multiply the formula by 100. Existing formulas using the old percentage convention must be revised before testing or saving. Blank preserves sequential-yield calculation.
 Formula output must be between 0 and 100%; unknown codes/division by zero fail.
 Packaging Loss has exactly one editable ratio per applicable packaging layer,
 including Mix layers. Historical multiple steps collapse to their combined ratio
@@ -278,10 +278,7 @@ Use Analysis beside the Opportunity number in TCB Review; Back to TCB inputs
 returns to the same unsaved drafts. Analysis is read-only and does not save.
 It includes the selected top-level item and its children, not unrelated items.
 
-The first column contains the 12 cost components. Remaining columns show each
-smallest product unit; a Mix parent column reconciles the children multiplied
-by their quantities, per mix unit. Configured container types have independent
-results. Both loading shows separate Pallet-load and Floor-load tables.
+The first column contains cost components. Remaining columns show standalone or smallest child products; Mix parent result columns are excluded. One table uses the selected container. Both combines pallet and floor costs.
 
 Calculations use exact rational arithmetic with 453.59237 grams per pound;
 rounding to two decimals is display-only. Product USD/unit is Product USD/lb
@@ -306,8 +303,8 @@ Packing USD/unit is parent Packing USD/lb divided by 453.59237 and multiplied
 by each child's net grams. Estimated awarded units are parent AnnualUnit
 multiplied by EstPctAwarded / 100, and for Mix multiplied by total child quantity.
 Design and fixed costs divide by that amount. Interest is the subtotal of rows
-1-8 multiplied by InterestPct / 100 and InterestMonths / 12. Margin includes
-Interest: subtotal of rows 1-9 multiplied by MarginPct / 100. FOB sums rows 1-10.
+1-8 multiplied by InterestPct / 100 and InterestDays / 360 (legacy months / 12). Margin includes
+Interest: subtotal of rows 1-9 multiplied by MarginPct / 100, or the selected USD/lb margin converted by product weight. FOB sums rows 1-10.
 Customer FOB uses the Opportunity currency-per-USD rate, or VND-per-USD for VND.
 
 Blank optional shipment costs are treated as zero. Missing Product/PM prices,
@@ -324,15 +321,12 @@ requires no SQL migration or API restart.
 
 The Analysis action is now a chart icon beside the Opportunity number, with
 an accessible Analysis label and tooltip. The return action is a back icon.
-Standalone items do not offer Analysis. Mix reviews display only child product
+Standalone items also offer Analysis. Mix reviews display only child product
 columns, without a Mix-parent roll-up column.
 
 Analysis shows one table using the response's selected container, not separate
 Pallet-load/Floor-load or container-profile tables. Pallet-only and floor-only
-requests retain their corresponding cost calculations. Both (or an unset
-loading method) is deliberately deferred: pallet and fobbing costs, and hence
-Interest, Margin and FOB, remain Incomplete with an explanation. No loading
-method is silently selected for Both. Non-loading cost rows remain available.
+requests retain their corresponding cost calculations. Both combines pallet and floor costs in one result; only an unset loading method is deferred.
 Shared parent costs still use equal allocation per smallest child unit.
 
 Deploy rebuilt webapp/dist and refresh the browser. No API restart or migration
@@ -354,7 +348,7 @@ be below 100%; otherwise the fees and DDP show Incomplete.
 
 CFR = FOB + Freight and is a display subtotal only. DDP = FOB + rows 1–13,
 without adding CFR again. DDP customer currency uses the Opportunity exchange
-rate. Both loading remains deferred; incomplete capacity-dependent costs are
+rate. Both uses combined pallet and floor costs; incomplete capacity-dependent costs are
 not silently filled in. Blank optional charges and ratios are treated as zero.
 
 ## Opportunity TCB Review columns and Excel
@@ -368,7 +362,7 @@ These columns use saved TCBCostInfo and the permission-filtered packaging
 responses, not unsaved popup edits or automatic repricing from changed masters.
 Saving TCB Review and closing it refreshes the grid. Mix parents have blank
 result columns; standalone and child products have per-unit results. Missing
-inputs and deferred Both loading produce blank values rather than guessed costs.
+inputs produce blank values rather than guessed costs.
 
 Opportunity Excel follows the selected layout and exports these values under
 TCB Review group/subgroup headers, with Auto calculate category cells. They
@@ -380,8 +374,22 @@ to load the new grid/export calculation module, then refresh the browser.
 Analysis is also available for standalone products. Their own shipment, pallet,
 awarded-unit and container quantities are used directly; Parent Packaging is zero.
 Mix parents remain excluded from result columns, while their child products retain
-equal shared-parent cost allocation. Both loading remains deferred.
+equal shared-parent cost allocation. Both uses one result and combines pallet and floor costs.
 
 ### Validation and scrolling
 
 TCB Review shows validation beside the affected cost, price, or loss ratio instead of floating alerts. An item-linked summary opens collapsed sections and focuses the affected field. Read-only items are excluded from save validation; partial saves retain remaining edits. The grid keeps both TCB header rows together while scrolling.
+
+### Revised shipment units
+
+The Pallet & Floor cost row uses pallet price / total smallest units per pallet
+for Pallet loading; USD/MT x applicable product weight (g) / 1,000,000 for Floor;
+and the sum for Both. Both uses the unified manual Cartons / Container capacity.
+
+Interest uses days / 360; historical months retain their equivalent months / 12.
+Margin uses either costs through Interest x margin ratio or USD/lb x product
+net weight (g) / 453.59237. Payment term days does not affect Payment Term %.
+
+Clearance uses customer-currency-per-pallet / FX / smallest units per pallet.
+Legacy USD/container values are not reinterpreted. Apply migration 102 for the
+new editable shipment inputs. The grid, Analysis and Excel use the same rules.

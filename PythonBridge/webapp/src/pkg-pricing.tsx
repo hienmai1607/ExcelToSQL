@@ -110,10 +110,10 @@ export function PkgPricing({itemID,order,typeID,layerCount=2,initial,initialResu
   catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
  return <Modal label={order+' Pricing Calculator'} className="dialog pkg-pricing-dialog" onClose={close}>
-  <div onKeyDown={e=>{if(e.key==='Enter'&&e.target instanceof HTMLInputElement){e.preventDefault();if(lines.length&&!busy&&!unavailable.length)void calculate()}}}>
+  <div className="pricing-calculator-layout" onKeyDown={e=>{if(e.key==='Enter'&&e.target instanceof HTMLInputElement){e.preventDefault();if(lines.length&&!busy&&!unavailable.length)void calculate()}}}>
   <header className="customer-editor-heading"><h2>{order} Pricing Calculator<InfoTip text={"Effective prices today (UTC), from active child types. Quantity from is used as vendor MOQ. Quantities and totals are per one "+order.toLowerCase()+" packaging unit. Apply, then save the response to store the snapshot."}/></h2><IconButton icon="close" label="Close pricing calculator" disabled={busy} onClick={close}/></header>
 
-  <ErrorNote value={error}/>{!options?<p>Loading materials…</p>:<>
+  <div className="pricing-calculator-body"><ErrorNote value={error}/>{!options?<p>Loading materials…</p>:<>
    <div className="pricing-reference"><label>Reference from another request<select aria-label="Pricing reference" value={referenceChoice} disabled={busy} onChange={e=>setReferenceChoice(e.target.value)}><option value="">Choose a saved setup</option>{references.map(r=><option key={String(r.ID)} value={String(r.ID)}>{String(r.RequestNumber)} / {String(r.OpportunityNumber)} · {String(r.ProductCode)} · {String(r.PackagingTypeName)} · {String(r.CreatedAt)}</option>)}</select></label><button type="button" disabled={busy||!referenceChoice} onClick={loadReference}>Load reference</button></div>
    {referenceID&&<p className="muted">Reference pricing #{referenceID}. Inputs can be edited; current effective prices are used after recalculation.</p>}
    {unavailable.length>0&&<section className="panel" role="alert"><strong>Review unavailable reference components before calculating</strong>{unavailable.map((r,i)=><p key={i}>{String(r.MaterialCode)} — {String(r.MaterialName)}: {String(r.Reason)}</p>)}<p>Add suitable replacements from the current material list, then confirm the omitted lines.</p><button type="button" onClick={()=>{setUnavailable([]);setResult(null)}}>Confirm omitted reference components</button></section>}
@@ -159,8 +159,9 @@ export function PkgPricing({itemID,order,typeID,layerCount=2,initial,initialResu
     </section>;
    })}</div>
    {result&&<div className="panel pricing-total" role="status"><strong>Final MOQ: {fmt(result.FinalMOQ)}</strong><strong>Unit packaging price: {fmt(result.UnitPrice)} {result.CurrencyCode}</strong>{result.UnitUSDPrice!==null&&<span>USD: {fmt(result.UnitUSDPrice)}</span>}</div>}
-   <div className="actions"><button type="button" disabled={busy||lines.length===0||unavailable.length>0} onClick={calculate}>Calculate pricing</button>{editable&&<button type="button" className="primary" disabled={busy||!result||unavailable.length>0} onClick={()=>{if(result)onApply({...payload(),Fingerprint:result.Fingerprint},result)}}>Apply to response</button>}</div>
-  </>}
+
+  </>}</div>
+   <div className="actions pricing-calculator-actions"><button type="button" disabled={busy||!options||lines.length===0||unavailable.length>0} onClick={calculate}>Calculate pricing</button>{editable&&<button type="button" className="primary" disabled={busy||!result||unavailable.length>0} onClick={()=>{if(result)onApply({...payload(),Fingerprint:result.Fingerprint},result)}}>Apply to response</button>}<button type="button" disabled={busy} onClick={close}>Close</button></div>
   </div></Modal>;
 }
 

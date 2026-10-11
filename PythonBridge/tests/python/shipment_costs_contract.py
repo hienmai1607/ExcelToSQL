@@ -20,6 +20,10 @@ class ShipmentModels(unittest.TestCase):
             with self.subTest(field=field),self.assertRaises(ValidationError):
                 ShipmentCostInfo(**{field:value})
         self.assertEqual(ItemFields(ShipmentCostInfo={"DutyPct":"12.50"}).ShipmentCostInfo.DutyPct,12.5)
+    def test_revised_units_and_margin_exclusivity(self):
+        ShipmentCostInfo(FloorLoadUSDPerMT="100",ImportClearanceCustomerPerPallet="150",InterestDays=30,PaymentTermDays=60,MarginMode="USDPerLb",MarginUSDPerLb=".5")
+        for payload in (dict(InterestDays=1.5),dict(PaymentTermDays=-1),dict(MarginMode="Percent",MarginUSDPerLb="1"),dict(MarginPct="10",MarginUSDPerLb="1"),dict(FloorLoadUSDPerMT="1.234")):
+            with self.subTest(payload=payload),self.assertRaises(ValidationError):ShipmentCostInfo(**payload)
     def test_port_code_is_no_longer_an_input(self):
         with self.assertRaises(ValidationError):
             ports_api.PortSave(CustomerID=1,MarketID=1,PortName="Seattle",PortCode="SEA")
@@ -54,7 +58,7 @@ class ShipmentSQL(ProfileFixture,unittest.TestCase):
     request=logistics.MixLogisticsSQL.request
     def setUp(self):
         logistics.MixLogisticsSQL.setUp(self)
-        for name in ("87_mix_packaging_type_orders.sql","88_mix_same_config.sql","89_opportunity_shipment_costs.sql","90_port_name_only.sql"):
+        for name in ("87_mix_packaging_type_orders.sql","88_mix_same_config.sql","89_opportunity_shipment_costs.sql","90_port_name_only.sql","102_shipment_cost_units.sql"):
             self.migrate(name)
         self.market=self.cur.execute("SELECT MarketID FROM dbo.Customer WHERE ID=?",self.customer).fetchval()
     def fields(self,item,**values):
@@ -66,6 +70,17 @@ class ShipmentSQL(ProfileFixture,unittest.TestCase):
         data.update(values)
         return ports_api.save(ports_api.PortSave(**data),self.ctx)["rows"][0]
 
+    def test_revised_units_sql_roundtrip_and_rerun(self):
+        values=dict(FloorLoadUSDPerMT="100",ImportClearanceCustomerPerPallet="150",InterestDays=30,PaymentTermDays=60,MarginMode="USDPerLb",MarginUSDPerLb=".5")
+        self.fields(self.parent,ShipmentCostInfo=values)
+        before=tuple(self.cur.execute("SELECT RowVersion,ShipmentCostInfo FROM dbo.OpportunityItem WHERE ID=?",self.parent).fetchone())
+        self.migrate("102_shipment_cost_units.sql")
+        after=tuple(self.cur.execute("SELECT RowVersion,ShipmentCostInfo FROM dbo.OpportunityItem WHERE ID=?",self.parent).fetchone())
+        self.assertEqual(before,after)
+        for payload in (dict(InterestDays="1.5"),dict(MarginMode="Percent",MarginUSDPerLb="1"),dict(MarginPct="1",MarginUSDPerLb="2")):
+            with self.subTest(payload=payload),self.assertRaises(Exception):
+                self.cur.execute("EXEC dbo.usp_OpportunityShipment_Validate ?,?",self.parent,json.dumps(payload))
+                consume(self.cur)
     def test_name_only_ports_and_migration_rerun_preserve_records(self):
         first=self.port()
         second=self.port(PortName="Another shipment port")

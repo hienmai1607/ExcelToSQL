@@ -52,10 +52,10 @@ async function setup(page:Page,opportunityView?:Record<string,unknown>){
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  return ()=>profile;
 }
-async function requests(page:Page){await page.getByRole('button',{name:'Packaging requests',exact:true}).click();await page.getByRole('button',{name:'View request',exact:true}).click()}
+async function requests(page:Page){await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();await page.getByRole('button',{name:'View request',exact:true}).click()}
 
 test('request note belongs to the header and pagination stays alongside fixed actions',async({page},info)=>{
- await setup(page);await page.getByRole('button',{name:'Packaging requests',exact:true}).click();await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
+ await setup(page);await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request'}),body=editor.locator('.record-dialog-content').first(),footer=editor.locator('.record-dialog-footer');
  await expect(editor.locator('.request-header-note')).toContainText('Use the approved artwork.');
  await expect(editor.getByText(/Keep labels readable/)).toHaveCount(1);

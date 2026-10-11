@@ -21,6 +21,35 @@ test('PCR-30293 saved mix dimensions survive 2 to 1 to 2 without saving',async({
  expect(writes).toHaveLength(0);
 });
 
+test('request layer count is inline and response packing labels and symbols share their row',async({page},info)=>{
+ const {editor}=await setup(page,2,{UnitsPerCarton:6,PrimaryPricePerUnit:'1828.125000003',PrimaryCurrencyCode:'VND',FirstPMMOQ:192000});
+ const packing=editor.getByRole('region',{name:'Packing Way response',exact:true});
+ const geometry=await packing.evaluate(section=>{
+  const quantity=section.querySelector('.packing-way-layer>label')!.getBoundingClientRect();
+  const weight=section.querySelector('.packing-layer-weight')!.getBoundingClientRect();
+  const inputs=section.querySelectorAll('.packing-way-layer input');
+  return {top:Math.abs(inputs[0].getBoundingClientRect().top-inputs[1].getBoundingClientRect().top),quantity:quantity.width,weight:weight.width};
+ });
+ expect(geometry.top).toBeLessThan(2);
+ const primary=editor.getByRole('region',{name:'Primary packaging response',exact:true});
+ const symbolAlignment=await primary.evaluate(section=>{
+  const symbol=section.querySelector('h4')!.getBoundingClientRect(),price=section.querySelector('.response-price-field')!.parentElement!.getBoundingClientRect();
+  return Math.abs(symbol.top-price.top);
+ });
+ expect(symbolAlignment).toBeLessThan(2);
+ await primary.screenshot({path:info.outputPath('response-price-aligned.png')});
+ await editor.getByText('Packaging request',{exact:true}).click();
+ const request=editor.locator('.request-layer-choice');
+ const inline=await request.evaluate(section=>{
+  const label=section.querySelector('.field-label')!.getBoundingClientRect(),value=section.querySelector('p')!.getBoundingClientRect();
+  return Math.abs(label.top+label.height/2-value.top-value.height/2);
+ });
+ expect(inline).toBeLessThan(2);
+ const requestPrimary=editor.getByRole('region',{name:'Primary packaging requirements',exact:true});
+ expect(await requestPrimary.evaluate(section=>Math.abs(section.querySelector('h4')!.getBoundingClientRect().top-section.querySelector('.layer-packing-way .field-label')!.getBoundingClientRect().top))).toBeLessThan(2);
+ await requestPrimary.screenshot({path:info.outputPath('request-symbol-aligned.png')});
+});
+
 test('mix response slots exclude Primary-only master types and save cross-order packaging',async({page})=>{
  const types=[
   {ID:11,PackagingOrder:'Primary',PackagingType:'Pouch',Shipping:false},
@@ -159,32 +188,19 @@ async function setup(page:Page,layers=3,overrides:Record<string,unknown>={},pack
   return route.fulfill({json:{rows:[],total:0,page:1}});
  });
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
+ await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
  await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
  return {writes,editor:page.getByRole('dialog',{name:'Edit Packaging request',exact:true})};
 }
 
-for(const layers of [1,2,3])test('Shipping height sits beside the final layer weight for '+layers+' layers',async({page})=>{
+for(const layers of [1,2,3])test('Shipping height is hidden but preserved for '+layers+' layers',async({page})=>{
  const {editor}=await setup(page,layers,{HeightMM:250,UnitsPerCarton:12,UnitsPerTertiary:5,ResponseMaxPalletHeightMM:1900});
  const packing=editor.getByRole('region',{name:'Packing Way response',exact:true});
- const height=packing.getByLabel('Shipping height (mm)',{exact:true});
- await expect(height).toHaveCount(1);await expect(height).toHaveValue('250');await expect(height).toHaveAttribute('readonly','');
- const finalLayer=packing.locator('.packing-way-layer').last();
- await expect(finalLayer.getByLabel('Shipping height (mm)',{exact:true})).toHaveValue('250');
- const order=['Primary','Secondary','Tertiary'][layers-1];
- const weight=(await finalLayer.getByLabel(order+' net weight (g)',{exact:true}).boundingBox())!,heightBox=(await height.boundingBox())!;
- expect(heightBox.x).toBeGreaterThan(weight.x);expect(Math.abs(heightBox.y-weight.y)).toBeLessThan(6);
- await expect(editor.getByRole('region',{name:'Palletization response',exact:true}).getByLabel('Shipping height (mm)',{exact:true})).toHaveCount(0);
- await expect(editor.getByLabel('Height (mm)',{exact:true})).toHaveCount(0);
+ await expect(packing.getByLabel('Shipping height (mm)',{exact:true})).toBeHidden();
+ await expect(packing.getByLabel('Shipping height (mm)',{exact:true})).toHaveValue('250');
  await expect(editor.getByLabel('Layers / pallet',{exact:true})).toHaveValue('7');
- // Changing confirmed layers moves the one field and invalidates the old geometry.
- const nextLayers=layers===3?2:layers+1;
- await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption(String(nextLayers));
- await expect(packing.getByLabel('Shipping height (mm)',{exact:true})).toHaveCount(1);
- await expect(packing.locator('.packing-way-layer').last().getByLabel('Shipping height (mm)',{exact:true})).toHaveValue('');
- await page.setViewportSize({width:390,height:844});
- const content=editor.locator('.record-dialog-content');
- expect(await content.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
+ const sections=editor.locator('.packaging-layer-sections>section');
+ for(let i=0;i<layers;i++)await expect(sections.nth(i).getByRole('heading')).toHaveText(['I','II','III'][i]);
 });
 
 for(const layers of [1,2,3])test('layer typography and dividers stay consistent for '+layers+' layers',async({page},info)=>{
@@ -238,6 +254,8 @@ test('Packing Way displays captured parent names and units per layer, omitting o
  await expect(secondary.locator('span').first()).toHaveText('Length × Width × Height');
  await expect(secondary.locator('.captured-dimensions-value')).toHaveText('10cm × 20cm × 30cm');
  await expect(tertiary.locator('.captured-dimensions-value')).toHaveText('100mm × 200mm × 300mm');
+ await expect(tertiary.getByLabel('Tertiary dimension height',{exact:true})).toHaveText('300mm');
+ expect(await tertiary.locator('.dimension-height').evaluate(el=>getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
  await expect(packing.locator('.captured-dimensions input')).toHaveCount(0);expect(writes).toHaveLength(0);
  for(const width of [1920,390]){
   await page.setViewportSize({width,height:width===1920?1080:844});
@@ -443,7 +461,7 @@ test('response field help stays next to label text in both themes and on mobile'
   await page.setViewportSize({width,height:width===1920?1080:844});
   for(const theme of ['light','dark']){
    await page.evaluate(theme=>document.documentElement.setAttribute('data-theme',theme),theme);
-   const fields=editor.locator('.response-sections label>.field-label:has(>.info-tip)');
+   const fields=editor.locator('.response-sections label>.field-label:has(>.info-tip):visible');
    await expect(fields).toHaveCount(7);
    for(const field of await fields.all()){
     const text=(await field.locator('.field-label-text').boundingBox())!,icon=(await field.getByRole('note').boundingBox())!;

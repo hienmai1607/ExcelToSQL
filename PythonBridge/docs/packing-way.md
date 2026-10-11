@@ -18,7 +18,7 @@ in a draft; they remain required for submission under the existing layer workflo
 
 Each packaging section shows its net weight in grams, read only:
 
-- Primary = request product net weight.
+- Primary = Applicable Net weight (defaults to captured Product weight); Mix parents sum child applicable weights x mix quantities.
 - Secondary = Primary net weight x No of Primary Unit.
 - Tertiary = Secondary net weight x No of Secondary Unit.
 
@@ -50,7 +50,7 @@ Lowering the confirmed layer count clears inactive counts through existing SQL l
 
 Weights are derived server-side on request reads and live in the browser using exact
 decimal arithmetic, not binary floating point. WeightGrams is the request's captured
-product weight: later Product Master edits never change it. Derived output fields are
+product weight: later Product Master edits never change it. ApplicableNetWeightGrams overrides response calculation weight without changing that snapshot. Derived output fields are
 not accepted as response inputs. Missing/invalid factors yield blank weights, never
 guessed zeros. Counts must be positive whole numbers within the SQL INT range.
 New derived response outputs follow existing draft/approved visibility rules.

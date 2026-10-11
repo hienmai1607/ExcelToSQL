@@ -11,7 +11,7 @@ async function setup(page:Page){
   if(p.endsWith('/raw-grade-lookups'))return route.fulfill({json:{rows:gradeNames.map((GradeName,i)=>({ID:i+1,GradeName,ParentGradeID:gradeParent[GradeName]?gradeID(gradeParent[GradeName]):null,MaterialCode:'RAW-1',MaterialName:'Raw nuts'})),materials:[{ID:101,GradeID:gradeID('A1'),MaterialCode:'RAW-101',MaterialName:'Nuts A',Status:'Active'},{ID:102,GradeID:gradeID('A1'),MaterialCode:'RAW-102',MaterialName:'Nuts B',Status:'Active'},{ID:201,GradeID:gradeID('B1'),MaterialCode:'RAW-201',MaterialName:'Other',Status:'Active'}]}});
   if(p.endsWith('/session'))return route.fulfill({json:{username:'Tester',user_id:1,scopes:['Product'],is_admin:false}});
   if(p.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,masters:{}},version:0}});
-  if(p.endsWith('/lookups'))return route.fulfill({json:{customers:[{ID:1,CustomerName:"Northstar",Status:"Active"}],materials:[],currencies:[],creators:[]}});
+  if(p.endsWith('/lookups'))return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:"Northstar",Status:"Active"}],materials:[],currencies:[],creators:[]}});
   if(p.endsWith('/masters/products'))return route.fulfill({json:{rows:[product],total:1,page:1}});
   if(p==='/api/product/batch'){const body=route.request().postDataJSON();writes.push(body);return route.fulfill({json:{results:body.rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
   if(p.endsWith('/products/7/grades'))return route.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Active',RowVersion:rv}],items:[{VersionID:3,ParentID:'0',ID:1,Grade:'Existing',RawGradeID:gradeID('Existing'),RatioPct:100}]}});
@@ -28,7 +28,7 @@ test('new Product has automatic code and nested tree grades persist in the Produ
  await expect(form.getByText('Product code: Assigned on save')).toBeVisible();
  await form.getByLabel('Customer',{exact:true}).selectOption('1');
  await form.getByLabel('Product name',{exact:true}).fill('Blend');
- await form.getByLabel('Category',{exact:true}).fill('Nuts');
+ await form.getByLabel('Category',{exact:true}).selectOption('Nuts');
  await form.getByLabel('Weight',{exact:true}).fill('100');
  await form.getByRole('button',{name:'Grades for record 1'}).click();
  const grades=page.getByRole('dialog',{name:'Product grades',exact:true});
@@ -251,7 +251,7 @@ test('child grade chooses a linked Raw Material and Raw Pricing follows the choi
  const form=page.getByRole('dialog',{name:'New product',exact:true});
  await form.getByLabel('Customer',{exact:true}).selectOption('1');
  await form.getByLabel('Product name',{exact:true}).fill('Material choice');
- await form.getByLabel('Category',{exact:true}).fill('Nuts');
+ await form.getByLabel('Category',{exact:true}).selectOption('Nuts');
  await form.getByLabel('Weight',{exact:true}).fill('100');
  await form.getByRole('button',{name:'Grades for record 1'}).click();
  const grades=page.getByRole('dialog',{name:'Product grades',exact:true});

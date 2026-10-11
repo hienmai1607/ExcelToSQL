@@ -27,12 +27,14 @@ def mix_totals(snapshot, children):
     if not isinstance(items, list) or not items:
         return empty
     densities = {}
+    weights = {}
     for child in responses or []:
         if not isinstance(child, dict):
             continue
         key = str(child.get("ProductID"))
         # Ambiguous responses must not silently pick a density.
         densities[key] = None if key in densities else number(child.get("NutDensity"))
+        if "ApplicableNetWeightGrams" in child: weights[key]=number(child.get("ApplicableNetWeightGrams"),zero=True)
     weight, volume, seen = Decimal(0), Decimal(0), set()
     complete = True
     with localcontext() as context:
@@ -42,7 +44,7 @@ def mix_totals(snapshot, children):
                 return empty
             key = str(child.get("ProductID"))
             quantity = number(child.get("UnitQuantity", child.get("MixUnitQuantity")))
-            grams = number(child.get("WeightGrams"), zero=True)
+            grams = weights.get(key) if key in weights else number(child.get("WeightGrams"), zero=True)
             if key in ("None", "") or key in seen or quantity is None or grams is None:
                 return empty
             seen.add(key)

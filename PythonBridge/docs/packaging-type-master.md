@@ -1,5 +1,7 @@
 # Packaging Type Master
 
+Current UI and assignment rules: [Final components](packaging-final-component.md). Migration 99 removes the Order caption and Price Basis input, repositions Shipping and adds explicit Final component eligibility. The original rollout details below are historical.
+
 Admin and Packaging can maintain records. PackagingManager can view and export.
 
 Required inputs:

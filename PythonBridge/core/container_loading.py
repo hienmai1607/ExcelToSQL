@@ -5,7 +5,7 @@ CONTAINER_TYPES = ("20DC", "40DC", "40HC", "20RC", "40RHC")
 
 
 def container_types(family, size=None):
-    types = CONTAINER_TYPES[:3] if family == "Dry" else CONTAINER_TYPES[3:] if family == "Reefer" else CONTAINER_TYPES
+    types = (family,) if family in CONTAINER_TYPES else CONTAINER_TYPES[:3] if family == "Dry" else CONTAINER_TYPES[3:] if family == "Reefer" else CONTAINER_TYPES
     return tuple(kind for kind in types if size not in ("20FT", "40FT") or kind.startswith(size[:2]))
 
 

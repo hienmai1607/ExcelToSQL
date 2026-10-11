@@ -16,6 +16,17 @@ test('mix child pricing does not require Shipping D3 even on its last packaging 
  expect(previews[0]).toMatchObject({PackagingOrder:'Secondary',LayerCount:2,D3:null});
 });
 
+test('pricing popup actions stay visible while content scrolls',async({page})=>{
+ const {dialog}=await setup(page);
+ const footer=dialog.locator('.pricing-calculator-actions'),before=await footer.boundingBox();
+ await expect(footer.getByRole('button',{name:'Calculate pricing',exact:true})).toBeInViewport();
+ await expect(footer.getByRole('button',{name:'Apply to response',exact:true})).toBeInViewport();
+ await expect(footer.getByRole('button',{name:'Close',exact:true})).toBeInViewport();
+ await dialog.locator('.pricing-calculator-body').evaluate(el=>el.scrollTop=el.scrollHeight);
+ const after=await footer.boundingBox();
+ expect(after!.y).toBeCloseTo(before!.y,1);
+});
+
 test('child consumption formula is selected separately from parent occupied space',async({page})=>{
  const state=await setup(page,true);
  state.optionsData.dimensions.push({ID:9,PackagingTypeID:2,ParentDimensionID:1,PackagingType:'Label',D1Name:'Height',D2Name:'Width',D1Unit:'mm',D2Unit:'mm',ConvertFromParentFormula:'(D2*2+25)*D1/1000000',ConvertFromSupplierFormula:'D1*D2/1000000',RowVersion:'AAAAAAAAAAE='});
@@ -78,7 +89,7 @@ async function setup(page:Page,area=false,previewFailure=false,threeLayers=false
   if(p==='/api/packaging/response/batch'){const data=route.request().postDataJSON();writes.push(data);Object.assign(row,data.rows[0]);return route.fulfill({json:{results:[{Status:'OK'}]}})}
   return route.fulfill({json:{rows:[],total:0,page:1}});
  });
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests',exact:true}).click();await page.getByRole('button',{name:'Edit request PCR-1'}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();await page.getByRole('button',{name:'Edit request PCR-1'}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request'});
  await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
  return {editor,dialog:page.getByRole('dialog',{name:'Primary Pricing Calculator',exact:true}),writes,previews,geometryPreviews,optionsData,row};

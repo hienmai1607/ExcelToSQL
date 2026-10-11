@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 for(const entity of ['ports','loss-processes'] as const)test(entity+' uses the unified searchable, sortable and saved master view',async({page})=>{
- const title=entity==='ports'?'Ports of Entry':'Loss Process Master',queries:URLSearchParams[]=[],profiles:any[]=[],exports:any[]=[];
+ const title=entity==='ports'?'Ports of Entry':'Loss Master',queries:URLSearchParams[]=[],profiles:any[]=[],exports:any[]=[];
  const row=entity==='ports'?{ID:1,PortName:'Seattle',CustomerName:'Northstar',MarketName:'United States',Status:'Active'}:{ID:1,ProcessType:'Sorting',Sequence:1,LossPct:'5',Status:'Active'};
  await page.route('**/api/**',route=>{
   const url=new URL(route.request().url()),path=url.pathname;
@@ -36,7 +36,7 @@ for(const entity of ['ports','loss-processes'] as const)test(entity+' uses the u
  await expect.poll(()=>profiles.length).toBe(1);
  expect(profiles[0].settings.shared_masters[entity].columns).not.toContain('Status');
  const download=page.waitForEvent('download');
- await toolbar.getByRole('button',{name:'Export current page to Excel',exact:true}).click();
+ await toolbar.getByRole('button',{name:'Excel local template',exact:true}).click();
  await download;expect(exports[0].columns).not.toContain('Status');
  await page.getByRole('button',{name:'Clear',exact:true}).click();
  await expect.poll(()=>queries.at(-1)?.get('status')??'').toBe('');

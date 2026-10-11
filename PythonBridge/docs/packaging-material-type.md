@@ -15,3 +15,4 @@ VM deployment:
 3. Restart the API and download fresh Packaging Material workbooks.
 
 The existing shared workbook template is reused; no VBA rebuild is needed. SQL 53 has been applied locally only.
+Current assignment rules: [Final components](packaging-final-component.md). After migration 99, active Final components without children can be assigned, including parentless types.

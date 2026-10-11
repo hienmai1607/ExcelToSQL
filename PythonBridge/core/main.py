@@ -1,3 +1,4 @@
+from administrator_api import router as administrator_router
 """
 main.py — Product and Opportunity batch endpoints.
 
@@ -28,7 +29,7 @@ from packaging_type_api import router as packaging_type_router
 from tcb_api import router as tcb_router
 from loss_process_api import router as loss_process_router
 from customer_sort import parse_sort
-from ports_api import router as ports_router, opportunity_shipment_lookups
+from ports_api import router as ports_router, opportunity_shipment_lookups; from category_api import router as category_router
 from opportunity_views import sorted_grid
 from packaging_fields import enriched_batch
 from preferences_api import router as preferences_router
@@ -56,6 +57,7 @@ from schemas import (
 )
 
 app = FastAPI(title="Opportunity/Product Bridge API")
+app.include_router(administrator_router)
 app.include_router(opportunity_changes_router)
 app.include_router(packaging_changes_router)
 app.include_router(product_excel_router)
@@ -77,7 +79,7 @@ app.include_router(raw_material_router)
 app.include_router(packaging_master_router)
 app.include_router(preferences_router)
 app.include_router(attachments_router)
-app.include_router(ports_router)
+app.include_router(ports_router); app.include_router(category_router)
 app.include_router(tcb_router)
 app.include_router(loss_process_router)
 _web_dist = Path(__file__).resolve().parents[1] / "webapp" / "dist"
@@ -101,6 +103,23 @@ def health_ready() -> dict[str, str]:
         raise HTTPException(status_code=503, detail="Database is not ready.") from exc
     return {"status": "ready", "database": "ready", "contract": BRIDGE_CONTRACT_VERSION}
 
+
+
+@app.middleware("http")
+async def workspace_permissions(request: Request, call_next):
+ if request.url.path.startswith("/api/"):
+  from starlette.concurrency import run_in_threadpool
+  from fastapi.responses import JSONResponse
+  from auth import get_access_context
+  from workspace_access import enforce_route
+  try:
+   ctx=await run_in_threadpool(get_access_context,request,
+    request.headers.get("X-User-Name"),request.headers.get("X-Authenticated-User"),request.headers.get("X-Proxy-Secret"))
+   request.state.bridge_access=ctx
+   enforce_route(ctx,request.url.path,request.method)
+  except HTTPException as exc:
+   return JSONResponse({"detail":exc.detail},status_code=exc.status_code)
+ return await call_next(request)
 
 @app.middleware("http")
 async def request_metrics(request: Request, call_next):

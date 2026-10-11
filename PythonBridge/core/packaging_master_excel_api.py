@@ -1,3 +1,4 @@
+from workspace_access import require_page_edit
 """Shared Material/Pricing workbook adapter. Existing SQL owns master validation."""
 import io
 import json
@@ -28,8 +29,8 @@ Entity=Literal["materials","prices","raw-materials","raw-prices","vendors","uoms
 router=APIRouter(prefix="/api/workbench/master-excel",tags=["Packaging Master Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Packaging_Master_Local_Update.xlsm"
 CONFIG={
- "packaging-types":dict(table="PackagingType",filename="Packaging_Type_Local_Update.xlsm",title="Packaging Type Master",editable={"ParentType","PackagingOrder","PackagingType","PriceBasis","Shipping","Status"}),
- "pallets":dict(table="v_PalletMaster",filename="Pallet_Master_Local_Update.xlsm",title="Pallet Master",editable={"UnitOfMeasure","Width","Length","Status",*PALLET_CAPACITY_LABELS}),
+ "packaging-types":dict(table="PackagingType",filename="Packaging_Type_Local_Update.xlsm",title="Packaging Type Master",editable={"ParentType","PackagingOrder","PackagingType","Shipping","FinalComponent","Status"}),
+ "pallets":dict(table="v_PalletMaster",filename="Pallet_Master_Local_Update.xlsm",title="Pallet Master",editable={"UnitOfMeasure","Width","Length","PalletPriceUSDPerEA","Status",*PALLET_CAPACITY_LABELS}),
  "uoms":dict(table="UoM",filename="UoM_Local_Update.xlsm",title="UoM",editable={"UoMCode","UoMName","Status"}),
  "vendors":dict(table="Vendor",filename="Vendor_Local_Update.xlsm",title="Vendor",editable={"VendorName","Address","Status","CurrencyCode"}),
  "materials":dict(table="PackagingMaterial",filename="Packaging_Material_Local_Update.xlsm",title="Packaging Material",
@@ -68,7 +69,7 @@ def normalize_row(entity,row):
    value=value.astimezone(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %I:%M %p")
   elif isinstance(value,(date,Decimal)):value=str(value)
   result[key]=value
- if entity=='packaging-types':result['Shipping']=None if row.get('ParentTypeID') is not None else 'True' if row.get('Shipping') else 'False'
+ if entity=='packaging-types':result['FinalComponent']='True' if row.get('FinalComponent') else 'False';result['Shipping']=None if row.get('ParentTypeID') is not None else 'True' if row.get('Shipping') else 'False'
  result.update(Command="N",_ID=row["ID"],_RowVersion=row["RowVersion"])
  result["_Original"]=json.dumps({k:result.get(k) for k in COLUMNS[entity]},ensure_ascii=False)
  return result
@@ -197,6 +198,10 @@ def prepare(entity,edit,source,ctx):
   if isinstance(shipping,str) and shipping.strip().lower() in ('true','false'):shipping=shipping.strip().lower()=='true'
   if not isinstance(shipping,bool):raise ValueError('Shipping must be True or False.')
   data['Shipping']=shipping
+  final=values.get("FinalComponent",source.get("FinalComponent",False))
+  if isinstance(final,str) and final.strip().lower() in ("true","false"):final=final.strip().lower()=="true"
+  if not isinstance(final,bool):raise ValueError("Final component must be True or False.")
+  data["FinalComponent"]=final
   if edit.command!="D" and ("ParentType" in edit.changes or edit.command=="C"):
    name=str(values.get("ParentType") or "").strip()
    if name:
@@ -214,9 +219,9 @@ def prepare(entity,edit,source,ctx):
    name=str(values.get("PackagingType") or "").strip()
    if name:
     matches=execute(master_auth(entity)+"""SELECT ID FROM dbo.PackagingType
-     WHERE (CONCAT(PackagingOrder,N' / ',PackagingType)=? OR PackagingType=?) AND Status='Active' AND ParentTypeID IS NOT NULL
+     WHERE (CONCAT(PackagingOrder,N' / ',PackagingType)=? OR PackagingType=?) AND Status='Active' AND FinalComponent=1
       AND NOT EXISTS(SELECT 1 FROM dbo.PackagingType child WHERE child.ParentTypeID=PackagingType.ID)""",[ctx.username,name,name])[0]
-    if len(matches)!=1:raise ValueError("Choose an active child Packaging Type using Order / Packaging Type; the value is missing or ambiguous.")
+    if len(matches)!=1:raise ValueError("Choose an active Final component Packaging Type using Order / Packaging Type; the value is missing or ambiguous.")
     data["PackagingTypeID"]=matches[0]["ID"]
    else:data["PackagingTypeID"]=None
  if entity in ("prices","raw-prices") and "BaseUoM" in edit.changes:data["PriceBasis"]=edit.changes["BaseUoM"]
@@ -266,7 +271,8 @@ def prepare(entity,edit,source,ctx):
 
 @router.post("/{entity}/save")
 def save(entity:Entity,body:Batch,ctx:AccessContext=Depends(get_access_context)):
- require(ctx,"Admin" if entity=="uoms" else "RawMaterial" if entity in ("raw-materials","raw-prices") else "Packaging")
+ if entity=="uoms":require_page_edit(ctx,"uoms")
+ else:require(ctx,"RawMaterial" if entity in ("raw-materials","raw-prices") else "Packaging")
  source=sources(entity,[r.id for r in body.rows if r.id],ctx)
  results=[]
  for edit in body.rows:

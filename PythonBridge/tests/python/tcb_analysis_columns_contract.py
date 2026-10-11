@@ -40,9 +40,22 @@ class Contracts(unittest.TestCase):
   self.assertEqual(a["TCBPalletPerUnit"],b["TCBPalletPerUnit"])
  def test_incomplete_and_zero_yield_never_become_zero_cost(self):
   r=row();r["_TCBCostInfo"]["Inputs"]["PrimaryLossPct"]="100";add_tcb_columns([r]);self.assertIsNone(r["TCBFOBPerUnit"])
-  r=row();r["ConfigurationRequest"]="Both";add_tcb_columns([r]);self.assertIsNone(r["TCBDDPPerUnit"])
+  r=row();r["ConfigurationRequest"]="Both";add_tcb_columns([r]);self.assertIsNotNone(r["TCBDDPPerUnit"])
   r=row();r["ShipmentCostInfo"].update(SpoilageAllowancePct="50",PaymentTermPct="50");add_tcb_columns([r])
   self.assertIsNone(r["TCBDDPPerUnit"]);self.assertIsNotNone(r["TCBCFRPerUnit"])
+ def test_revised_loading_interest_margin_clearance_and_informational_days(self):
+  for mode,expected in (("Pallet load",.01),("Floor load",.015),("Both",.025)):
+   r=row();r.update(ConfigurationRequest=mode,ApplicableNetWeightGrams="150")
+   r["ShipmentCostInfo"].update(FloorLoadUSDPerMT="100",InterestDays=30,InterestMonths=None,
+    MarginPct=None,MarginMode="USDPerLb",MarginUSDPerLb=".5",ImportClearanceCustomerPerPallet="150",PaymentTermDays=999)
+   add_tcb_columns([r])
+   self.assertAlmostEqual(float(r["TCBPalletPerUnit"]),expected)
+   self.assertEqual(r["TCBMarginPerUnit"],"0.5")
+   self.assertEqual(r["TCBClearancePerUnit"],"0.1")
+   subtotal=sum(float(r[k]) for k in list(TCB_LABELS)[:8])
+   self.assertAlmostEqual(float(r["TCBInterestPerUnit"]),subtotal*.12*30/360,places=10)
+  r=row();r["ShipmentCostInfo"].update(ImportClearanceCustomerPerPallet="0",ImportClearanceUSDPerContainer="100")
+  add_tcb_columns([r]);self.assertEqual(r["TCBClearancePerUnit"],"0")
  def test_schema_accepts_layout_and_blocks_excel_edits(self):
   from opportunity_views import OpportunityViews
   from opportunity_excel_api import Edit

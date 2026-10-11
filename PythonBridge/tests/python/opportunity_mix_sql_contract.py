@@ -49,6 +49,12 @@ class OpportunityMixSQL(unittest.TestCase):
             product, self.ctx)["ID"]
 
     def batch(self, *rows):
+        # New Opportunity roots require parent-owned shipment selections.
+        for row in rows:
+            if row.get("Command") == "C":
+                row.setdefault("ContainerRequest", "20DC")
+                row.setdefault("PalletSize", getattr(self, "size", None) or self.cur.execute(
+                    "SELECT TOP(1) PalletSize FROM dbo.v_PalletMaster WHERE Status='Active' ORDER BY ID").fetchval())
         return opportunity_batch(OpportunityBatchRequest(header_rows=[], item_rows=list(rows)),
                                  self.username, True, self.ctx.scopes)
 

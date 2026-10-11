@@ -13,13 +13,28 @@ from auth import AccessContext
 from pydantic import ValidationError
 
 class Contracts(unittest.TestCase):
+ def test_revised_shipment_merge_preserves_legacy_and_selects_margin(self):
+  import opportunity_excel_api as excel
+  old={"ShipmentCostInfo":{"InterestMonths":2,"ImportClearanceUSDPerContainer":"100","MarginPct":"10","PaymentTermPct":"2"}}
+  result=excel.merge_shipment(None,old,{"InterestDays":"30","PaymentTermDays":"60","MarginUSDPerLb":".5","ImportClearanceCustomerPerPallet":"150"},{})
+  self.assertEqual(result["InterestDays"],30)
+  self.assertEqual(result["PaymentTermDays"],60)
+  self.assertEqual(result["PaymentTermPct"],"2")
+  self.assertIsNone(result["InterestMonths"])
+  self.assertIsNone(result["ImportClearanceUSDPerContainer"])
+  self.assertIsNone(result["MarginPct"])
+  self.assertEqual(result["MarginMode"],"USDPerLb")
+  result=excel.merge_shipment(None,old,{"FreightUSDPerContainer":"10"},{})
+  self.assertEqual(result["ImportClearanceUSDPerContainer"],"100")
+  self.assertEqual(result["InterestMonths"],2)
+
  def setUp(self):
   self.ctx=AccessContext(1,"Admin",frozenset({"Admin"}))
   self.source=dict(OpportunityID=1,OpportunityNumber="OPP-1",CustomerID=2,CustomerName="Customer",OpportunityDesc="Test",
    BidOpen="2026-09-01",BidClose="2026-10-01",CurrencyID=3,CurrencyCode="VND",ExchangeRateToVND="1",
    CustomerCurrencyCode="VND",ExchangeRateVNDPerUSD="25000",ExchangeRateCustomerCurrencyPerUSD="25000",HeaderStage="Draft",HeaderRowVersion="AAAAAAAAAAE=",ItemID=4,ProductID=5,ProductCode="P1",
    ItemDescription="Item",AnnualUnit=10,EstPctAwarded=None,ShelfPrice=None,ItemStage="Draft",ItemRowVersion="AAAAAAAAAAI=",
-   HasOpenPackagingRequest=False,PalletSize="Keep me")
+   HasOpenPackagingRequest=False,PalletSize="Keep me",ContainerRequest="20DC")
  def edit(self,**kw):
   values=dict(row=3,number="OPP-1",opportunity_id=1,item_id=4,header_version="AAAAAAAAAAE=",item_version="AAAAAAAAAAI=")
   return m.Edit(**{**values,**kw})
@@ -179,7 +194,7 @@ class Contracts(unittest.TestCase):
  def test_create_header_multiple_items(self):
   group=[m.Edit(row=n,number="XL-NEW",header_command="C",item_command="C",
    header_changes={k:self.source[k] for k in m.HEADER_REQUIRED if k in m.HEADER_EDITABLE},
-   item_changes={"ProductCode":"P"+str(n),"ItemDescription":"Item","AnnualUnit":5}) for n in (3,4)]
+   item_changes={"ProductCode":"P"+str(n),"ItemDescription":"Item","AnnualUnit":5,"PalletSize":"Keep me","ContainerRequest":"20DC"}) for n in (3,4)]
   with patch.object(m,"resolve",return_value=9):
    p=m.prepare(group,self.ctx)
   self.assertEqual(len(p.header_rows),1);self.assertEqual(len(p.item_rows),2)

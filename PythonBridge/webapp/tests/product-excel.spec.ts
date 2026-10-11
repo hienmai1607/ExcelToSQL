@@ -19,7 +19,7 @@ test('Product Excel workbench uses current layout, filters and page',async({page
  }
  await expect(layout.getByRole('checkbox',{name:'Grade',exact:true})).toHaveCount(0);
  const download=page.waitForEvent('download');
- await page.getByRole('button',{name:'Excel Local Update',exact:true}).click();
+ await page.getByRole('button',{name:'Excel local template',exact:true}).click();
  expect((await download).suggestedFilename()).toBe('Product_Local_Update.xlsm');
  expect(submitted.layout.columns).toEqual(['ProductName','CustomerName','Category','WeightGrams']);
  expect(submitted.layout.values.search).toBe('Nut');

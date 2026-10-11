@@ -8,6 +8,7 @@ from packing_way import packing_way
 from packaging_efficiency import response_derived
 from web_item_fields import WEB_ITEM_FIELDS
 from shipment_columns import SHIPMENT_COLUMNS, shipment_columns
+from item_stage_summary import stage_summary, complete_stage_summaries
 from tcb_analysis_columns import TCB_COLUMNS, add_tcb_columns
 
 HEADER_COLUMNS = {"OpportunityNumber", "CustomerName", "OpportunityDesc", "BidOpen", "BidClose", "HeaderStage", "ItemCount", "CustomerCurrencyCode", "ExchangeRateVNDPerUSD", "ExchangeRateCustomerCurrencyPerUSD"}
@@ -26,7 +27,7 @@ class OpportunityView(BaseModel):
     sort: list[MasterSort] = Field(default_factory=list, max_length=644)
     filters: list[str] | None = Field(None, max_length=5)
     values: dict[str, str] = Field(default_factory=dict, max_length=5)
-    field_version: int = Field(1, ge=1, le=10)
+    field_version: int = Field(1, ge=1, le=12)
     prefix_columns: list[str] | None = Field(None, max_length=64)
 
 def validate_view(view, allowed):
@@ -123,6 +124,10 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CAST(CASE WHEN active_request.ID IS NULL THEN 0 ELSE 1 END AS BIT) HasOpenPackagingRequest,
             request_header.RequestNumber AS OpenPackagingRequestNumber,
             active_request.Stage AS OpenPackagingRequestStage,
+            stage_request.Stage AS _StagePackagingStage,stage_request.RequestNumber AS _StageRequestNumber,
+            stage_request.PIC AS _StagePIC,stage_request.CreatedAt AS _StageRequestedAt,
+            stage_request.SubmittedAt AS _StageSubmittedAt,stage_request.ReviewedAt AS _StageReviewedAt,
+            CASE WHEN @CanReadDraft=1 OR stage_request.Stage IN('Approved','Canceled') THEN stage_request.ManagerComment END AS _StageReason,
             x.Category,x.Grade,x.MixRatioPct,logistics.PalletSize,logistics.PalletStacking,logistics.MaxPalletHeightM,logistics.ContainerRequest,logistics.ConfigurationRequest,x.PackagingType,x.RecyclableRequirement,x.RecycledContent,x.Transparency,x.MetalizedAluminum,p.ShelfLifeDays,x.SpecialComments,
             i.PrimaryTypeID,i.SecondaryTypeID,i.SecondaryTransparency,i.NumberOfPrimary,i.PackagingLayerCount,i.PackagingLayerCount RequestedLayerCount,i.TertiaryTypeID,i.TertiaryTransparency,i.NumberOfSecondary,
             port_entry.PortName AS PortOfEntryName,logistics.ShipmentCostInfo,logistics.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
@@ -147,6 +152,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CAST(CASE WHEN i.ParentItemID IS NULL AND mix.ParentItemID IS NOT NULL THEN 1 ELSE 0 END AS BIT) IsMixParent,
             CASE WHEN i.ParentItemID IS NULL AND (@CanReadDraft=1 OR x.PackagingResponseStage='Approved') THEN
               (SELECT child.ID ItemID,child_oi.ProductID,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN COALESCE(child.ApplicableNetWeightGrams,child.WeightGrams) END ApplicableNetWeightGrams,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN CONVERT(VARCHAR(40),child.NutDensity) END NutDensity
                FROM dbo.PackagingConfigurationRequestItem child JOIN dbo.OpportunityItem child_oi ON child_oi.ID=child.OpportunityItemID
                WHERE child.RequestID=response.RequestID AND child_oi.ParentItemID=i.ID FOR JSON PATH,INCLUDE_NULL_VALUES)
@@ -169,6 +175,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN efficiency_pallet.PalletAreaMM2 END EfficiencyPalletAreaMM2,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN 1 ELSE 0 END PackingWayVisible,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.WeightGrams END PackingProductWeight,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN COALESCE(response.ApplicableNetWeightGrams,response.WeightGrams) END ApplicableNetWeightGrams,
             response.RequestedLayerCount PackingRequestedLayers,response.ConfigurationRequest PackingConfiguration,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN x.FirstPMType END FirstPMType,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN x.SecondPMType END SecondPMType,
@@ -197,11 +204,21 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
           WHERE p.PalletSize=response.ResponsePalletSize AND p.Status='Active' AND u.Status='Active' ORDER BY p.ID) efficiency_pallet
         LEFT JOIN dbo.PackagingConfigurationRequestItem active_request
             ON active_request.OpportunityItemID=i.ID AND active_request.IsOpen=1
+        OUTER APPLY(SELECT TOP(1) r.Stage,h.RequestNumber,u.UserName PIC,r.CreatedAt,
+            r.SubmittedAt,r.ReviewedAt,
+            COALESCE((SELECT TOP(1) NULLIF(a.Reason,N'') FROM dbo.PackagingRequestChangeLog a
+                WHERE a.RequestID=r.RequestID AND a.ItemID=r.ID AND a.FieldName='Stage'
+                AND a.NewValue=r.Stage ORDER BY a.ID DESC),r.ManagerComment) ManagerComment
+            FROM dbo.PackagingConfigurationRequestItem r
+            JOIN dbo.PackagingConfigurationRequest h ON h.ID=r.RequestID
+            LEFT JOIN dbo.Users u ON u.ID=r.PICUserID
+            WHERE r.OpportunityItemID=i.ID ORDER BY r.IsOpen DESC,r.ID DESC) stage_request
         LEFT JOIN dbo.PackagingConfigurationRequest request_header ON request_header.ID=active_request.RequestID
         ORDER BY h.SortPosition,COALESCE(i.ParentItemID,i.ID),COALESCE(i.MixChildNumber,0);
         SELECT COUNT(*) Total FROM dbo.Opportunity o JOIN dbo.Customer c ON c.ID=o.CustomerID WHERE {where};
     """, [username, username, *params, (page-1)*page_size, page_size, *params])
     for row in result[0]:
+        row["StageSummaryJSON"] = stage_summary(row)
         row.update(shipment_columns(row))
         # Responses use the immutable request product/configuration snapshot, not current product weight.
         visible=row.pop("PackingWayVisible",False)
@@ -217,4 +234,4 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             row.pop(order+"LayerPricingSnapshot",None)
         row.pop("EfficiencyPalletAreaMM2",None)
         row.update(values if visible else {key:None for key in values})
-    return {"rows": add_tcb_columns(result[0]), "total": result[1][0]["Total"], "page": page, "page_size": page_size}
+    return {"rows": complete_stage_summaries(add_tcb_columns(result[0])), "total": result[1][0]["Total"], "page": page, "page_size": page_size}

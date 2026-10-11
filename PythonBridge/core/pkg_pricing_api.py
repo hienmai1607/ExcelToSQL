@@ -83,7 +83,7 @@ def catalog(cur, type_id, order, locked=False, mix_parent=False):
     # Shared serializable source locks keep snapshots stable without serializing
     # independent pricing saves behind exclusive/update locks on the masters.
     hint = " WITH(HOLDLOCK)" if locked else ""
-    types = decode_orders(select(cur, f"SELECT ID,ParentTypeID,PackagingType,PackagingOrder,PackagingOrdersJSON,PriceBasis,Shipping,Status,RowVersion FROM dbo.v_PackagingTypeWeb{hint}")[0])
+    types = decode_orders(select(cur, f"SELECT ID,ParentTypeID,PackagingType,PackagingOrder,PackagingOrdersJSON,PriceBasis,Shipping,FinalComponent,Status,RowVersion FROM dbo.v_PackagingTypeWeb{hint}")[0])
     by_id = {t["ID"]: t for t in types}
     root = by_id.get(type_id)
     if not root or root["ParentTypeID"] is not None or root["Status"] != "Active" or not (any(o in ("Secondary","Tertiary") for o in root["PackagingOrders"]) if mix_parent else order in root["PackagingOrders"]):
@@ -95,7 +95,7 @@ def catalog(cur, type_id, order, locked=False, mix_parent=False):
             seen.add(node["ID"])
             path.append(node)
             if node["ID"] == type_id:
-                if len(path) > 1 and all(n["Status"] == "Active" for n in path):
+                if (len(path) > 1 or root.get('FinalComponent')) and t.get('FinalComponent') and all(n["Status"] == "Active" for n in path):
                     paths[t["ID"]] = path
                 break
             node = by_id.get(node["ParentTypeID"])
@@ -103,7 +103,7 @@ def catalog(cur, type_id, order, locked=False, mix_parent=False):
     units = select(cur, f"SELECT ID,UoMCode,UoMName,Status,RowVersion FROM dbo.UoM{hint}")[0]
     dimensions = select(cur, f"""SELECT d.ID,d.PackagingTypeID,d.D1Name,d.D2Name,d.D3Name,d.D1UoMID,d.D2UoMID,d.D3UoMID,
         d.SquareMeterFormula,d.VolumeFormula,d.OccupiedM2Formula,d.OccupiedM3Formula,
-        d.ConvertFromParentFormula,d.ConvertFromSupplierFormula,d.OccupiedFormulaNeedsReview,
+        d.ConvertFromParentFormula,d.ConvertFromSupplierFormula,d.ConversionOutputUoMID,d.OccupiedFormulaNeedsReview,
         d.FormulaNeedsReview,d.RowVersion,d.ParentDimensionID,t.PackagingType,t.Shipping,t.PriceBasis AS DimensionBasis,
         u1.UoMCode AS D1Unit,u2.UoMCode AS D2Unit,u3.UoMCode AS D3Unit
         FROM dbo.PackagingDimension d{hint} JOIN dbo.PackagingType t ON t.ID=d.PackagingTypeID
@@ -248,7 +248,13 @@ def inherited_component(component, payload, price, paths, dimension_map, parent)
     return child,{**dimension_map,selected['ID']:effective}
 
 
+def output_conversion_lookup(cur,source,target,price,locked=False):
+    rows=select(cur,"SELECT c.*,u.RowVersion FROM dbo.fn_UnitConversion(?,?,?,NULL,?) c LEFT JOIN dbo.UnitConversion u"+(" WITH(HOLDLOCK)" if locked else "")+" ON u.ID=c.ID",source,target,price["MaterialID"],price["VendorID"])[0]
+    return rows[0] if rows else None
+
+
 def component_geometry(cur, component, price, paths, unit_map, dimension_map, area_unit, locked=False, allow_incomplete=False):
+    # Formula output units are independent of measurement units and vendor Price UoM.
     """One source for live area/conversion details and the final pricing calculation."""
     basis = price['CalculationBasis']
     dimension, area, area_status = None, None, None
@@ -277,7 +283,14 @@ def component_geometry(cur, component, price, paths, unit_map, dimension_map, ar
             if missing:
                 raise ValueError('Enter a positive measurement for ' + ', '.join(missing) + '.')
             area = (conversion_formula if modern else area_formula)(formula, {k: getattr(component, k) for k in variables})
+            if dimension.get("ConversionOutputUoMID") is not None:
+                from formula_output_units import output_unit_factor,converted_output
+                output_target=area_unit["UoMCode"] if basis=="Square meter" and area_unit else price["UnitOfMeasure"]
+                output_factor,output_conversion=output_unit_factor(dimension,unit_map,output_target,lambda source,target: output_conversion_lookup(cur,source,target,price,locked))
+                area=converted_output(area,output_factor)
+                dimension={**dimension,"FormulaOutputConversion":output_conversion}
         except (ValueError, HTTPException) as exc:
+            area=None
             if not allow_incomplete: raise
             area_status = str(exc) if isinstance(exc, ValueError) else exc.detail
     unit_codes = {u['UoMCode'].casefold(): u for u in unit_map.values()}
@@ -310,6 +323,11 @@ def component_geometry(cur, component, price, paths, unit_map, dimension_map, ar
                 measurements = {k: price.get('Supplier'+k) for k in ('D1','D2','D3')}
                 try:
                     factor = supplier_area(effective, measurements)
+                    if supplier.get("ConversionOutputUoMID") is not None:
+                        from formula_output_units import output_unit_factor,converted_output
+                        output_factor,output_conversion=output_unit_factor(supplier,unit_map,target["UoMCode"],lambda source,target: output_conversion_lookup(cur,source,target,price,locked))
+                        factor=converted_output(factor,output_factor)
+                        effective["FormulaOutputConversion"]=output_conversion
                 except ValueError as exc:
                     raise HTTPException(422, str(exc)) from exc
                 if factor != price.get('SupplierAreaPerPriceUnit'):

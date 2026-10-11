@@ -26,12 +26,12 @@ async function fill(page:Page){
  await form.getByLabel('Bid close *').fill('2026-10-01');
  const item=form.getByRole('region',{name:'Item 1',exact:true});
  await item.getByLabel('Product *').selectOption('2');
- await item.getByLabel('Annual units *').fill('1000');
+ await item.getByLabel('Annual units *').fill('1000');await item.getByText('Packaging requirements',{exact:true}).click();const pallet=item.getByLabel('Pallet size',{exact:true});if(await pallet.locator('option').count()>1)await pallet.selectOption({index:1});await item.getByText('Packaging requirements',{exact:true}).click();await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await item.getByLabel('Container Type',{exact:true}).selectOption('20DC');await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  return form;
 }
 test('Product Info replaces item description with read-only master net weight',async({page})=>{
  await setup(page);let payload:any;
- await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1,WeightGrams:150.25},{ID:3,ProductCode:'Cashews',ProductName:'Cashew mix',CustomerID:1,WeightGrams:450}]}}));
+ await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{pallets:[{ID:1,PalletSize:'1.1x1.1M'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1,WeightGrams:150.25},{ID:3,ProductCode:'Cashews',ProductName:'Cashew mix',CustomerID:1,WeightGrams:450}]}}));
  await page.route('**/api/opportunity/batch',r=>{payload=r.request().postDataJSON();return r.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-NEW'}],item_results:payload.item_rows.map((x:any)=>({RowNum:x.RowNum,Status:'OK'}))}})});
  const form=await fill(page),item=form.getByRole('region',{name:'Item 1',exact:true});
  await expect(item.getByLabel('Item description *')).toHaveCount(0);
@@ -58,7 +58,51 @@ test('pallet size is selected from Pallet Master and saved as the displayed size
  expect(payload.item_rows[0].PalletSize).toBe('1.1x1.1M');
 });
 
-test('empty pallet master shows guidance but pallet size remains optional',async({page})=>{
+test('compact heading and header align in one desktop row and estimated award units update',async({page})=>{
+ await page.setViewportSize({width:1920,height:1080});
+ await setup(page);
+ const title=await page.getByRole('heading',{name:'Opportunities',exact:true}).boundingBox();
+ const refresh=await page.getByRole('button',{name:'Refresh Opportunities',exact:true}).boundingBox();
+ expect(Math.abs(title!.y+title!.height/2-refresh!.y-refresh!.height/2)).toBeLessThan(6);
+ await expect(page.getByRole('button',{name:'Excel local template',exact:true})).toHaveCount(1);
+ const form=await fill(page);
+ const names=['Customer *','Description *','Bid open *','Bid close *','Customer currency','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
+ const boxes=await Promise.all(names.map(name=>form.getByLabel(name,{exact:true}).boundingBox()));
+ expect(Math.max(...boxes.map(b=>b!.y))-Math.min(...boxes.map(b=>b!.y))).toBeLessThan(3);
+ expect(boxes[2]!.width).toBeLessThan(boxes[1]!.width);
+ const item=form.getByRole('region',{name:'Item 1',exact:true});
+ await item.getByLabel('Annual units *').fill('1000');
+ await item.getByLabel('Estimated award %').fill('50');
+ await expect(item.getByLabel('Estimated awarded units')).toHaveValue('500');
+ await expect(item.getByLabel('Estimated awarded units')).toHaveAttribute('readonly','');
+ await expect(item.getByLabel('Shelf price',{exact:true}).locator('..')).toContainText('Shelf price (USD)');
+ await item.getByLabel('Estimated award %').fill('0');
+ await expect(item.getByLabel('Estimated awarded units')).toHaveValue('0');
+ await item.getByLabel('Estimated award %').fill('');
+ await expect(item.getByLabel('Estimated awarded units')).toHaveValue('');
+});
+test('opening item sections smoothly reveals their bottom, while closing does not scroll',async({page})=>{
+ await page.addInitScript(()=>{
+  (window as any).expansionScrolls=[];
+  HTMLElement.prototype.scrollIntoView=function(options){(window as any).expansionScrolls.push({tag:this.tagName,options})};
+ });
+ await setup(page);const form=await fill(page);
+ const item=form.getByRole('region',{name:'Item 1',exact:true});
+ await page.waitForTimeout(50);await page.evaluate(()=>(window as any).expansionScrolls=[]);
+ const packing=item.getByText('Packaging requirements',{exact:true});
+ await packing.click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).expansionScrolls.filter((x:any)=>x.tag==='DETAILS').length)).toBe(1);
+ expect(await page.evaluate(()=>(window as any).expansionScrolls.find((x:any)=>x.tag==='DETAILS').options)).toEqual({behavior:'smooth',block:'end',inline:'nearest'});
+ await packing.click();
+ await page.waitForTimeout(100);
+ expect(await page.evaluate(()=>(window as any).expansionScrolls.filter((x:any)=>x.tag==='DETAILS').length)).toBe(1);
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).expansionScrolls.filter((x:any)=>x.tag==='DETAILS').length)).toBe(2);
+ expect(await page.evaluate(()=>(window as any).expansionScrolls.at(-1).options.behavior)).toBe('auto');
+});
+
+test('empty pallet master shows guidance and blocks saving the required size',async({page})=>{
  await setup(page);
  await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1}],pallets:[]}}));
  const form=await fill(page);await form.getByText('Packaging requirements',{exact:true}).click();await form.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
@@ -66,7 +110,7 @@ test('empty pallet master shows guidance but pallet size remains optional',async
  await expect(form.getByLabel('Pallet size',{exact:true}).locator('option')).toHaveCount(1);
  await expect(form.getByText('No active pallets. Admin or Packaging must add records in Pallet Master.')).toBeVisible();
  await form.getByRole('button',{name:'Review & save'}).click();
- await expect(page.getByRole('dialog',{name:'Confirm Opportunity save'})).toBeVisible();
+ await expect(page.getByRole('dialog',{name:'Confirm Opportunity save'})).toHaveCount(0);await expect(page.getByRole('alert')).toContainText('Pallet size is required.');
 });
 
 test('creates one header with multiple items only after confirmation',async({page})=>{
@@ -87,7 +131,7 @@ test('creates one header with multiple items only after confirmation',async({pag
  await form.getByRole('button',{name:'Add item',exact:true}).click();
  const item=form.getByRole('region',{name:'Item 2',exact:true});
  await item.getByLabel('Product *').selectOption('3');
- await item.getByLabel('Annual units *').fill('0');
+ await item.getByLabel('Annual units *').fill('0');await item.getByText('Packaging requirements',{exact:true}).click();await item.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await item.getByLabel('Container Type',{exact:true}).selectOption('20DC');
  await item.getByLabel('Estimated award %').fill('0');
  await item.getByLabel('Shelf price').fill('12.50');
  await form.getByRole('button',{name:'Review & save'}).click();

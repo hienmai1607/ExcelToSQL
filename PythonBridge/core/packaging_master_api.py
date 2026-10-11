@@ -24,7 +24,8 @@ def master_auth(entity):
 
 def require_entity(ctx,entity):
  if entity in ("raw-materials","raw-prices","raw-grades"): require(ctx,"RawMaterial")
- elif entity=="uoms": require(ctx,"Admin")
+ elif entity=="uoms":
+  if not ctx.is_admin and (ctx.permissions is None or ctx.permissions.get("uoms") not in ("display","edit")): require(ctx,"Admin")
  elif entity=="products": require(ctx,"Product")
  else: require(ctx,"Packaging","PackagingManager")
 
@@ -41,15 +42,15 @@ def order_by(entity,raw):
 def lookups(ctx:AccessContext=Depends(get_access_context),entity:Entity="materials"):
  if entity=="products":
   require(ctx,"Product")
-  sets=execute(PRODUCT_AUTH+"""SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.Product p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID; SELECT ID,CustomerName,Status FROM dbo.Customer ORDER BY CustomerName,ID;""",[ctx.username])
-  return dict(materials=[],currencies=[],creators=sets[0],customers=sets[1])
+  sets=execute(PRODUCT_AUTH+"""SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.Product p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID; SELECT ID,CustomerName,Status FROM dbo.Customer ORDER BY CustomerName,ID; SELECT ID,CategoryName,Status FROM dbo.ProductCategory ORDER BY CategoryName,ID;""",[ctx.username])
+  return dict(materials=[],currencies=[],creators=sets[0],customers=sets[1],categories=sets[2])
  require_entity(ctx,entity)
  if entity=="packaging-types":
   sets=execute(master_auth(entity)+"""
    SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.PackagingType p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID;
   """,[ctx.username])
   types=execute(master_auth(entity)+"""
-   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
+   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
   """,[ctx.username])[0]
   return dict(materials=[],currencies=[],creators=sets[0],packagingTypes=decode_orders(types))
  if entity=="pallets":
@@ -78,13 +79,13 @@ def lookups(ctx:AccessContext=Depends(get_access_context),entity:Entity="materia
    FROM dbo.PackagingMaterial m LEFT JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID ORDER BY m.MaterialCode,m.ID;""",[ctx.username])[0]
   result["supplierDimensions"]=execute(master_auth(entity)+"""SELECT d.ID,d.PackagingTypeID,d.D1Name,d.D2Name,d.D3Name,
    u1.UoMCode AS D1Unit,u2.UoMCode AS D2Unit,u3.UoMCode AS D3Unit,
-   d.ConvertFromSupplierFormula,d.ConvertFromParentFormula,d.RowVersion,d.Status,t.PackagingType
+   d.ConvertFromSupplierFormula,d.ConvertFromParentFormula,d.ConversionOutputUoMID,(SELECT UoMCode FROM dbo.UoM WHERE ID=d.ConversionOutputUoMID) AS ConversionOutputUnit,d.RowVersion,d.Status,t.PackagingType
    FROM dbo.v_PackagingDimensionWeb d JOIN dbo.PackagingType t ON t.ID=d.PackagingTypeID
    JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID LEFT JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID
    WHERE t.ParentTypeID IS NOT NULL AND t.Status='Active' AND d.Status='Active' ORDER BY d.ID;""",[ctx.username])[0]
  if entity=="materials":
   result["packagingTypes"]=execute(master_auth(entity)+"""
-   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
+   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
   """,[ctx.username])[0]
   result["packagingTypes"]=decode_orders(result["packagingTypes"])
  if entity in ("raw-grades","raw-materials"):
@@ -110,7 +111,7 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="packaging-types":
   source="dbo.PackagingType p LEFT JOIN dbo.PackagingType parent ON parent.ID=p.ParentTypeID"
-  select="p.ID,p.ParentTypeID,p.PackagingOrder,(SELECT PackagingOrdersJSON FROM dbo.v_PackagingTypeWeb WHERE ID=p.ID) AS PackagingOrdersJSON,p.PackagingType,p.PriceBasis,p.Shipping,p.Status,p.CreatedAt,p.CreatedBy,p.UpdatedAt,p.UpdatedBy,p.RowVersion,CASE WHEN parent.ID IS NOT NULL THEN CASE WHEN parent.ParentTypeID IS NOT NULL THEN parent.PackagingType ELSE CONCAT(parent.PackagingOrder,N' / ',parent.PackagingType) END END AS ParentType"
+  select="p.ID,p.ParentTypeID,p.PackagingOrder,(SELECT PackagingOrdersJSON FROM dbo.v_PackagingTypeWeb WHERE ID=p.ID) AS PackagingOrdersJSON,p.PackagingType,p.PriceBasis,p.Shipping,p.FinalComponent,p.Status,p.CreatedAt,p.CreatedBy,p.UpdatedAt,p.UpdatedBy,p.RowVersion,parent.PackagingType AS ParentType"
   where="(?='' OR p.PackagingType LIKE ? OR p.PackagingOrder LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="pallets":
@@ -151,7 +152,7 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
     WHEN pt.PriceBasis='Square meter' OR p.SupplierDimensionID IS NOT NULL THEN CASE
     WHEN sd.RowVersion=p.SupplierDimensionRowVersion AND sd.PackagingTypeID=m.PackagingTypeID
      AND sd.Status='Active' AND sp.Status='Active' AND sd.FormulaNeedsReview=0
-     AND sd.ConvertFromSupplierFormula IS NOT NULL
+     AND sd.ConvertFromSupplierFormula IS NOT NULL AND (sd.ConversionOutputUoMID IS NULL OR EXISTS(SELECT 1 FROM dbo.UoM WHERE ID=sd.ConversionOutputUoMID AND Status='Active'))
      AND NOT EXISTS(SELECT 1 FROM (VALUES(sd.D1UoMID),(sd.D2UoMID),(sd.D3UoMID)) s(ID) JOIN dbo.UoM u ON u.ID=s.ID WHERE u.Status<>'Active')
      THEN p.SupplierAreaPerPriceUnit END
     ELSE conv.Factor END"""
@@ -172,7 +173,7 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
    AND (? IS NULL OR p.CreatedBy=?)"""
   params=[search,search+"%",search+"%",search+"%",status,status,material_id,material_id,currency_id,currency_id,as_of,as_of,as_of,created_by,created_by]
  if entity=="uoms":
-  execute("IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID WHERE u.UserName=? AND u.IsActive=1 AND a.Scope='Admin') THROW 51102,'Admin access is required for this action.',1;",[ctx.username])
+  execute("IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID WHERE u.UserName=? AND u.IsActive=1 AND (a.Scope='Admin' OR dbo.fn_WorkspaceAccess(u.ID,'uoms',0)=1)) THROW 51102,'Admin access is required for this action.',1;",[ctx.username])
  auth_sql=PRODUCT_AUTH if entity=="products" else master_auth(entity)
  sets=execute(f"""
  {auth_sql}

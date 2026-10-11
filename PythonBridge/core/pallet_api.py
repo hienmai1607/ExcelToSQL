@@ -20,6 +20,7 @@ class PalletRow(MasterRow):
     PalletsPer40HC: int | None = Field(None, ge=0, le=2147483647)
     PalletsPer20RC: int | None = Field(None, ge=0, le=2147483647)
     PalletsPer40RHC: int | None = Field(None, ge=0, le=2147483647)
+    PalletPriceUSDPerEA: Decimal | None = Field(None,ge=0,max_digits=19,decimal_places=2,allow_inf_nan=False)
     Status: Literal["Active", "Block"] | None = None
 
     @field_validator(*PALLET_CAPACITY_LABELS, mode="before")
@@ -59,7 +60,7 @@ def pallet_save(payload: PalletBatch, ctx: AccessContext = Depends(get_access_co
     for row in payload.rows:
         data = row.model_dump(mode="json")
         # Omitted values from older clients preserve counts; explicit null clears them.
-        for key in PALLET_CAPACITY_LABELS:
+        for key in (*PALLET_CAPACITY_LABELS,"PalletPriceUSDPerEA"):
             if key not in row.model_fields_set:
                 data.pop(key, None)
         version = rv(data.pop("RowVersion"), row.Command != "C")

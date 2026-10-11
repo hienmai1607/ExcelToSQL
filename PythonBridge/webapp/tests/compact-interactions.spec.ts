@@ -16,7 +16,7 @@ async function setup(page:Page,scope='Admin',stage='Assigned'){
   if(p.endsWith('/assign')){const body=req.postDataJSON();writes.push(body);row.PICUserID=body.PICUserID;row.PIC='Other';row.ItemRowVersion='AAAAAAAAAAI=';return route.fulfill({json:{result:{RowVersion:row.ItemRowVersion}}})}
   return route.fulfill({json:{rows:[],total:0}});
  });
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
  return {writes,row,profile:()=>profile};
 }
 async function items(page:Page){await page.getByRole('button',{name:'View request',exact:true}).click();return page.getByRole('table',{name:'Packaging request items'})}

@@ -20,7 +20,7 @@ class RequestView(BaseModel):
     sort:list[MasterSort]=Field(default_factory=list,max_length=64)
     filters:list[str]|None=Field(None,max_length=2)
     values:dict[str,str]=Field(default_factory=dict,max_length=2)
-    field_version: int = Field(1, ge=1, le=7)
+    field_version: int = Field(1, ge=1, le=8)
     prefix_columns:list[str]|None=Field(None,max_length=64)
 
 class RequestViews(BaseModel):
@@ -116,9 +116,11 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.SameConfig END SameConfig,
           CASE WHEN @CanReadDraft=1 OR parent_container.Stage='Approved' THEN parent_container.SameConfig END MixSameConfig,
           i.PackagingRequirement,i.Stage ItemStage,i.PICUserID,pic.UserName PIC,
-          i.ProductName,i.WeightGrams,i.Category,i.Grade,i.MixRatioPct,oi.ParentItemID,i.ProductMixSnapshot,
+          @CanReadDraft AS NutDensityDefaultsVisible,i.ProductName,i.WeightGrams,i.Category,i.Grade,i.MixRatioPct,oi.ParentItemID,i.ProductMixSnapshot,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN COALESCE(i.ApplicableNetWeightGrams,i.WeightGrams) END ApplicableNetWeightGrams,
           CASE WHEN oi.ParentItemID IS NULL AND (@CanReadDraft=1 OR i.Stage='Approved') THEN
             (SELECT child.ID ItemID,child_oi.ProductID,
+              CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN COALESCE(child.ApplicableNetWeightGrams,child.WeightGrams) END ApplicableNetWeightGrams,
               CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN CONVERT(VARCHAR(40),child.NutDensity) END NutDensity
              FROM dbo.PackagingConfigurationRequestItem child JOIN dbo.OpportunityItem child_oi ON child_oi.ID=child.OpportunityItemID
              WHERE child.RequestID=i.RequestID AND child_oi.ParentItemID=oi.ID FOR JSON PATH,INCLUDE_NULL_VALUES)
@@ -170,8 +172,12 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
         SELECT * FROM Items ORDER BY {sort_sql} OFFSET ? ROWS FETCH NEXT ? ROWS ONLY;
         SELECT COUNT(*) Total {source};
     """,[username,*params,(page-1)*size,size,*params])
+    from grade_density import attach_density_defaults
+    attach_density_defaults(sets[0],username)
     for row in sets[0]:
+        row.pop("NutDensityDefaultsVisible",None)
         values = packing_way(row)
+        if row.get("ConfigurationRequest") in ("Floor load","Both"):row["CartonsPerContainer"]=values["CalculatedCartonsPerContainer"]
         from container_loading import container_results
         values["ContainerLoadResults"] = container_results(row)
         values.update(response_derived(row, values))

@@ -53,7 +53,7 @@ test('Packaging creates pallets with read-only automatic fields',async({page})=>
  await expect(page.getByRole('dialog',{name:'Confirm master save'})).toContainText('1.1x1.1M');
  expect(state.writes).toHaveLength(0);
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(state.writes[0].rows[0]).toEqual({RowNum:1,Command:'C',ID:null,RowVersion:null,UnitOfMeasure:'M',Width:'1.1',Length:'1.1',...Object.fromEntries(palletCapacityKeys.map(key=>[key,null]))});
+ expect(state.writes[0].rows[0]).toEqual({RowNum:1,Command:'C',ID:null,RowVersion:null,UnitOfMeasure:'M',Width:'1.1',Length:'1.1',PalletPriceUSDPerEA:null,...Object.fromEntries(palletCapacityKeys.map(key=>[key,null]))});
 });
 
 test('four decimal dimensions round-trip and stale conflicts remain editable',async({page})=>{
@@ -88,21 +88,18 @@ test('PackagingManager is read-only and Product role has no access',async({page}
  await expect(page.getByText('Read only',{exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'New pallet',exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'Edit pallet 1'})).toHaveCount(0);
- await expect(page.getByRole('button',{name:'Excel Local Update'})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Excel local template'})).toHaveCount(1);
 });
 
-test('container capacities display, sort, export and round-trip edits with zero and blank values',async({page})=>{
+test('container capacities display, sort, template and round-trip edits with zero and blank values',async({page})=>{
  const state=await setup(page);await open(page);
  for(const label of Object.values(palletCapacityLabels))
   await expect(page.getByRole('button',{name:'Sort by '+label,exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Sort by Pallet/40HC',exact:true}).click();
  await expect.poll(()=>state.reads.at(-1)?.searchParams.get('sort')).toContain('"column":"PalletsPer40HC"');
- const download=page.waitForEvent('download');await page.getByRole('button',{name:'Export current page to Excel'}).click();await download;
- for(const [index,key] of palletCapacityKeys.entries()){
-  const column=state.exports[0].columns.indexOf(key);
-  expect(column).toBeGreaterThanOrEqual(0);
-  expect(state.exports[0].rows[0][column]).toBe(String([10,20,22,8,20][index]));
- }
+ let workbook:any;await page.route('**/api/workbench/master-excel/pallets/download',route=>{workbook=route.request().postDataJSON();return route.fulfill({body:'xlsm'})});
+ const download=page.waitForEvent('download');await page.getByRole('button',{name:'Excel local template'}).click();await download;
+ for(const key of palletCapacityKeys)expect(workbook.layout.columns).toContain(key);
  await page.getByRole('button',{name:'Edit pallet 1',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit pallet',exact:true});
  await expect(editor.getByLabel('Pallet/20DC',{exact:true})).toHaveValue('10');
@@ -149,17 +146,17 @@ test('PackagingManager can view captured container counts without edit authority
 });
 
 test('unrelated role cannot navigate to Pallet Master',async({page})=>{
- await setup(page,'Product');await expect(page.getByRole('button',{name:'Pallet Master',exact:true})).toBeDisabled();
+ await setup(page,'Product');await expect(page.getByRole('button',{name:'Pallet Master',exact:true})).toHaveCount(0);
 });
 
 test('numeric export, layout and narrow-screen behavior',async({page})=>{
- const state=await setup(page);await open(page);
- const download=page.waitForEvent('download');await page.getByRole('button',{name:'Export current page to Excel'}).click();await download;
+ const state=await setup(page,'PackagingManager');await open(page);
+ const download=page.waitForEvent('download');await page.getByRole('button',{name:'Excel local template'}).click();await download;
  expect(state.exports[0].rows[0][state.exports[0].columns.indexOf('PalletAreaMM2')]).toBe('1210000.00000000');
  await page.getByRole('button',{name:'Layout options'}).click();
  await page.getByRole('button',{name:'Move Pallet size left'}).click();await page.getByRole('button',{name:'Save layout to profile'}).click();
  await expect(page.getByRole('status')).toContainText('saved');
- expect(state.profile().settings.masters.pallets.columns).toEqual(['UnitOfMeasure','Width','Length','PalletSize','PalletAreaMM2',...palletCapacityKeys,'Status']);
+ expect(state.profile().settings.masters.pallets.columns).toEqual(['UnitOfMeasure','Width','Length','PalletPriceUSDPerEA','PalletSize','PalletAreaMM2',...palletCapacityKeys,'Status']);
  await page.setViewportSize({width:390,height:844});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });

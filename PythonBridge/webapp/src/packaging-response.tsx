@@ -23,7 +23,7 @@ export function PackagingResponse({row,onClose,onSaved}:{row:Row;onClose:()=>voi
 
  useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirty||busy){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn)},[dirty,busy]);
  async function review(){
-  const profileError=containerProfileError(values);if(profileError){setError(profileError);return}
+  const profileError=containerProfileError(values,row.ConfigurationRequest,!!row.ParentItemID);if(profileError){setError(profileError);return}
   for(const f of responseFields){if(f.readOnly||!responseFieldActive(f.key,values,row.ConfigurationRequest,!!row.ParentItemID,isMixParent(row)))continue;const v=values[f.key];const typeError=responseTypeError(f.key,v,row[f.key],responseTypes.types,values.ResponseLayerCount,row.ResponseLayerCount??row.RequestedLayerCount,!!row.ParentItemID,isMixParent(row));if(typeError){setError(typeError);return}if(v&&f.numeric&&((numericEntryError(f.key,v))||(f.integer&&(!/^\d+$/.test(v)||Number(v)<=0)))){setError('Check '+f.label+'.');return}}
 
 

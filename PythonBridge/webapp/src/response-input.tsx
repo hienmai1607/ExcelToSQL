@@ -7,6 +7,10 @@ import {responseOrderFields,selectableType,layerCount} from './packaging-orders'
 
 export function responseValues(row:Row){
  const values=fieldValues(row,webResponseFields);
+ if(!values.ApplicableNetWeightGrams)values.ApplicableNetWeightGrams=String(row.ApplicableNetWeightGrams??row.WeightGrams??'');
+ if(!values.NutDensity&&row.NutDensityDefault!=null)values.NutDensity=String(row.NutDensityDefault);
+ values.NutDensityDefaultUpdate='0';values.NutDensityDefaultRowVersion=String(row.NutDensityDefaultRowVersion??'');
+ if(['Floor load','Both'].includes(String(row.ConfigurationRequest)))values.CartonsPerContainer=String(row.CartonsPerContainer??row.CartonsPerContainerFloor??'');
  // Older requests receive draft defaults once; saved clears must remain cleared.
  if(!row.ResponseDefaultsInitialized)for(const [field,requested] of [['FirstPMType','PrimaryTypeName'],['SecondPMType','SecondaryTypeName'],['ThirdPMType','TertiaryTypeName'],['UnitsPerCarton','NumberOfPrimary'],['UnitsPerTertiary','NumberOfSecondary'],['ResponsePalletSize','PalletSize'],['ResponsePalletStacking','PalletStacking'],['ResponseMaxPalletHeightMM','MaxPalletHeightMM']]){
   if(!values[field]?.trim())values[field]=String(row[requested]??'');

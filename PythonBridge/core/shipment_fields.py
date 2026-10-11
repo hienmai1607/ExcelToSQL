@@ -1,7 +1,7 @@
-"""Opportunity shipment/cost inputs. Amounts are USD; percentages are 0..100."""
+"""Opportunity shipment/cost inputs. Amounts are USD except clearance in customer currency/pallet; percentages are 0..100."""
 from typing import Literal
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Annotated
 
 USD = Annotated[Decimal, Field(ge=0, max_digits=19, decimal_places=2, allow_inf_nan=False)]
@@ -32,7 +32,33 @@ class ShipmentCostInfo(BaseModel):
     InterestPct: Percent | None = None
     InterestMonths: int | None = Field(None, ge=0, le=2147483647, strict=True)
     MarginPct: Percent | None = None
+    FloorLoadUSDPerMT: USD | None = None
+    ImportClearanceCustomerPerPallet: USD | None = None
+    InterestDays: int | None = Field(None,ge=0,le=2147483647,strict=True)
+    PaymentTermDays: int | None = Field(None,ge=0,le=2147483647,strict=True)
+    MarginMode: Literal["Percent","USDPerLb"] | None = None
+    MarginUSDPerLb: USD | None = None
 
+    @model_validator(mode="after")
+    def margin_basis(self):
+        if self.MarginPct is not None and self.MarginUSDPerLb is not None:
+            raise ValueError("Choose Margin % or Margin ($/lbs), not both.")
+        if self.MarginMode=="Percent" and self.MarginUSDPerLb is not None or self.MarginMode=="USDPerLb" and self.MarginPct is not None:
+            raise ValueError("Margin value must match the selected basis.")
+        return self
+
+
+def validate_new_shipment(models):
+    """New root items require a pallet and exact container; children inherit."""
+    from fastapi import HTTPException
+    from container_loading import CONTAINER_TYPES
+    for row in models:
+        if row.command != "C":
+            continue
+        if not row.PalletSize or not row.PalletSize.strip():
+            raise HTTPException(422, f"Item {row.row_num}: Pallet size is required.")
+        if row.ContainerRequest not in CONTAINER_TYPES:
+            raise HTTPException(422, f"Item {row.row_num}: Container Type is required (20DC, 20RC, 40DC, 40HC or 40RHC).")
 
 def split_shipment_edits(cursor, models, username):
     """Route exact shipment-only updates through the existing audited SQL guard.

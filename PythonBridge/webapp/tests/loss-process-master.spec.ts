@@ -1,3 +1,4 @@
+import {captureRevealScrolls,expectReveal} from './reveal-scroll';
 import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
 async function open(page:Page,admin=true){
@@ -13,8 +14,8 @@ async function open(page:Page,admin=true){
   return route.fulfill({json:{rows:[],total:0,page:1}});
  });
  await page.goto('/workbench/');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('button',{name:'Loss Process Master',exact:true}).click();
- await expect(page.getByRole('table',{name:'Loss Process Master'})).toBeVisible();
+ await page.getByRole('button',{name:'Loss Master',exact:true}).click();
+ await expect(page.getByRole('table',{name:'Loss Master'})).toBeVisible();
  return writes;
 }
 test('admin maintains a separate master and blocks existing entries with version guard',async({page})=>{
@@ -44,6 +45,13 @@ test('Opportunity users can inspect the master without editing',async({page})=>{
  await expect(dialog.getByRole('button',{name:'Review & save',exact:true})).toHaveCount(0);
  await dialog.getByRole('button',{name:'Close Loss Process',exact:true}).click();
  await expect(dialog).not.toBeVisible();expect(writes).toEqual([]);
+});
+
+test('Add shared master record smoothly reveals the new section',async({page})=>{
+ await captureRevealScrolls(page);await open(page);
+ await page.getByRole('button',{name:'New loss process',exact:true}).click();
+ await page.getByRole('button',{name:'+ Add record section',exact:true}).click();
+ await expectReveal(page,null);
 });
 
 test('unified editor creates multiple sections through review without duplicate submissions',async({page})=>{

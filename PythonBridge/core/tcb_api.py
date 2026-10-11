@@ -18,15 +18,17 @@ def serial(value):
 
 def item_read(item_id, ctx):
     rows = execute(AUTH + """SELECT i.ID,i.RowVersion,i.ProductGradeSnapshot,i.TCBCostInfo,i.ProductLossSnapshot,i.ParentItemID,
-      i.Stage ItemStage,o.Stage HeaderStage,p.ProductCode,p.ProductName,
+      i.Stage ItemStage,o.Stage HeaderStage,p.ProductCode,p.ProductName,pallet.PalletPriceUSDPerEA DefaultPalletUSDPerEA,
       COALESCE(response.ResponseLayerCount,response.RequestedLayerCount,i.PackagingLayerCount,1) LossLayerCount,
       CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.OpportunityItem c WHERE c.ParentItemID=i.ID) THEN 1 ELSE 0 END AS BIT) IsMixParent,
       CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.PackagingConfigurationRequestItem active WHERE active.OpportunityItemID=i.ID AND active.IsOpen=1 AND active.Stage<>\'Canceled\') THEN 1 ELSE 0 END AS BIT) HasOpenPackagingRequest
       FROM dbo.OpportunityItem i JOIN dbo.Opportunity o ON o.ID=i.OpportunityID
       JOIN dbo.Product p ON p.ID=i.ProductID
-      OUTER APPLY(SELECT TOP(1) r.ResponseLayerCount,r.RequestedLayerCount
+      OUTER APPLY(SELECT TOP(1) r.ResponseLayerCount,r.RequestedLayerCount,r.ResponsePalletSize
         FROM dbo.PackagingConfigurationRequestItem r WHERE r.OpportunityItemID=i.ID AND r.Stage<>'Canceled'
-        ORDER BY r.IsOpen DESC,r.ID DESC) response WHERE i.ID=?;""", [ctx.username,item_id])[0]
+        ORDER BY r.IsOpen DESC,r.ID DESC) response
+      OUTER APPLY(SELECT TOP(1) pm.PalletPriceUSDPerEA FROM dbo.v_PalletMaster pm
+        WHERE pm.PalletSize=COALESCE(response.ResponsePalletSize,i.PalletSize) AND pm.Status='Active' ORDER BY pm.ID) pallet WHERE i.ID=?;""", [ctx.username,item_id])[0]
     if not rows:
         raise HTTPException(404, "Opportunity item not found.")
     return rows[0]
@@ -86,6 +88,8 @@ def read(item_id: int = Path(ge=1),ctx: AccessContext=Depends(get_access_context
         except HTTPException as exc:
             error = exc.detail
     saved=json.loads(item["TCBCostInfo"] or "{}")
+    if not item.get("ParentItemID") and item.get("DefaultPalletUSDPerEA") is not None and saved.get("Inputs",{}).get("PalletUSDPerEA") is None:
+        saved.setdefault("Inputs",{})["PalletUSDPerEA"]=str(item["DefaultPalletUSDPerEA"])
     if item.get("ParentItemID") and saved.get("Inputs"):
         saved["Inputs"]["PalletUSDPerEA"]=None
     return {"lossMasters":active_loss_masters(ctx),"item":item,"saved":saved,

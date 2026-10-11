@@ -1,3 +1,4 @@
+from workspace_access import require_page_edit
 """Shared Loss Process Master: Admin maintenance, Opportunity read/assignment."""
 from typing import Literal, Annotated
 from fastapi import APIRouter, Depends, Query
@@ -38,7 +39,7 @@ def read(page: int = Query(1,ge=1),page_size: int = Query(25,ge=1,le=500),
          search: str = Query("",max_length=200),status: Literal["","Active","Block"]="",
          sort: Annotated[str, Query(max_length=2000)] = '[{"column":"ProcessType","direction":"asc"}]',
          ctx: AccessContext=Depends(get_access_context)):
-    require(ctx,"Opportunity")
+    require(ctx,"Opportunity","Product")
     return listing("loss-processes",ctx,execute,READ_AUTH,"dbo.LossProcessMaster p",
         "p.ID,p.ProcessType,p.Status,p.RowVersion,p.CreatedAt,p.UpdatedAt",
         ["p.ProcessType"],search,status,page,page_size,sort)
@@ -50,7 +51,7 @@ def export(body: SharedExport,ctx: AccessContext=Depends(get_access_context)):
 
 @router.post("")
 def save(body: LossMasterSave,ctx: AccessContext=Depends(get_access_context)):
-    require(ctx,"Admin")
+    require_page_edit(ctx,"loss-processes")
     return {"rows":execute("EXEC dbo.usp_LossProcessMaster_Save ?,?,?,?,?,?,?",
       [ctx.username,body.ID,rv(body.RowVersion,required=bool(body.ID)),body.ProcessType,
        1,0,body.Status])[0]}

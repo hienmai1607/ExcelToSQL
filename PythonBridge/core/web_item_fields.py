@@ -1,7 +1,7 @@
 """Web-only editor columns; do not expand legacy workbook column contracts."""
 from packaging_efficiency import EFFICIENCY_FIELDS
 PRODUCT_FIELDS = {
-    "ProductCode", "ProductName", "AnnualUnit", "WeightGrams",
+    "ProductCode", "ProductName", "AnnualUnit", "WeightGrams", "ApplicableNetWeightGrams",
     "ItemStage", "NutDensity", "UsedVolumeML", "ShelfLifeDays",
 }
 REQUEST_FIELDS = {
@@ -23,10 +23,11 @@ RESPONSE_FIELDS = {
     "ThirdPMType", "ThirdPMMOQ", "TertiaryPricePerUnit", "TertiaryPriceCurrencyCode",
     "ResponsePalletSize", "ResponsePalletStacking", "ResponseMaxPalletHeightMM", "HeightMM",
     "CartonsPerLayer", "LayersPerPallet", "UnitsPerPallet", "NetWeightPerPalletKG",
-    "LayersPerContainer", "PalletsPerContainer", "CalculatedCartonsPerContainer",
-    "NetWeightPerContainerKG", "CartonsPerContainerFloor", "NetWeightPerContainerFloorKG",
+    "PalletsPerContainer", "CalculatedCartonsPerContainer",
+    "NetWeightPerContainerKG",
 }
 CALCULATED_FIELDS = {
+    "ApplicableNetWeightGrams",
     "UsedVolumeML",  # Mix parents aggregate across child responses, not the SQL density column.
     "LayersPerContainer",
     "NoOfPrimaryUnit", "NoOfSecondaryUnit", "NoOfTertiaryUnit", "PrimaryNetWeightGrams",

@@ -86,7 +86,7 @@ class PackagingTypeMaster(unittest.TestCase):
         rows = {r["ID"]: r for r in self.read(sort='[{"column":"ParentType","direction":"asc"}]')["rows"]}
         self.assertIsNone(rows[root["NewID"]]["ParentTypeID"])
         self.assertEqual(rows[child["NewID"]]["ParentTypeID"], root["NewID"])
-        self.assertEqual(rows[child["NewID"]]["ParentType"], "Secondary / " + self.name + "-root")
+        self.assertEqual(rows[child["NewID"]]["ParentType"], self.name + "-root")
         choices = masters.lookups(ctx=self.ctx, entity="packaging-types")["packagingTypes"]
         self.assertEqual(next(r for r in choices if r["ID"] == leaf["NewID"])["ParentTypeID"], child["NewID"])
         normalized = excel.normalize_row("packaging-types", rows[child["NewID"]])

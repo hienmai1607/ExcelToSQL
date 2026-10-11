@@ -21,7 +21,7 @@ async function setup(page:Page,assigned=true){
   if(p.endsWith('/transition'))return route.fulfill({status:422,json:{detail:warning}});
   return route.fulfill({json:{rows:[],total:0}});
  });
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests',exact:true}).click();await page.getByRole('button',{name:'View request',exact:true}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();await page.getByRole('button',{name:'View request',exact:true}).click();
  return {item,writes};
 }
 
@@ -120,7 +120,9 @@ test('packaging request and response share compact typography and spacing in bot
   }
   for(const region of [request,response]){
    expect(await region.evaluate(el=>getComputedStyle(el).paddingTop)).toBe('8px');
-   expect(await region.locator('h4').evaluate(el=>getComputedStyle(el).marginBottom)).toBe('6px');
+   // Layer symbols share the quantity/price row, not a separate heading row.
+   await expect(region.locator('h4')).toHaveCSS('position','absolute');
+   await expect(region.locator('h4')).toHaveCSS('margin-bottom','0px');
   }
   const input=editor.getByLabel('No of Primary Unit',{exact:true});
   expect(await input.locator('..').evaluate(el=>getComputedStyle(el).gap)).toBe('4px');

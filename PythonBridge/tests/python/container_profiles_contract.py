@@ -77,6 +77,8 @@ class ProfileFixture:
             SecondaryTypeID=self.types["Secondary"],NumberOfPrimary=12,PalletSize=self.size,
             PalletStacking="Single",MaxPalletHeightMM=1800)
         created=self.request([self.item]);self.req=created["items"][0]["ID"];self.header=created["header"]["ID"]
+        if self.configuration in ("Floor load","Both"):
+            self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET CartonsPerContainerFloor=100 WHERE ID=?",self.req)
         self.save(HeightMM=600,ResponseMaxPalletHeightMM=1850)
 
     def read(self,username=None):

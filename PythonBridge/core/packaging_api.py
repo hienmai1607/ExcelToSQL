@@ -1,3 +1,4 @@
+from workspace_access import require_page_edit
 """Packaging Excel endpoints. SQL remains authoritative for permissions/state."""
 import base64
 import binascii
@@ -274,7 +275,7 @@ def price_save(payload: PackagingPriceBatch, ctx: AccessContext = Depends(get_ac
                 raise HTTPException(422, 'Supplier measurements require a child dimension definition.')
             continue
         definitions = execute("""DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT;
-            SELECT d.*,d.EffectiveSquareMeterFormula,
+            SELECT d.*,d.EffectiveSquareMeterFormula,t.PriceBasis AS CalculationBasis,m.UnitOfMeasure,
              u1.Status AS D1UnitStatus,u2.Status AS D2UnitStatus,u3.Status AS D3UnitStatus
             FROM dbo.v_PackagingDimensionWeb d JOIN dbo.PackagingMaterial m ON m.PackagingTypeID=d.PackagingTypeID
             JOIN dbo.PackagingType t ON t.ID=d.PackagingTypeID
@@ -290,6 +291,21 @@ def price_save(payload: PackagingPriceBatch, ctx: AccessContext = Depends(get_ac
             raise HTTPException(409, 'Supplier formula changed. Refresh pricing before saving.')
         try:
             area = supplier_area(definition, measurements)
+            if definition.get("ConversionOutputUoMID") is not None:
+                from formula_output_units import output_unit_factor,converted_output
+                units=execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT; SELECT ID,UoMCode,UoMName,Status,RowVersion FROM dbo.UoM ORDER BY ID",[ctx.username])[0]
+                unit_map={u["ID"]:u for u in units}
+                target=definition["UnitOfMeasure"]
+                if definition["CalculationBasis"]=="Square meter":
+                    from pkg_pricing_api import is_area_unit
+                    active_area=next((u for u in units if u["Status"]=="Active" and is_area_unit(u)),None)
+                    if not active_area:raise ValueError("Maintain an active square-metre unit for area pricing.")
+                    target=active_area["UoMCode"]
+                def conversion_lookup(source,target):
+                    rows=execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT; SELECT c.*,u.RowVersion FROM dbo.fn_UnitConversion(?,?,?,NULL,?) c LEFT JOIN dbo.UnitConversion u ON u.ID=c.ID",[ctx.username,source,target,row.MaterialID,row.VendorID])[0]
+                    return rows[0] if rows else None
+                factor,_=output_unit_factor(definition,unit_map,target,conversion_lookup)
+                area=converted_output(area,factor)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         extra[row.RowNum].update(SupplierDimensionRowVersion='0x'+version.hex(), SupplierAreaPerPriceUnit=str(area))
@@ -393,6 +409,6 @@ def vendor_save(payload:VendorBatch,ctx:AccessContext=Depends(get_access_context
 
 @router.post("/uom/batch")
 def uom_save(payload:UoMBatch,ctx:AccessContext=Depends(get_access_context)):
-    require(ctx,"Admin")
+    require_page_edit(ctx,"uoms")
     fields=[("RowNum","INT"),("Command","CHAR(1)"),("ID","INT"),("UoMCode","NVARCHAR(40)"),("UoMName","NVARCHAR(500)"),("Status","VARCHAR(10)"),("RowVersionB64","VARCHAR(18)")]
     return batch(payload,ctx,"UoMBatchType","usp_UoM_Batch",fields)

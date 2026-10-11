@@ -2,6 +2,7 @@
 import json
 import re
 import unittest
+from decimal import Decimal as D
 from pydantic import ValidationError
 from fastapi import HTTPException
 import web_requirement_sections_contract as requirements
@@ -58,6 +59,9 @@ class PackingSQL(unittest.TestCase):
                         while self.cur.nextset():
                             pass
         self.cur.execute("UPDATE dbo.Product SET WeightGrams=10 WHERE ID=?", self.product)
+        # Replace only the rollback fixture item after the master edit; real items retain migration-82 snapshots.
+        self.cur.execute("DELETE dbo.OpportunityItem WHERE ID=?",self.item)
+        self.item=self.cur.execute("INSERT dbo.OpportunityItem(OpportunityID,ProductID,ItemDescription,AnnualUnit,Stage,CreatedBy) VALUES(?,?,'Packing fixture',100,'Draft',?);SELECT CONVERT(INT,SCOPE_IDENTITY())",self.opp,self.product,self.actor).fetchval()
         self.save_fields(PrimaryTypeID=self.types["Primary"])
         created = self.request([self.item])
         self.req = created["items"][0]["ID"]
@@ -75,7 +79,7 @@ class PackingSQL(unittest.TestCase):
         self.assertEqual(saved["results"][0]["Status"], "OK", saved)
         row = self.read()
         self.assertEqual((row["NoOfPrimaryUnit"], row["NoOfSecondaryUnit"], row["NoOfTertiaryUnit"]), (10, 5, 1))
-        self.assertEqual(tuple(row[k] for k in ("PrimaryNetWeightGrams", "SecondaryNetWeightGrams", "TertiaryNetWeightGrams", "NetWeightPerPalletKG")), ("10.00", "100.00", "500.00", "25.00"))
+        self.assertEqual(tuple(D(row[k]) for k in ("PrimaryNetWeightGrams", "SecondaryNetWeightGrams", "TertiaryNetWeightGrams", "NetWeightPerPalletKG")), (D(10),D(100),D(500),D(25)))
         self.assertEqual(tuple(self.cur.execute("SELECT UnitsPerCarton,UnitsPerTertiary,CartonsPerLayer,LayersPerPallet FROM dbo.PackagingConfigurationRequestItem WHERE ID=?", self.req).fetchone()), (10,5,10,5))
         self.assertEqual(self.cur.execute("SELECT COUNT(DISTINCT FieldName) FROM dbo.PackagingRequestChangeLog WHERE ItemID=? AND FieldName IN('UnitsPerCarton','UnitsPerTertiary') AND ChangedBy=?", self.req, self.username).fetchval(), 2)
 
@@ -84,12 +88,12 @@ class PackingSQL(unittest.TestCase):
         self.save(ResponseLayerCount=2)
         row = self.read()
         self.assertEqual((row["NoOfPrimaryUnit"], row["NoOfSecondaryUnit"], row["NoOfTertiaryUnit"]), (10,1,None))
-        self.assertEqual(row["NetWeightPerPalletKG"], "5.00")
+        self.assertEqual(D(row["NetWeightPerPalletKG"]),D(5))
         self.assertIsNone(row["UnitsPerTertiary"])
         self.save(ResponseLayerCount=1)
         row = self.read()
         self.assertEqual((row["NoOfPrimaryUnit"], row["NoOfSecondaryUnit"], row["NoOfTertiaryUnit"]), (1,None,None))
-        self.assertEqual(row["NetWeightPerPalletKG"], "0.50")
+        self.assertEqual(D(row["NetWeightPerPalletKG"]),D(".5"))
         self.assertIsNone(row["UnitsPerCarton"])
         self.assertEqual(row["RequestedLayerCount"], 2)
 
@@ -97,13 +101,13 @@ class PackingSQL(unittest.TestCase):
         self.save(ResponseLayerCount=3, UnitsPerCarton=10, UnitsPerTertiary=5, CartonsPerLayer=10, LayersPerPallet=5)
         self.cur.execute("UPDATE dbo.Product SET WeightGrams=20 WHERE ID=?", self.product)
         row = self.read()
-        self.assertEqual(row["PrimaryNetWeightGrams"], "10.00")
-        self.assertEqual(row["TertiaryNetWeightGrams"], "500.00")
+        self.assertEqual(D(row["PrimaryNetWeightGrams"]),D(10))
+        self.assertEqual(D(row["TertiaryNetWeightGrams"]),D(500))
 
     def test_incomplete_draft_and_missing_weight_are_not_zero(self):
         self.save(ResponseLayerCount=3, UnitsPerCarton=10, CartonsPerLayer=10, LayersPerPallet=5)
         row = self.read()
-        self.assertEqual(row["SecondaryNetWeightGrams"], "100.00")
+        self.assertEqual(D(row["SecondaryNetWeightGrams"]),D(100))
         self.assertIsNone(row["TertiaryNetWeightGrams"])
         self.assertIsNone(row["NetWeightPerPalletKG"])
 
@@ -134,7 +138,7 @@ class PackingSQL(unittest.TestCase):
         for key in ("NoOfPrimaryUnit", "NoOfSecondaryUnit", "NoOfTertiaryUnit", "PrimaryNetWeightGrams", "TertiaryNetWeightGrams", "NetWeightPerPalletKG"):
             self.assertIsNone(row[key], key)
         self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET Stage='Approved',IsOpen=0 WHERE ID=?", self.req)
-        self.assertEqual(self.read(user)["NetWeightPerPalletKG"], "25.00")
+        self.assertEqual(D(self.read(user)["NetWeightPerPalletKG"]),D(25))
 
     def test_approved_and_stale_responses_cannot_be_changed(self):
         self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET Stage='Approved',IsOpen=0 WHERE ID=?", self.req)

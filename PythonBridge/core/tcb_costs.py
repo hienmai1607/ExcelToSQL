@@ -88,7 +88,7 @@ class Inputs(BaseModel):
         if self.ProductLossFormula and self.ProductLossFormula.strip():
             from dimension_formula import _calculate
             product_steps=[p for p in self.LossProcesses or [] if p.ProcessType in ("Sorting","Processing")]
-            values={"L"+str(i+1):p.LossPct for i,p in enumerate(product_steps)}
+            values={"L"+str(i+1):p.LossPct / Decimal(100) for i,p in enumerate(product_steps)}
             try:
                 self.LossProductPct=_calculate(self.ProductLossFormula,values,"Product loss",allow_constant=True,variable_names=values,loss=True)
             except ValueError as exc:

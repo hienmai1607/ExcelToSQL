@@ -31,7 +31,7 @@ async function setup(page:Page,failSecond=false){
  return route.fulfill({json:{rows:[],total:0,page:1}});
  });
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
+ await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
  return writes;
 }
 test('header editor saves multiple responses; Item View owns review controls',async({page})=>{
@@ -87,8 +87,8 @@ test('responses group primary, secondary and palletization fields; PIC stays bes
  for(const label of ['Primary Type','Primary MOQ unit','Primary price per unit'])await expect(primary.getByLabel(label,{exact:true})).toBeVisible();
  for(const label of ['Secondary Type','Secondary MOQ unit','Secondary price per unit'])await expect(secondary.getByLabel(label,{exact:true})).toBeVisible();
  for(const label of ['Pallet size','Pallet stacking','Max pallet height (mm)','Cartons / layer','Layers / pallet','Units / pallet'])await expect(pallet.getByLabel(label,{exact:true})).toBeVisible();
- const load=item.getByRole('region',{name:'Pallet load response',exact:true});
- for(const label of ['Layer / Container','Pallet / Container','Carton / Container','Net weight / Container (kg)'])await expect(load.getByLabel(label,{exact:true})).toBeVisible();
+ const load=item.getByRole('region',{name:'Container Load response',exact:true});
+ for(const label of ['Pallet / Container','Carton / Container','Net weight / Container (kg)'])await expect(load.getByLabel(label,{exact:true})).toBeVisible();
  await expect(item.getByLabel('Packaging description',{exact:true})).toHaveCount(0);
  await expect(editor.getByRole('button',{name:'Review & save'})).toBeDisabled();
 });
@@ -113,7 +113,7 @@ test('requested type labels and all recent requirements display; empty responses
  await expect(secondary.getByText('Carton',{exact:true})).toBeVisible();
  await expect(primary.getByText('Transparent',{exact:true})).toBeVisible();
  await expect(secondary.getByText('Secondary Transparent / opaque',{exact:true})).toBeVisible();
- await expect(secondary.getByText('Opaque',{exact:true})).toBeVisible();await expect(item.getByRole('region',{name:'Packing Way request',exact:true}).getByText('24',{exact:true})).toBeVisible();
+ await expect(secondary.getByText('Opaque',{exact:true})).toBeVisible();await expect(primary.getByText('24',{exact:true})).toBeVisible();
  expect(itemReads[0].searchParams.get('sort')).toBe('[]');
  expect(itemReads[0].searchParams.get('request_id')).toBe('1');
  expect(itemReads[0].searchParams.get('page')).toBe('1');
@@ -123,6 +123,9 @@ test('requested type labels and all recent requirements display; empty responses
  await expect(item.getByLabel('Primary Type',{exact:true})).toHaveValue('Film');
  await expect(item.getByLabel('Secondary Type',{exact:true})).toHaveValue('Carton');
  expect(writes).toHaveLength(0);
+ // Both loading requires a selected container and manually entered capacity.
+ await item.getByLabel('Container type',{exact:true}).selectOption('20RC');
+ await item.getByLabel('Carton / Container',{exact:true}).fill('100');
  await editor.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  expect(writes[0].rows[0]).toMatchObject({FirstPMType:'Film',SecondPMType:'Carton'});
  for(const key of ['PrimaryTypeID','PrimaryTypeName','SecondaryTransparency','NumberOfPrimary'])expect(writes[0].rows[0]).not.toHaveProperty(key);

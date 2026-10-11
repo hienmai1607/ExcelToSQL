@@ -1,3 +1,4 @@
+import {captureRevealScrolls,expectReveal} from './reveal-scroll';
 import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
 const header={PackagingType:'Pouch',OpportunityID:1,OpportunityNumber:'OPP-2026-00001',CustomerName:'Northstar Foods',OpportunityDesc:'Autumn retail range',BidOpen:'2026-09-01',BidClose:'2026-10-15',HeaderStage:'Draft',HeaderRowVersion:rv};
@@ -27,6 +28,26 @@ test('active request blocks selection until its item completes or cancels',async
  await expect(page.getByRole('checkbox',{name:'Select P-102 item 12'})).toBeEnabled();
  active=false;await page.getByRole('button',{name:'Refresh Opportunities'}).click();await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  await expect(page.getByRole('checkbox',{name:'Select P-101 item 11'})).toBeEnabled();
+});
+
+test('Items and packaging selection reveal their panels smoothly, with matching input heights',async({page})=>{
+ await captureRevealScrolls(page);await mock(page);await page.goto('./');
+ await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.getByRole('button',{name:'View details'}).click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).revealScrolls.at(-1))).toMatchObject({classes:'detail opportunity-items',behavior:'smooth',block:'end'});
+ await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
+ const item=page.getByRole('checkbox',{name:'Select P-101 item 11'});
+ await item.check();await expectReveal(page,'Packaging request');
+ const sizes=await page.locator('.request-form').evaluate(form=>{
+  const due=form.querySelector('input')!.getBoundingClientRect(),notes=form.querySelector('textarea')!.getBoundingClientRect();
+  return {due:due.height,notes:notes.height,bottom:Math.abs(due.bottom-notes.bottom)};
+ });
+ expect(sizes.due).toBe(sizes.notes);expect(sizes.bottom).toBeLessThan(1);
+ const count=await page.evaluate(()=>(window as any).revealScrolls.length);
+ await item.uncheck();await page.waitForTimeout(50);
+ expect(await page.evaluate(()=>(window as any).revealScrolls.length)).toBe(count);
+ await page.emulateMedia({reducedMotion:'reduce'});await item.check();
+ await expectReveal(page,'Packaging request','auto');
 });
 test('items are boxed and request box follows selection without losing entered notes',async({page})=>{
  await mock(page);await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
@@ -79,7 +100,7 @@ test('lost create reply retains payload across reload and retries the same key',
 test('manager assigns an item with its RowVersion and locked items cannot be assigned',async({page})=>{
  await mock(page,['PackagingManager']);let payload:any;
  await page.route('**/api/packaging/items/101/assign',async route=>{payload=route.request().postDataJSON();return route.fulfill({json:{result:{ID:101,RowVersion:'AAAAAAAAAAI='}}})});
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests',exact:true}).click();await page.getByRole('button',{name:'View request',exact:true}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();await page.getByRole('button',{name:'View request',exact:true}).click();
  await page.getByLabel('PIC for item 101',{exact:true}).selectOption('2');
  await expect(page.getByLabel('PIC for item 102',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'Assign PIC for item 101',exact:true}).click();
@@ -88,13 +109,13 @@ test('manager assigns an item with its RowVersion and locked items cannot be ass
 });
 test('sales can read requests but cannot assign PICs',async({page})=>{
  await mock(page,['Opportunity']);await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('button',{name:'Packaging requests'}).click();
+ await page.getByRole('button',{name:'Packaging Requests'}).click();
  await page.getByRole('button',{name:'View request',exact:true}).click();
  await expect(page.getByRole('button',{name:/Edit request /})).toHaveCount(0);
 });
 test('assignment conflict preserves the old PIC and shows refresh guidance',async({page})=>{
  await mock(page);await page.route('**/api/packaging/items/101/assign',route=>route.fulfill({status:409,json:{detail:'Conflict: stale RowVersion.'}}));
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests'}).click();await page.getByRole('button',{name:'View request'}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Requests'}).click();await page.getByRole('button',{name:'View request'}).click();
  await page.getByLabel('PIC for item 101',{exact:true}).selectOption('2');await page.getByRole('button',{name:'Assign PIC for item 101',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('Conflict: stale RowVersion.');
  await expect(page.getByLabel('PIC for item 101',{exact:true})).toHaveValue('2');

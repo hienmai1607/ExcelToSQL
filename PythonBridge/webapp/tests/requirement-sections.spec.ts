@@ -45,30 +45,95 @@ async function setup(page:Page,lookupTypes=types){
  const item=form.getByRole('region',{name:'Item 1',exact:true});
  await item.getByLabel('Product *').selectOption('2');
  await item.getByLabel('Annual units *').fill('1000');await item.getByText('Packaging requirements',{exact:true}).click();await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
- return {form,item,writes};
+ await item.getByLabel('Container Type',{exact:true}).selectOption('20DC');await item.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');return {form,item,writes};
 }
 
 test('Product Info fits one desktop row and wraps without overflow on mobile',async({page},info)=>{
  const {item}=await setup(page),product=item.getByRole('region',{name:'Product Info',exact:true});
- const fields=[product.getByLabel('Product *',{exact:true}).locator('..'),product.getByLabel('Net weight (g)',{exact:true}).locator('..'),product.getByLabel('Annual units *',{exact:true}).locator('..'),product.getByLabel('Estimated award %',{exact:true}).locator('..'),product.getByLabel('Shelf price',{exact:true}).locator('..'),product.getByLabel('Shelf life (days)',{exact:true}).locator('..'),product.locator('.product-grade-snapshot')];
- const boxes=await Promise.all(fields.map(field=>field.boundingBox()));
- expect(boxes.every(Boolean)).toBe(true);
- expect(Math.max(...boxes.map(box=>box!.y))-Math.min(...boxes.map(box=>box!.y))).toBeLessThan(1);
+ const fields=[product.getByLabel('Product *',{exact:true}).locator('..'),product.getByLabel('Net weight (g)',{exact:true}).locator('..'),product.getByLabel('Annual units *',{exact:true}).locator('..'),product.getByLabel('Estimated award %',{exact:true}).locator('..'),product.getByLabel('Estimated awarded units',{exact:true}).locator('..'),product.getByLabel('Shelf price',{exact:true}).locator('..'),product.getByLabel('Shelf life (days)',{exact:true}).locator('..'),product.locator('.product-grade-snapshot')];
+ // Capture every field in one browser frame; smooth reveal scrolling can move
+ // the page between separate boundingBox calls and mimic a layout offset.
+ const boxes=await product.locator('.opportunity-product-fields label, .product-grade-snapshot').evaluateAll(nodes=>nodes.map(node=>{const {x,y,width,height}=node.getBoundingClientRect();return {x,y,width,height}}));
+ expect(boxes).toHaveLength(fields.length);
+ expect(boxes.every(box=>box.width>0&&box.height>0)).toBe(true);
+ expect(Math.max(...boxes.map(box=>box.y))-Math.min(...boxes.map(box=>box.y))).toBeLessThan(1);
  await product.screenshot({path:info.outputPath('product-info-one-row.png')});
  await page.setViewportSize({width:390,height:844});
  for(const field of fields)await expect(field).toBeVisible();
  expect(await product.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
 });
 
+test('request transparency and layer symbol stay compact and aligned',async({page})=>{
+ const {item}=await setup(page);
+ await item.getByLabel('Requested packaging layers',{exact:true}).selectOption('2');
+ const primary=item.getByRole('region',{name:'Primary packaging requirements',exact:true});
+ await expect(primary.getByLabel('Transparent / opaque',{exact:true})).toBeVisible();
+ await expect(primary.getByLabel('Transparent / opaque',{exact:true}).locator('option').first()).toHaveText('Choose transparent / opaque');
+ const alignment=await primary.evaluate(section=>{
+  const symbol=section.querySelector('h4')!.getBoundingClientRect();
+  const label=section.querySelector('.layer-packing-way .field-label')!.getBoundingClientRect();
+  return {top:Math.abs(symbol.top-label.top),right:Math.abs(symbol.right-section.getBoundingClientRect().right)};
+ });
+ expect(alignment.top).toBeLessThan(2);expect(alignment.right).toBeLessThan(2);
+});
+
+test('packing quantities align with matching layers and have multiplication prefixes',async({page})=>{
+ const {item}=await setup(page);
+ const header=item.getByRole('region',{name:'Packing Way request',exact:true});
+ await item.getByLabel('Requested packaging layers',{exact:true}).selectOption('3');
+ await expect(header.getByLabel('No of Primary Unit',{exact:true})).toHaveCount(0);
+ await expect(header.getByLabel('No of Secondary Unit',{exact:true})).toHaveCount(0);
+ const primary=item.getByRole('region',{name:'Primary packaging requirements',exact:true});
+ const secondary=item.getByRole('region',{name:'Secondary packaging requirements',exact:true});
+ const tertiary=item.getByRole('region',{name:'Tertiary packaging requirements',exact:true});
+ for(const [section,label,value] of [[primary,'No of Primary Unit','12'],[secondary,'No of Secondary Unit','8']] as const){
+  await section.getByLabel(label,{exact:true}).fill(value);
+  if(label==='No of Secondary Unit'){
+   await expect(section.locator('.layer-packing-way .packing-multiplier')).toHaveText(String.fromCharCode(215));
+   const prefix=await section.locator('.packing-multiplier').boundingBox(),input=await section.getByLabel(label,{exact:true}).boundingBox();
+   expect(prefix!.x+prefix!.width).toBeLessThanOrEqual(input!.x);
+  }else await expect(section.locator('.packing-multiplier')).toHaveCount(0);
+  await expect(section.getByRole('button',{name:'Clear '+label,exact:true})).toHaveCount(0);
+  const quantity=await section.locator('.layer-packing-way').boundingBox(),fields=await section.locator('.packaging-entry-grid').boundingBox();
+  expect(quantity!.y+quantity!.height).toBeLessThanOrEqual(fields!.y);
+ }
+ await expect(tertiary.locator('.packing-fixed-quantity')).toHaveText(String.fromCharCode(215)+'1');
+ await primary.getByLabel('No of Primary Unit',{exact:true}).fill('');
+ await expect(primary.getByLabel('No of Primary Unit',{exact:true})).toHaveValue('');
+ await expect(secondary.getByLabel('No of Secondary Unit',{exact:true})).toHaveValue('8');
+ await item.getByLabel('Requested packaging layers',{exact:true}).selectOption('2');
+ await expect(secondary.locator('.packing-fixed-quantity')).toHaveText(String.fromCharCode(215)+'1');
+ await expect(tertiary).toHaveCount(0);
+});
+
+for(const count of [2,3])test('packaging layer sections stay horizontal on desktop: '+count,async({page})=>{
+ const {item}=await setup(page);
+ await item.getByLabel('Requested packaging layers',{exact:true}).selectOption(String(count));
+ const sections=item.locator('.packaging-request-layers>section');
+ const boxes=await sections.evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect()));
+ expect(boxes).toHaveLength(count);
+ expect(Math.max(...boxes.map(b=>b.y))-Math.min(...boxes.map(b=>b.y))).toBeLessThan(1);
+ for(let i=1;i<count;i++)expect(boxes[i].x).toBeGreaterThanOrEqual(boxes[i-1].right);
+ for(const section of await sections.all()){
+  const comment=section.getByLabel('Special comments',{exact:true}).locator('..');
+  const width=await section.locator('.packaging-entry-grid').boundingBox(),comments=await comment.boundingBox();
+  expect(comments!.width).toBeGreaterThan(width!.width*.9);
+ }
+ await page.setViewportSize({width:600,height:900});
+ const stacked=await sections.evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect()));
+ for(let i=1;i<count;i++)expect(stacked[i].y).toBeGreaterThanOrEqual(stacked[i-1].bottom);
+ expect(await item.locator('.packaging-request-layers').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
+});
+
 test('sections have exact choices, root types only and one Product Info shelf-life display',async({page})=>{
  const {item}=await setup(page);
  await expect(item.getByRole('region',{name:'Shipment',exact:true})).toBeVisible();
- await expect(item.getByLabel('Configuration request',{exact:true}).locator('option')).toHaveText(['Choose configuration request','Dry','Reefer']);
+ await expect(item.getByLabel('Container Type',{exact:true}).locator('option')).toHaveText(['Choose container type','20DC','40DC','40HC','20RC','40RHC']);
  await expect(item.getByLabel('Loading request',{exact:true}).locator('option')).toHaveText(['Choose loading request','Pallet load','Floor load','Both']);
  await expect(item.getByRole('region',{name:'Palletization request',exact:true})).toBeVisible();
  await expect(item.getByLabel('Primary Type',{exact:true}).locator('option')).toHaveText(['Choose primary type','Pouch']);
  await expect(item.getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','Carton']);
- for(const label of ['Primary Transparent / opaque','Secondary Transparent / opaque'])await expect(item.getByLabel(label,{exact:true}).locator('option')).toHaveText(['Choose '+label.toLowerCase(),'Transparent','Opaque','NA']);
+ for(const label of ['Transparent / opaque','Secondary Transparent / opaque'])await expect(item.getByLabel(label,{exact:true}).locator('option')).toHaveText(['Choose '+label.toLowerCase(),'Transparent','Opaque','NA']);
  const shelves=item.getByLabel('Shelf life (days)',{exact:true});await expect(shelves).toHaveCount(1);
  for(const shelf of await shelves.all()){await expect(shelf).toHaveValue('365');await expect(shelf).toHaveAttribute('readonly','')}
  await item.getByLabel('Product *').selectOption('3');for(const shelf of await shelves.all())await expect(shelf).toHaveValue('180');
@@ -93,6 +158,7 @@ test('requirements are independent per layer and appear before Container and Pal
  const tertiary=(await item.getByRole('region',{name:'Tertiary packaging requirements'}).boundingBox())!;
  const container=(await item.getByRole('region',{name:'Shipment'}).boundingBox())!;
  expect(container.y).toBeGreaterThanOrEqual(tertiary.y+tertiary.height);
+ await item.getByLabel('Max pallet height (mm)',{exact:true}).scrollIntoViewIfNeeded();
  await expect(item.getByLabel('Max pallet height (mm)',{exact:true})).toBeInViewport();
  await form.screenshot({path:info.outputPath('three-layer-opportunity-layout.png')});
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
@@ -106,7 +172,7 @@ test('Opportunity paging preserves unsaved drafts and submits edits from every p
  await form.getByRole('button',{name:'Add item',exact:true}).click();
  await expect(footer).toContainText('2 items · Page 2 of 2');
  const second=form.getByRole('region',{name:'Item 2',exact:true});
- await second.getByLabel('Product *').selectOption('3');await second.getByLabel('Annual units *').fill('200');
+ await second.getByLabel('Product *').selectOption('3');await second.getByLabel('Annual units *').fill('200');await second.getByText('Packaging requirements',{exact:true}).click();await second.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');await second.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await second.getByLabel('Container Type',{exact:true}).selectOption('20DC');
  await footer.getByRole('button',{name:'Previous',exact:true}).click();
  await expect(form.getByRole('region',{name:'Item 2',exact:true})).toHaveCount(0);
  await form.getByRole('region',{name:'Item 1',exact:true}).getByLabel('Annual units *').fill('300');
@@ -163,7 +229,7 @@ test('three requested layers save Tertiary requirements',async({page})=>{
  expect(writes[0].item_rows[0]).toMatchObject({PackagingLayerCount:'3',TertiaryTypeID:'15',NumberOfSecondary:'8',TertiaryTransparency:'Opaque'});
 });
 
-test('Pallet load and Both show pallet inputs; Floor load hides them and saves null values',async({page})=>{
+test('Pallet load and Both show pallet inputs; Floor load retains required pallet size and clears unused stacking and height',async({page})=>{
  const {form,item,writes}=await setup(page);
  const config=item.getByLabel('Loading request',{exact:true});
  for(const choice of ['Pallet load','Both']){
@@ -172,14 +238,14 @@ test('Pallet load and Both show pallet inputs; Floor load hides them and saves n
  }
  await item.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');
  await item.getByLabel('Pallet stacking',{exact:true}).selectOption('Double');await item.getByLabel('Max pallet height (mm)',{exact:true}).fill('1800');
- await config.selectOption('Floor load');await expect(item.getByLabel('Pallet size',{exact:true})).toHaveCount(0);
- await item.getByLabel('Configuration request',{exact:true}).selectOption('Reefer');
+ await config.selectOption('Floor load');await expect(item.getByLabel('Pallet size',{exact:true})).toHaveValue('1.1x1.1M');
+ await item.getByLabel('Container Type',{exact:true}).selectOption('20RC');
  await item.getByLabel('Primary Type',{exact:true}).selectOption('11');await item.getByLabel('Secondary Type',{exact:true}).selectOption('12');
- await item.getByLabel('Primary Transparent / opaque',{exact:true}).selectOption('Transparent');await item.getByLabel('Secondary Transparent / opaque',{exact:true}).selectOption('Opaque');
+ await item.getByLabel('Transparent / opaque',{exact:true}).selectOption('Transparent');await item.getByLabel('Secondary Transparent / opaque',{exact:true}).selectOption('Opaque');
  await item.getByLabel('No of Primary Unit',{exact:true}).fill('12');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(writes[0].item_rows[0]).toMatchObject({ContainerRequest:'Reefer',ConfigurationRequest:'Floor load',PalletSize:null,PalletStacking:null,MaxPalletHeightMM:null,PrimaryTypeID:'11',SecondaryTypeID:'12',NumberOfPrimary:'12',Transparency:'Transparent',SecondaryTransparency:'Opaque',WebPackagingRequirements:true});
+ expect(writes[0].item_rows[0]).toMatchObject({ContainerRequest:'20RC',ConfigurationRequest:'Floor load',PalletSize:'1.1x1.1M',PalletStacking:null,MaxPalletHeightMM:null,PrimaryTypeID:'11',SecondaryTypeID:'12',NumberOfPrimary:'12',Transparency:'Transparent',SecondaryTransparency:'Opaque',WebPackagingRequirements:true});
  expect(writes[0].item_rows[0]).not.toHaveProperty('ShelfLifeDays');
  expect(writes[0].item_rows[0]).not.toHaveProperty('PackagingType');
 });
@@ -192,14 +258,15 @@ test('Number of Primary rejects zero, fractional and oversized input before send
  }
 });
 
-test('Opportunity header keeps fields and counters in two compact rows at desktop and small-screen widths',async({page},testInfo)=>{
+test('Opportunity header has one desktop control row and responsive smaller rows',async({page},testInfo)=>{
  const {form}=await setup(page);
  for(const width of [1440,1020]){
   await page.setViewportSize({width,height:766});
   const boxes=await form.locator('.opportunity-header-fields').evaluate(grid=>[...grid.querySelectorAll('input,select,.opportunity-entry-summary')].map(el=>{const r=el.getBoundingClientRect();return {top:r.top,left:r.left,right:r.right,height:r.height}}));
   expect(new Set(boxes.slice(0,4).map(b=>Math.round(b.top))).size).toBe(1);
   expect(new Set(boxes.slice(4,7).map(b=>Math.round(b.top))).size).toBe(1);
-  expect(boxes[7].top).toBeLessThanOrEqual(boxes[4].top);
+  if(width>=1400)expect(new Set(boxes.slice(0,7).map(b=>Math.round(b.top))).size).toBe(1);
+  else expect(boxes[7].top).toBeLessThanOrEqual(boxes[4].top);
   expect(boxes[7].top).toBeGreaterThan(boxes[0].top);
   for(const b of boxes.slice(0,7))expect(b.height).toBe(32);
   const header=await form.locator('.opportunity-header-box').boundingBox();
@@ -217,14 +284,14 @@ test('copy uses current unsaved packaging only, clears blank source fields and s
  const {form,item,writes}=await setup(page);
  await expect(item.getByLabel('Copy packaging from item')).toHaveCount(0);
  await expect(item.getByRole('button',{name:'Copy packaging',exact:true})).toBeDisabled();
- await item.getByLabel('Configuration request',{exact:true}).selectOption('Reefer');
+ await item.getByLabel('Container Type',{exact:true}).selectOption('20RC');
  await item.getByLabel('Loading request',{exact:true}).selectOption('Both');
  await item.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');
  await item.getByLabel('Pallet stacking',{exact:true}).selectOption('Double');
  await item.getByLabel('Max pallet height (mm)',{exact:true}).fill('1800');
  await item.getByLabel('Primary Type',{exact:true}).selectOption('11');
  await item.getByLabel('Secondary Type',{exact:true}).selectOption('12');
- await item.getByLabel('Primary Transparent / opaque',{exact:true}).selectOption('Transparent');
+ await item.getByLabel('Transparent / opaque',{exact:true}).selectOption('Transparent');
  await item.getByLabel('Secondary Transparent / opaque',{exact:true}).selectOption('Opaque');
  await item.getByLabel('No of Primary Unit',{exact:true}).fill('24');
  await form.getByRole('button',{name:'Add item',exact:true}).click();
@@ -247,7 +314,7 @@ test('copy uses current unsaved packaging only, clears blank source fields and s
  await expect(target.getByLabel('Annual units *')).toHaveValue('200');
  for(const shelf of await target.getByLabel('Shelf life (days)',{exact:true}).all())await expect(shelf).toHaveValue('180');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(writes[0].item_rows[1]).toMatchObject({ProductID:3,AnnualUnit:200,EstPctAwarded:40,ShelfPrice:12.5,ContainerRequest:'Reefer',ConfigurationRequest:'Both',PalletSize:'1.1x1.1M',PalletStacking:'Double',MaxPalletHeightMM:'1800',PrimaryTypeID:'11',SecondaryTypeID:'12',Transparency:'Transparent',SecondaryTransparency:'Opaque',NumberOfPrimary:'24',RecycledContent:null,SpecialComments:'Latest source edit'});
+ expect(writes[0].item_rows[1]).toMatchObject({ProductID:3,AnnualUnit:200,EstPctAwarded:40,ShelfPrice:12.5,ContainerRequest:'20RC',ConfigurationRequest:'Both',PalletSize:'1.1x1.1M',PalletStacking:'Double',MaxPalletHeightMM:'1800',PrimaryTypeID:'11',SecondaryTypeID:'12',Transparency:'Transparent',SecondaryTransparency:'Opaque',NumberOfPrimary:'24',RecycledContent:null,SpecialComments:'Latest source edit'});
  expect(writes[0].item_rows[1]).not.toHaveProperty('ShelfLifeDays');
 });
 
@@ -256,12 +323,12 @@ test('currency controls use matching compact widths and help aligns with the lab
  const controls=form.locator('.opportunity-currency input,.opportunity-rate input'),boxes=await controls.evaluateAll(nodes=>nodes.map(el=>{const b=el.getBoundingClientRect();return {width:b.width,font:getComputedStyle(el).fontSize}}));
  expect(boxes).toHaveLength(3);expect(new Set(boxes.map(b=>b.width)).size).toBe(1);for(const b of boxes)expect(b.width).toBeLessThan(150);
  const label=item.locator('.field-label').filter({hasText:'Requested packaging layers'}),note=label.getByRole('note');
- const l=(await label.boundingBox())!,n=(await note.boundingBox())!;expect(Math.abs(l.y-n.y)).toBeLessThan(2);const textBox=(await label.locator('.field-label-text').boundingBox())!;expect(n.x-textBox.x-textBox.width).toBeLessThanOrEqual(6);
+ const {l,n,textBox}=await label.evaluate(el=>({l:el.getBoundingClientRect().toJSON(),n:el.querySelector('.info-tip')!.getBoundingClientRect().toJSON(),textBox:el.querySelector('.field-label-text')!.getBoundingClientRect().toJSON()}));expect(Math.abs(l.y+l.height/2-n.y-n.height/2)).toBeLessThan(2);expect(n.x-textBox.x-textBox.width).toBeLessThanOrEqual(6);
  await expect(item.getByLabel('Copy packaging from item')).toHaveCount(0);await expect(item.locator('.packaging-copy > button svg')).toBeVisible();
  await form.screenshot({path:info.outputPath('compact-currency-copy-1920.png')});
 });
 
-test('copying Floor load clears target pallet values and removing the source disables copying',async({page})=>{
+test('copying Floor load retains required size but clears target stacking and height and removing the source disables copying',async({page})=>{
  const {form,item}=await setup(page);
  await item.getByLabel('Loading request',{exact:true}).selectOption('Floor load');
  await form.getByRole('button',{name:'Add item',exact:true}).click();
@@ -274,9 +341,9 @@ test('copying Floor load clears target pallet values and removing the source dis
  await target.locator('.packaging-copy > button').click();await page.getByRole('dialog',{name:'Choose packaging source'}).getByLabel('Copy packaging from item').selectOption({label:'Item 1 - PRD-2 - Almonds'});
  await page.getByRole('dialog',{name:'Choose packaging source'}).getByRole('button',{name:'Copy packaging',exact:true}).click();
  await expect(target.getByLabel('Loading request',{exact:true})).toHaveValue('Floor load');
- await expect(target.getByLabel('Pallet size',{exact:true})).toHaveCount(0);
+ await expect(target.getByLabel('Pallet size',{exact:true})).toHaveValue('1.1x1.1M');
  await target.getByLabel('Loading request',{exact:true}).selectOption('Both');
- for(const label of ['Pallet size','Pallet stacking','Max pallet height (mm)'])await expect(target.getByLabel(label,{exact:true})).toHaveValue('');
+ for(const label of ['Pallet stacking','Max pallet height (mm)'])await expect(target.getByLabel(label,{exact:true})).toHaveValue('');
  await item.getByRole('button',{name:'Remove item 1',exact:true}).click();
  const remaining=form.getByRole('region',{name:'Item 1',exact:true}); // Item numbers update when a preceding item is removed.
  await expect(remaining.getByLabel('Copy packaging from item')).toHaveCount(0);
@@ -294,11 +361,11 @@ test('request editor shows the requirement sections read-only without changing r
   return route.fulfill({json:{rows:[],total:0}});
  });
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('button',{name:'Packaging requests',exact:true}).click();await page.getByRole('button',{name:'Edit request PCR-1'}).click();
+ await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();await page.getByRole('button',{name:'Edit request PCR-1'}).click();
  const item=page.getByRole('region',{name:'Request item 7',exact:true});await item.getByText('Packaging request',{exact:true}).click();
  const primary=item.getByRole('region',{name:'Primary packaging requirements',exact:true}),secondary=item.getByRole('region',{name:'Secondary packaging requirements',exact:true});
  await expect(primary.getByText('Requested Pouch',{exact:true})).toBeVisible();await expect(secondary.getByText('Requested Carton',{exact:true})).toBeVisible();
- await expect(item.getByRole('region',{name:'Packing Way request',exact:true}).getByText('24',{exact:true})).toBeVisible();await expect(primary.getByRole('combobox')).toHaveCount(0);
+ await expect(primary.getByText('24',{exact:true})).toBeVisible();await expect(primary.getByRole('combobox')).toHaveCount(0);
  for(const shelf of await item.getByLabel('Shelf life (days)',{exact:true}).all()){await expect(shelf).toHaveValue('365');await expect(shelf).toHaveAttribute('readonly','')}
  await expect(item.getByLabel('Primary Type',{exact:true}).locator('option[value="13"]')).toHaveCount(0); // Response uses names, not request IDs.
  await expect(item.getByLabel('Primary Type',{exact:true})).toBeVisible();

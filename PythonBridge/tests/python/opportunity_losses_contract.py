@@ -31,13 +31,19 @@ class OpportunityLossTests(unittest.TestCase):
   self.assertEqual(result["saved"]["Inputs"]["ProcessingUSDPerLb"],"2")
   self.assertEqual(result["saved"]["Inputs"]["LossProductPct"],"5.00")
 class FormulaTests(unittest.TestCase):
+ def test_decimal_ratios_and_automatic_percent_output(self):
+  from decimal import Decimal
+  steps=[dict(ProcessType="Processing",Sequence=i+1,LossPct=value) for i,value in enumerate(["3","2","1"])]
+  for formula,expected in [("L1","3"),("1-(1-L1)*(1+L2)*(1-L3)","2.0494"),("1-(1-L1)*(1-L2)*(1-L3)","5.8906"),("0.03","3"),("1","100"),("L1/3","1")]:
+   with self.subTest(formula=formula):
+    self.assertEqual(Inputs(LossProcesses=steps,ProductLossFormula=formula).LossProductPct,Decimal(expected))
  def test_product_formula_with_loss_codes_and_zero(self):
   steps=[dict(ProcessType="Processing",Sequence=i+1,LossPct=value) for i,value in enumerate(["5","10"])]
-  self.assertEqual(Inputs(LossProcesses=steps,ProductLossFormula="100-(100-L1)*(100-L2)/100").LossProductPct, __import__("decimal").Decimal("14.5"))
+  self.assertEqual(Inputs(LossProcesses=steps,ProductLossFormula="1-(1-L1)*(1-L2)").LossProductPct, __import__("decimal").Decimal("14.5"))
   self.assertEqual(Inputs(LossProcesses=steps,ProductLossFormula="0").LossProductPct,0)
  def test_formula_rejects_unknown_code_functions_division_and_out_of_range(self):
   from pydantic import ValidationError
-  for formula in ["L9","L1/0","L1**2","__import__('os')","101","-1"]:
+  for formula in ["L9","L1/0","L1**2","__import__('os')","1.01","101","-1"]:
    with self.subTest(formula=formula),self.assertRaises(ValidationError):
     Inputs(LossProcesses=[dict(ProcessType="Processing",Sequence=1,LossPct="5")],ProductLossFormula=formula)
 class MigrationTests(unittest.TestCase):

@@ -37,6 +37,8 @@ test('conversion grid keeps its final row inside the scroll region and shares se
  await page.route('**/api/unit-conversions?**',r=>{const url=new URL(r.request().url());queries.push(url);return r.fulfill({json:{rows:Array.from({length:30},(_,i)=>({ID:i+1,FromUoM:'m',ToUoM:'m2',Factor:3.77,Status:'Active',MaterialCode:'PKG-1'})),has_more:url.searchParams.get('page')==='1'}})});
  await page.getByRole('button',{name:'Refresh',exact:true}).click();
  const table=page.getByRole('table',{name:'Unit conversions'}),grid=table.locator('..'),pager=page.locator('.conversions-page .pager');
+ await expect(table.getByRole('columnheader').first().getByRole('button',{name:'New conversion',exact:true})).toBeVisible();
+ await expect(page.locator('.conversions-page .view-toolbar').getByRole('button',{name:'New conversion',exact:true})).toHaveCount(0);
  await expect(table.locator('tbody tr')).toHaveCount(30);
  const icons=page.locator('.conversions-page .view-toolbar > button');
  for(const button of await icons.all()){const b=(await button.boundingBox())!;expect(b.width).toBe(28);expect(b.height).toBe(28)}

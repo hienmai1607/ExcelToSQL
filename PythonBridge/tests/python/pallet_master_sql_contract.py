@@ -32,7 +32,7 @@ class PalletSQL(unittest.TestCase):
         self.cur = self.conn.cursor()
         self.cur.execute("SET NOCOUNT ON; SET QUOTED_IDENTIFIER ON; BEGIN TRANSACTION")
         for _ in range(2):
-            for name in ("49_pallet_master.sql","78_pallet_container_capacities.sql"):
+            for name in ("49_pallet_master.sql","78_pallet_container_capacities.sql","103_pallet_price.sql"):
                 for sql in re.split(r"^GO\s*$", (ROOT / "sql" / name).read_text(), flags=re.M | re.I):
                     if sql.strip():
                         self.cur.execute(sql)
@@ -82,6 +82,18 @@ class PalletSQL(unittest.TestCase):
         self.cur.execute("INSERT dbo.UserAccess(UserID,Scope) VALUES(?,?)", id, scope)
         return AccessContext(id, name, frozenset({scope}))
 
+    def test_price_roundtrip_preserves_omitted_and_clears_explicit_null(self):
+        from db import bytes_to_b64
+        result=self.save(PalletPriceUSDPerEA="12.50")
+        self.assertEqual(result["Status"],"OK",result)
+        id=result["NewID"]
+        self.assertEqual(Decimal(self.row(id)["PalletPriceUSDPerEA"]),Decimal("12.50"))
+        for supplied in ({},{"PalletPriceUSDPerEA":None}):
+            version=self.cur.execute("SELECT RowVersion FROM dbo.Pallet WHERE ID=?",id).fetchval()
+            result=self.save(Command="U",ID=id,RowVersion=bytes_to_b64(version),**supplied)
+            self.assertEqual(result["Status"],"OK",result)
+            value=self.row(id)["PalletPriceUSDPerEA"]
+            self.assertEqual(value,None if supplied else "12.50")
     def test_meter_example_and_compact_size(self):
         result = self.save()
         self.assertEqual(result["Status"], "OK", result)

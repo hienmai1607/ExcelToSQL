@@ -36,8 +36,8 @@ class ItemLossSQLSave(unittest.TestCase):
    with patch.object(packaging_api,"get_raw_cursor",cursor):
     ctx=AccessContext(actor,username,frozenset({"Admin"}))
     row=tcb_api.item_read(item,ctx)
-    result=tcb_api.save_losses(tcb_api.LossSave(RowVersion=row["RowVersion"],Inputs={"LossProcesses":steps,"ProductLossFormula":"100-(1-L1/100)*(1-L2/100)*(1-L3/100)"}),item,ctx)
-    self.assertEqual(result["saved"]["Inputs"]["LossProductPct"],"99.058906000")
+    result=tcb_api.save_losses(tcb_api.LossSave(RowVersion=row["RowVersion"],Inputs={"LossProcesses":steps,"ProductLossFormula":"1-(1-L1)*(1-L2)*(1-L3)"}),item,ctx)
+    self.assertEqual(result["saved"]["Inputs"]["LossProductPct"],"5.890600000")
     self.assertEqual(len(result["saved"]["Inputs"]["LossProcesses"]),4)
     value=cur.execute("SELECT TCBCostInfo FROM dbo.OpportunityItem WHERE ID=?",item).fetchval()
     self.assertEqual(json.loads(value)["Inputs"]["PrimaryLossPct"],"2.00")

@@ -27,7 +27,7 @@ async function setup(page:Page,options:{size?:number;saved?:boolean;blocked?:boo
   }
   return route.fulfill({json:{rows:[],total:0}});
  });
- await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging requests',exact:true}).click();
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
  await page.getByRole('button',{name:'Edit request PCR-MIX',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  return {editor,writes,previews,rows,item:(id:number)=>editor.getByRole('region',{name:'Request item '+id,exact:true})};

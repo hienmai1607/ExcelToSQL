@@ -12,6 +12,7 @@ router = APIRouter(prefix="/api/packaging/type", tags=["Packaging Type Master"])
 class PackagingTypeRow(MasterRow):
     ParentTypeID: int | None = Field(None, ge=1, le=2147483647)
     Shipping: bool = Field(False, strict=True)
+    FinalComponent: bool = Field(False, strict=True)
     PackagingOrder: Literal["Primary", "Secondary", "Tertiary"] | None = None
     PackagingOrders: list[Literal["Primary", "Secondary", "Tertiary"]] | None = Field(None,max_length=3)
     PackagingType: str | None = Field(None, max_length=100)
@@ -38,8 +39,8 @@ class PackagingTypeRow(MasterRow):
             raise ValueError("Select at least one packaging order.")
         if known_root and self.PackagingOrders and self.PackagingOrder and self.PackagingOrder not in self.PackagingOrders:
             raise ValueError("Legacy Order must belong to the selected packaging orders.")
-        if self.Command != "D" and ((known_root and not (self.PackagingOrder or self.PackagingOrders)) or not self.PackagingType or not self.PriceBasis):
-            raise ValueError("Order, Packaging Type and Price Basis are required.")
+        if self.Command != "D" and ((known_root and not (self.PackagingOrder or self.PackagingOrders)) or not self.PackagingType):
+            raise ValueError("Packaging layer selection and Packaging Type are required.")
         rv(self.RowVersion, self.Command != "C")
         return self
 

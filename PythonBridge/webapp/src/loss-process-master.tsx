@@ -17,6 +17,6 @@ function Editor({row,canWrite,onClose,onSaved}:{row:Row|null;canWrite:boolean;on
 }
 export function LossProcessMaster({canWrite}:{canWrite:boolean}){
  const [revision,setRevision]=useState(0),[notice,setNotice]=useState(''),[editing,setEditing]=useState<{row:Row|null}|null>(null);
- return <section className="customers-page"><SharedMasterView entity="loss-processes" title="Loss Process Master" newLabel="New loss process" recordLabel="View Loss Process" canWrite={canWrite} initialSort="ProcessType" revision={revision} notice={notice} onDismiss={()=>setNotice('')} columns={{ProcessType:'Process Type',Status:'Status'}} display={(row,column)=>column==='LossPct'?Number(row[column]).toFixed(2)+'%':String(row[column]??'')} onEdit={row=>setEditing({row})}/>
+ return <section className="customers-page"><SharedMasterView entity="loss-processes" title="Loss Master" newLabel="New loss process" recordLabel="View Loss Process" canWrite={canWrite} initialSort="ProcessType" revision={revision} notice={notice} onDismiss={()=>setNotice('')} columns={{ProcessType:'Process Type',Status:'Status'}} display={(row,column)=>column==='LossPct'?Number(row[column]).toFixed(2)+'%':String(row[column]??'')} onEdit={row=>setEditing({row})}/>
  {editing&&<Editor row={editing.row} canWrite={canWrite} onClose={()=>setEditing(null)} onSaved={()=>{setNotice('Loss Process saved.');setRevision(n=>n+1)}}/>}</section>
 }

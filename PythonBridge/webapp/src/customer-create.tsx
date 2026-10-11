@@ -1,3 +1,4 @@
+import {scrollAddedRecord} from './expand-scroll';
 import {useEffect,useRef,useState} from 'react';
 import {api,ApiError,type Row} from './api';
 import {Modal,ErrorNote,Badge} from './ui';
@@ -51,7 +52,7 @@ export function CustomerCreate({lookups,onClose,onSaved}:{lookups:{markets:Row[]
  <div className="customer-form-grid"><label>Market *<select aria-label="Market *" value={x.market} onChange={e=>change(x.key,'market',e.target.value)} aria-invalid={!!x.errors.market} aria-describedby={'market-'+x.key}><option value="">Choose market</option>{lookups.markets.map(r=><option key={String(r.ID)} value={String(r.ID)}>{label(r,'Market')}</option>)}</select><span id={'market-'+x.key} className="field-error">{x.errors.market}</span></label>
  <label>Currency *<select aria-label="Currency *" value={x.currency} onChange={e=>change(x.key,'currency',e.target.value)} aria-invalid={!!x.errors.currency} aria-describedby={'currency-'+x.key}><option value="">Choose currency</option>{lookups.currencies.map(r=><option key={String(r.ID)} value={String(r.ID)}>{label(r,'Currency')}</option>)}</select><span id={'currency-'+x.key} className="field-error">{x.errors.currency}</span></label></div>
  </fieldset></section>)}</div>
- <button className="add-section" type="button" disabled={busy||uncertain||entries.length>=500} onClick={()=>{const entry=blank(++sequence.current);setEntries(x=>[...x,entry])}}>+ Add customer section</button>
+ <button className="add-section" type="button" disabled={busy||uncertain||entries.length>=500} onClick={event=>{scrollAddedRecord(event.currentTarget);const entry=blank(++sequence.current);setEntries(x=>[...x,entry])}}>+ Add customer section</button>
  <div className="actions batch-actions"><button type="submit" className="primary" disabled={busy||uncertain||!pending.length||!lookups.markets.length||!lookups.currencies.length}>Review & save</button></div>
  </form>
  {confirm&&<Modal label="Confirm customer save" onClose={()=>{if(!busy)setConfirm(false)}}><h2>Create {pending.length} {pending.length===1?'customer':'customers'}?</h2><ul className="batch-review">{pending.map(x=><li key={x.key}>{x.name.trim()}</li>)}</ul><div className="actions"><button disabled={busy} onClick={()=>setConfirm(false)}>Back to form</button><button className="primary" disabled={busy} onClick={save}>{busy?'Saving…':'Confirm save'}</button></div></Modal>}

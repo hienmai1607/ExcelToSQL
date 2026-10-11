@@ -7,7 +7,8 @@ SHIPMENT_GROUPS = [
   {
    "Incoterm": "Incoterm",
    "PortOfEntryName": "Port of Entry",
-   "ContainerSizeFT": "Container"
+   "ContainerSizeFT": "Container",
+   "FloorLoadUSDPerMT": "Floor load cost ($/MT)"
   }
  ],
  [
@@ -15,7 +16,8 @@ SHIPMENT_GROUPS = [
   {
    "FreightUSDPerContainer": "Freight ($/Container)",
    "DutyPct": "Duty %",
-   "ImportClearanceUSDPerContainer": "Import clearance ($/cont)",
+   "ImportClearanceUSDPerContainer": "Legacy import clearance ($/cont)",
+   "ImportClearanceCustomerPerPallet": "Import clearance (customer currency/pallet)",
    "PortToWHUSDPerContainer": "Port - WH ($/cont)",
    "WHCostUSDPerPallet": "WH Cost ($/pallet)",
    "OverageShortageDamagePct": "Overage, Shortage & Damage %"
@@ -41,7 +43,11 @@ SHIPMENT_GROUPS = [
    "OtherFixedCostsUSD": "Other fixed costs ($)",
    "FobbingUSDPerContainer": "Fobbing/container ($)",
    "InterestPct": "Interest %",
-   "InterestMonths": "Interest months",
+   "InterestMonths": "Legacy interest months",
+   "InterestDays": "Interest days",
+   "PaymentTermDays": "Payment term (days)",
+   "MarginMode": "Margin basis",
+   "MarginUSDPerLb": "Margin ($/lbs)",
    "MarginPct": "Margin %"
   }
  ]
@@ -54,6 +60,9 @@ def shipment_columns(row):
     values = {key: row.get(key) if key == "PortOfEntryName" else info.get(key) for key in SHIPMENT_COLUMNS}
     for title, fields in SHIPMENT_GROUPS[1:]:
         for key in fields:
-            if key != "InterestMonths" and values[key] is not None:
+            if key not in ("InterestMonths","InterestDays","PaymentTermDays","MarginMode") and values[key] is not None:
                 values[key] = format(Decimal(str(values[key])), ".2f")
+    if values["InterestDays"] is None and values["InterestMonths"] is not None:
+        values["InterestDays"] = int(values["InterestMonths"]) * 30
+    values["MarginMode"] = values["MarginMode"] or ("USDPerLb" if values["MarginUSDPerLb"] is not None else "Percent")
     return values

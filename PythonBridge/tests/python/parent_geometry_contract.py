@@ -32,7 +32,7 @@ class ParentGeometrySQL(unittest.TestCase):
         foundation.ResponsePalletSQL.setUp(self)
         for name in ('73_packaging_type_shipping.sql','74_packaging_dimension_volume_formula.sql',
                      '76_packaging_pallet_layers.sql','77_packaging_parent_dimensions.sql','79_packaging_supplier_geometry.sql',
-                     '80_packaging_formula_roles.sql','81_packaging_child_dimensions.sql'):
+                     '80_packaging_formula_roles.sql','81_packaging_child_dimensions.sql','100_packaging_conversion_output_uom.sql'):
             self.migrate(name)
         @contextmanager
         def cursor():
@@ -49,7 +49,7 @@ class ParentGeometrySQL(unittest.TestCase):
             self.units[code]=self.cur.execute('SELECT ID FROM dbo.UoM WHERE UoMCode=?',code).fetchval()
         saved=dimensions.save(self.definition(OccupiedM2Formula='D1*D2/1000000',OccupiedM3Formula='D1*D2*D3/1000000000'),self.ctx)['row']
         self.dimension=saved['ID']
-        self.child=self.cur.execute("INSERT dbo.PackagingType(PackagingOrder,PackagingType,PriceBasis,ParentTypeID,TareWeight,CreatedBy) VALUES('Secondary',?,'Square meter',?,0,?); SELECT CONVERT(INT,SCOPE_IDENTITY())",'PG-film-'+uuid4().hex[:12],self.root,self.actor).fetchval()
+        self.child=self.cur.execute("INSERT dbo.PackagingType(PackagingOrder,PackagingType,PriceBasis,ParentTypeID,TareWeight,CreatedBy,FinalComponent) VALUES('Secondary',?,'Square meter',?,0,?,1); SELECT CONVERT(INT,SCOPE_IDENTITY())",'PG-film-'+uuid4().hex[:12],self.root,self.actor).fetchval()
         self.override=dimensions.save(self.definition(PackagingTypeID=self.child,ParentDimensionID=self.dimension,
             ParentDimensionRowVersion=self.dim_rv(),ConvertFromParentFormula='D1*D2/1000000',
             ConvertFromSupplierFormula='(D2*2+25)*D1/1000000'),self.ctx)['row']['ID']

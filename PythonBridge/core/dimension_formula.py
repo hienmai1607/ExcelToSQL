@@ -78,7 +78,7 @@ def _calculate(formula: str, dimensions: dict[str, Decimal], quantity: str, allo
     try:
         with localcontext() as context:
             context.prec = 50
-            result = visit(tree).quantize(Decimal("0.000000001"), rounding=ROUND_HALF_UP)
+            result = (visit(tree) * (Decimal(100) if loss else Decimal(1))).quantize(Decimal("0.000000001"), rounding=ROUND_HALF_UP)
             if loss and not 0 <= result <= 100:
                 raise ValueError("Calculated Product loss must be from 0 to 100%.")
             if not loss and (result <= 0 or result >= Decimal("1e19")):

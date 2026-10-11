@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from master_models import MasterSort
 
 LABELS = {
- "loss-processes": {"ProcessType":"Process Type","Status":"Status"},
+ "categories": {"CategoryName":"Category name","Status":"Status"}, "loss-processes": {"ProcessType":"Process Type","Status":"Status"},
  "ports": {"PortName":"Port name","CustomerName":"Customer","MarketCode":"Market code","MarketName":"Market","Status":"Status"}
 }
 def check_shared_layout(entity,layout):
@@ -48,6 +48,6 @@ def export_view(entity,body):
  from preferences_api import snapshot_xlsx
  if len(body.columns)!=len(set(body.columns)) or any(c not in LABELS[entity] for c in body.columns):
   raise HTTPException(422,"Invalid export columns.")
- return Response(snapshot_xlsx(body,LABELS[entity],"Loss processes" if entity=="loss-processes" else "Ports of Entry"),
+ return Response(snapshot_xlsx(body,LABELS[entity],{"loss-processes":"Loss processes","ports":"Ports of Entry","categories":"Category Master"}[entity]),
   media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   headers={"Content-Disposition":f'attachment; filename="{entity}.xlsx"',"Cache-Control":"no-store"})

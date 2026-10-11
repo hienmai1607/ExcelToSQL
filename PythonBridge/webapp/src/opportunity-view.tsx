@@ -25,15 +25,15 @@ type Domain='opportunity'|'requests';
 const labelsFor=(kind:'header'|'items',domain:Domain)=>domain==='requests'?(kind==='header'?requestHeaderLabels:requestItemLabels):(kind==='header'?headerLabels:itemLabels);
 export const defaultFilters=['opportunity_number','customer_name','stage'];
 export const activeFilters=(v:OpportunityView)=>Object.fromEntries((v.filters??defaultFilters).filter(k=>v.values?.[k]).map(k=>[k,v.values![k]]));
-export const defaultView=(kind:'header'|'items',domain:Domain='opportunity'):OpportunityView=>({page_size:25,field_version:domain==='opportunity'?10:7,filters:kind==='header'?(domain==='requests'?['search','status']:defaultFilters):[],values:{},columns:Object.keys(labelsFor(kind,domain)),sort:kind==='header'?[{column:domain==='requests'?'RequestedAt':'BidOpen',direction:'desc'}]:[]});
+export const defaultView=(kind:'header'|'items',domain:Domain='opportunity'):OpportunityView=>({page_size:25,field_version:domain==='opportunity'?12:8,filters:kind==='header'?(domain==='requests'?['search','status']:defaultFilters):[],values:{},columns:Object.keys(labelsFor(kind,domain)),sort:kind==='header'?[{column:domain==='requests'?'RequestedAt':'BidOpen',direction:'desc'}]:[]});
 export function restoreView(stored:OpportunityView,kind:'header'|'items',domain:Domain):OpportunityView{
  const labels=labelsFor(kind,domain),required=domain==='opportunity'?opportunityRequired[kind]:requestRequired[kind];
  const renamed:Record<string,string>=kind==='header'&&domain==='opportunity'?{CurrencyCode:'CustomerCurrencyCode',ExchangeRateToVND:'ExchangeRateVNDPerUSD'}:{};
  const oldColumns=stored.columns.map(c=>renamed[c]||c).filter(c=>c in labels);
- const added=kind==='items'?[...((stored.field_version??1)<7?efficiencyFields:[]),...(domain==='opportunity'&&(stored.field_version??1)<8?Object.keys(linkedRequestFields):[]),...(domain==='opportunity'&&(stored.field_version??1)<9?shipmentFieldGroups.flatMap(g=>Object.keys(g.fields)):[]),...(domain==='opportunity'&&(stored.field_version??1)<10?Object.keys(tcbColumnLabels):[])]:[];
+ const added=kind==='items'?[...(domain==='opportunity'&&(stored.field_version??1)<12?['FloorLoadUSDPerMT','ImportClearanceCustomerPerPallet','InterestDays','PaymentTermDays','MarginMode','MarginUSDPerLb']:[]),...((stored.field_version??1)<(domain==='opportunity'?11:8)?['ApplicableNetWeightGrams']:[]),...((stored.field_version??1)<7?efficiencyFields:[]),...(domain==='opportunity'&&(stored.field_version??1)<8?Object.keys(linkedRequestFields):[]),...(domain==='opportunity'&&(stored.field_version??1)<9?shipmentFieldGroups.flatMap(g=>Object.keys(g.fields)):[]),...(domain==='opportunity'&&(stored.field_version??1)<10?Object.keys(tcbColumnLabels):[])]:[];
  const columns=kind==='items'&&(stored.field_version??1)<6?Object.keys(labels):[...new Set([...oldColumns,...required,...added])];
  const ordered=kind==='items'?itemFieldGroups(domain).flatMap(g=>{const group=columns.filter(c=>c in g.fields);return added.includes('PackagingRequestNumber')&&'PackagingRequestNumber' in g.fields?['PackagingRequestNumber',...group.filter(c=>c!=='PackagingRequestNumber')]:group}):columns;
- return {...stored,field_version:domain==='opportunity'?10:7,columns:ordered,
+ return {...stored,field_version:domain==='opportunity'?12:8,columns:ordered,
   sort:stored.sort.map(r=>({...r,column:renamed[r.column]||r.column})).filter(r=>r.column in labels&&(kind==='header'||!calculatedFields.has(r.column))),
   prefix_columns:kind==='items'?stored.prefix_columns?.filter(c=>c in itemFieldGroups(domain)[0].fields):undefined,
   column_widths:Object.fromEntries(Object.entries(stored.column_widths||{}).filter(([k])=>k in labels||k.startsWith('_'))),

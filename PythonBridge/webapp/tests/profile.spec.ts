@@ -29,7 +29,7 @@ test('saved columns filters and page size restore after reload; export is visibl
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('columnheader',{name:'Currency',exact:true})).toHaveCount(0);
  await expect(page.getByLabel('Rows per page')).toHaveValue('50');await expect(page.getByLabel('Customer name',{exact:true})).toHaveValue('Ac');
  await expect(page.getByLabel('Market',{exact:true})).toHaveCount(0);
- const download=page.waitForEvent('download');await page.getByRole('button',{name:'Export current page to Excel'}).click();
+ const download=page.waitForEvent('download');await page.getByRole('button',{name:'Excel local template'}).click();
  expect((await download).suggestedFilename()).toBe('Customers-current-view.xlsx');
  expect(state.exported()).toEqual({columns:['CustomerName','MarketCode','Status','UpdatedAt'],rows:[['Acme','US','Active',null]]});
 });
@@ -87,13 +87,13 @@ test('column position persists and determines export order; compact icon tasks',
  const state=await mock(page);
  await expect(page.getByText('Customer directory',{exact:true})).toHaveCount(0);
  const toolbar=page.getByRole('toolbar',{name:'Customer tasks'});
- for(const name of ['Layout options','Refresh','Export current page to Excel'])await expect(toolbar.getByRole('button',{name,exact:true})).toBeVisible();
+ for(const name of ['Layout options','Refresh','Excel local template'])await expect(toolbar.getByRole('button',{name,exact:true})).toBeVisible();
  await toolbar.getByRole('button',{name:'Layout options'}).click();
  await page.getByRole('button',{name:'Move Currency left',exact:true}).click();
  await page.getByRole('button',{name:'Move Currency left',exact:true}).click();
  await page.getByRole('button',{name:'Save layout to profile'}).click();await expect(page.getByRole('status')).toContainText('saved to your profile');
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('columnheader').nth(1)).toHaveText('Currency');
- const download=page.waitForEvent('download');await page.getByRole('button',{name:'Export current page to Excel'}).click();await download;
+ const download=page.waitForEvent('download');await page.getByRole('button',{name:'Excel local template'}).click();await download;
  expect(state.exported().columns[0]).toBe('CurrencyCode');
  await page.getByRole('button',{name:'Collapse navigation'}).click();await page.setViewportSize({width:390,height:844});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);

@@ -1,3 +1,4 @@
+import {pageAccess} from './workspace-access';
 import {ResizableTable,ColumnResizer,columnWidth} from './column-widths';
 import {numberDisplay} from './number-format';
 import {PackagingChanges} from './packaging-changes';
@@ -24,7 +25,7 @@ export function Requests({canAssign,user}:{canAssign:boolean;user:string}){
  const [changes,setChanges]=useState<Row|null>(null);
  const [itemTab,setItemTab]=useState<ItemTab>('all'),[editing,setEditing]=useState<Row|null>(null),[editorFocus,setEditorFocus]=useState<{page:number;itemID?:number}>({page:1});
  const itemColumns=itemTabColumns(itemView.view,itemTab),headerColumns=headerView.view.columns.filter(c=>c!=='RequestNumber');
- const canEdit=canAssign||session.is_admin||session.scopes.includes('Packaging');
+ const canEdit=(canAssign||session.is_admin||session.scopes.includes('Packaging'))&&pageAccess(session,'requests',true);
  const headerSort=JSON.stringify(headerView.view.sort),itemSort=JSON.stringify(itemView.view.sort);
  const size=headerView.view.page_size??25,itemSize=itemView.view.page_size??25;
  useEffect(()=>setPage(1),[size]);useEffect(()=>setItemPage(1),[itemSize]);
@@ -55,13 +56,13 @@ export function Requests({canAssign,user}:{canAssign:boolean;user:string}){
   return()=>{active=false};
  },[selected,itemPage,itemSize,detailTick,savedDetailTick,itemSort]);
  return <div className="customers-page opportunity-page">
- <div className="customer-heading"><h1>Packaging requests</h1></div>
- <OpportunityViewTools control={headerView}><IconButton icon="refresh" label="Refresh Packaging requests" disabled={loading} onClick={()=>{setPage(1);setReload(n=>n+1)}}/><OpportunityExcel entity="packaging" header={headerView.view} items={itemView.view} page={page} pageSize={size} filters={filters} disabled={loading} onMessage={setMessage} onError={setError}/></OpportunityViewTools>
+ <div className="customer-heading"><h1>Packaging Requests</h1></div>
+ <OpportunityViewTools control={headerView}><IconButton icon="refresh" label="Refresh Packaging Requests" disabled={loading} onClick={()=>{setPage(1);setReload(n=>n+1)}}/><OpportunityExcel entity="packaging" header={headerView.view} items={itemView.view} page={page} pageSize={size} filters={filters} disabled={loading} onMessage={setMessage} onError={setError}/></OpportunityViewTools>
  <ErrorNote value={error}/><Notification value={message} onDismiss={()=>setMessage('')}/>
  {visibleFilters.length>0&&<form className="filters" onSubmit={e=>{e.preventDefault();setPage(1);const v=activeFilters(headerView.view);setFilters({search:v.search||'',status:v.status||''})}}>
  {visibleFilters.map(f=><label key={f}>{requestFilters[f]}{f==='status'?<select aria-label="Status" value={headerView.view.values?.[f]||''} onChange={e=>headerView.setView(v=>({...v,values:{...v.values,[f]:e.target.value}}))}><option value="">All statuses</option>{['Open','Completed','Canceled'].map(x=><option key={x}>{x}</option>)}</select>:<input aria-label={requestFilters[f]} maxLength={200} placeholder="Starts with…" value={headerView.view.values?.[f]||''} onChange={e=>headerView.setView(v=>({...v,values:{...v.values,[f]:e.target.value}}))}/>}</label>)}
  <button className="primary" disabled={loading}>Search</button><button type="button" disabled={loading} onClick={()=>{headerView.setView(v=>({...v,values:{}}));setFilters({search:'',status:''});setPage(1)}}>Clear</button></form>}
- <section className="panel"><div className="table-wrap"><ResizableTable pinFirstColumn aria-label="Packaging requests" disabled={!headerView.canSave} columns={headerColumns} widths={headerView.view.column_widths} leading={[columnWidth(headerView.view.column_widths,'RequestNumber')]} onResize={(key,width)=>headerView.setView(v=>({...v,column_widths:{...v.column_widths,[key]:width}}))}><thead><tr><ViewHeading className="customer-actions record-id-column" column="RequestNumber" control={headerView}/>{headerColumns.map(c=><ViewHeading key={c} column={c} control={headerView}/>)}</tr></thead>
+ <section className="panel"><div className="table-wrap"><ResizableTable pinFirstColumn aria-label="Packaging Requests" disabled={!headerView.canSave} columns={headerColumns} widths={headerView.view.column_widths} leading={[columnWidth(headerView.view.column_widths,'RequestNumber')]} onResize={(key,width)=>headerView.setView(v=>({...v,column_widths:{...v.column_widths,[key]:width}}))}><thead><tr><ViewHeading className="customer-actions record-id-column" column="RequestNumber" control={headerView}/>{headerColumns.map(c=><ViewHeading key={c} column={c} control={headerView}/>)}</tr></thead>
  <tbody>{!loading&&data.rows.map(r=><tr key={String(r.RequestID)} className={selected?.RequestID===r.RequestID?'selected':''}><td className="customer-actions record-id-column"><button className="record-link" aria-label={(canEdit?'Edit request ':'View request ')+r.RequestNumber} onClick={()=>{setEditorFocus({page:1});setEditing(r)}}>{text(r.RequestNumber)}</button></td>{headerColumns.map(c=><td key={c}>{c==='RequestNumber'?<button className="link opportunity-link"  onClick={()=>{setSelected(r);setItemPage(1);setMessage('')}}>{text(numberDisplay(c,r[c]))}</button>:c==='ItemCount'?<button className="record-count" aria-label="View request" title={'View items for '+r.RequestNumber} onClick={()=>{setSelected(r);setItemPage(1);setMessage('')}}>{text(r.ItemCount??0)} items</button>:c==='RequestStatus'?<Badge value={r[c]}/>:c==='RequestedAt'?text(timestamp(r[c])):c==='ResponseDue'?date(r[c]):text(numberDisplay(c,r[c]))}</td>)}</tr>)}</tbody></ResizableTable></div>
  {loading?<div className="empty">Loading requests…</div>:!data.rows.length&&<div className="empty">No packaging requests match these filters.</div>}
  <Pager page={page} size={size} total={data.total} busy={loading} onPage={setPage} onSize={n=>{headerView.setView(v=>({...v,page_size:n}));setPage(1)}} unit="requests"/></section>

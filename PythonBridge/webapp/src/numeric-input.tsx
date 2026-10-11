@@ -23,7 +23,8 @@ export function numericEntryError(field:string,value:string){
  if(palletCapacityKeys.includes(field))return /^\d{1,10}$/.test(value)&&Number(value)<=2147483647?'':'Use a whole number from 0 to 2,147,483,647, or leave blank.';
  if(field==='HeightMM')return /^\d{1,10}(\.\d{0,2})?$/.test(value)&&Number(value)>0?'':'Use a positive height in mm with up to 2 decimal places.';
  if(field==='ResponseMaxPalletHeightMM')return /^\d{1,9}$/.test(value)&&Number(value)>=1?'':'Use a positive whole number of millimeters up to 999,999,999.';
- if(['UnitsPerCarton','UnitsPerTertiary','CartonsPerLayer','LayersPerPallet','LayersPerContainer','PalletsPerContainer','CartonsPerContainerFloor'].includes(field))return /^\d{1,10}$/.test(value)&&Number(value)>=1&&Number(value)<=2147483647?'':'Use a positive whole number up to 2,147,483,647.';
+ if(['UnitsPerCarton','UnitsPerTertiary','CartonsPerLayer','LayersPerPallet','LayersPerContainer','PalletsPerContainer','CartonsPerContainerFloor','CartonsPerContainer'].includes(field))return /^\d{1,10}$/.test(value)&&Number(value)>=1&&Number(value)<=2147483647?'':'Use a positive whole number up to 2,147,483,647.';
+ if(field==='ApplicableNetWeightGrams')return /^\d{1,12}(\.\d{0,6})?$/.test(value)?'':'Use non-negative grams with up to 6 decimals.';
  if(field==='NutDensity')return /^\d{1,12}(\.\d{0,6})?$/.test(value)&&Number(value)>0?'':'Use a positive density with up to 12 whole digits and 6 decimal places.';
  if(field==='Width'||field==='Length')return /^\d{1,8}(\.\d{0,4})?$/.test(value)&&Number(value)>0?'':'Use a positive number with up to 8 whole digits and 4 decimal places.';
  if(field==='ShelfLifeDays')return /^\d+$/.test(value)&&Number(value)<=2147483647?'':'Use whole days from 0 to 2,147,483,647.';

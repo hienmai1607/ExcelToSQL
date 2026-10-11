@@ -1,12 +1,23 @@
+import {Fragment} from 'react';
 import type {Row} from './api';
 import {FieldLabel} from './ui';
+import {quantity,divide,quantityDisplay} from './packaging-summary-model';
+import {allowedContainerTypes,containerTypes} from './container-loading';
 
-type CostField={key:string;label:string;kind:'usd'|'pct'|'months'};
+export function requestedContainerType(requirements:Record<string,string>,values:Record<string,string>){
+ const request=requirements.ContainerRequest||'';
+ if(containerTypes.includes(request as typeof containerTypes[number]))return request;
+ if(!values.ContainerSizeFT||!['Dry','Reefer'].includes(request))return '';
+ const types=allowedContainerTypes(request,values.ContainerSizeFT);
+ return types.length===1?types[0]:'';
+}
+
+type CostField={key:string;label:string;kind:'usd'|'pct'|'days'};
 export const costSections:{title:string;fields:CostField[]}[]=[
  {title:'Logistics',fields:[
   {key:'FreightUSDPerContainer',label:'Freight ($/Container)',kind:'usd'},
   {key:'DutyPct',label:'Duty %',kind:'pct'},
-  {key:'ImportClearanceUSDPerContainer',label:'Import clearance ($/cont)',kind:'usd'},
+  {key:'ImportClearanceCustomerPerPallet',label:'Import clearance (customer currency/pallet)',kind:'usd'},
   {key:'PortToWHUSDPerContainer',label:'Port - WH ($/cont)',kind:'usd'},
   {key:'WHCostUSDPerPallet',label:'WH Cost ($/pallet)',kind:'usd'},
   {key:'OverageShortageDamagePct',label:'Overage, Shortage & Damage %',kind:'pct'}]},
@@ -24,19 +35,24 @@ export const costSections:{title:string;fields:CostField[]}[]=[
   {key:'OtherFixedCostsUSD',label:'Other fixed costs ($)',kind:'usd'},
   {key:'FobbingUSDPerContainer',label:'Fobbing/container ($)',kind:'usd'},
   {key:'InterestPct',label:'Interest %',kind:'pct'},
-  {key:'InterestMonths',label:'Interest months',kind:'months'},
-  {key:'MarginPct',label:'Margin %',kind:'pct'}]}
+  {key:'InterestDays',label:'Interest days',kind:'days'},
+  {key:'MarginPct',label:'Margin %',kind:'pct'},
+  {key:'MarginUSDPerLb',label:'Margin ($/lbs)',kind:'usd'},
+  {key:'PaymentTermDays',label:'Payment term (days)',kind:'days'}]}
 ];
 const fields=costSections.flatMap(s=>s.fields);
-const keys=['Incoterm','PortOfEntryID','ContainerSizeFT',...fields.map(f=>f.key)];
+const keys=['Incoterm','PortOfEntryID','ContainerSizeFT','FloorLoadUSDPerMT','MarginMode','ImportClearanceUSDPerContainer','InterestMonths',...fields.map(f=>f.key)];
 export function shipmentValues(raw?:unknown):Record<string,string>{
  let data:Row={};
  try{const parsed=typeof raw==='string'?JSON.parse(raw):raw;if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))data=parsed as Row}catch{}
- return Object.fromEntries(keys.map(key=>[key,String(data[key]??'')]));
+ const values=Object.fromEntries(keys.map(key=>[key,String(data[key]??'')]));
+ if(data.InterestDays==null&&data.InterestMonths!=null)values.InterestDays=String(Number(data.InterestMonths)*30);
+ values.MarginMode=String(data.MarginMode??(data.MarginUSDPerLb!=null?'USDPerLb':'Percent'));
+ return values;
 }
 export function shipmentPayload(values:Record<string,string>){
- if(!keys.some(key=>values[key]))return null;
- return Object.fromEntries(keys.map(key=>[key,!values[key]?null:['PortOfEntryID','InterestMonths'].includes(key)?Number(values[key]):values[key]]));
+ if(!keys.some(key=>key!=='MarginMode'&&values[key]))return null;
+ return Object.fromEntries(keys.map(key=>[key,key==='InterestMonths'&&values.InterestDays!==''||key==='MarginPct'&&values.MarginMode==='USDPerLb'||key==='MarginUSDPerLb'&&values.MarginMode!=='USDPerLb'?null:!values[key]?null:['PortOfEntryID','InterestMonths','InterestDays','PaymentTermDays'].includes(key)?Number(values[key]):values[key]]));
 }
 export function fixedCost(value:string){
  if(!/^\d+(\.\d{1,2})?$/.test(value))return value;
@@ -46,27 +62,42 @@ export function shipmentError(values:Record<string,string>,original:Record<strin
  if(values.Incoterm&&!['CFA','DDP','EXW','FOB'].includes(values.Incoterm))return 'Choose a valid Incoterm.';
  if(values.ContainerSizeFT&&!['20FT','40FT'].includes(values.ContainerSizeFT))return 'Choose 20FT or 40FT.';
  if(values.PortOfEntryID&&values.PortOfEntryID!==original?.PortOfEntryID&&!ports.some(p=>String(p.ID)===values.PortOfEntryID&&String(p.CustomerID)===String(customer?.ID)&&String(p.MarketID)===String(customer?.MarketID)))return 'Choose a Port of Entry for this Customer and Market.';
- for(const field of fields){
-  const value=values[field.key]||'';if(!value)continue;
-  if(field.kind==='months'?(!/^\d{1,10}$/.test(value)||Number(value)>2147483647):(!/^\d{1,17}(\.\d{1,2})?$/.test(value)||field.kind==='pct'&&Number(value)>100))return 'Check '+field.label+': '+(field.kind==='months'?'use whole nonnegative months.':field.kind==='pct'?'use 0 to 100 with up to two decimals.':'use nonnegative USD with up to two decimals.');
+ if(values.MarginMode&&!['Percent','USDPerLb'].includes(values.MarginMode))return 'Choose a Margin basis.';
+ for(const field of [...fields,{key:'FloorLoadUSDPerMT',label:'Floor load cost ($/MT)',kind:'usd'} as CostField]){
+  const value=values[field.key]||'';if(!value||field.key==='MarginPct'&&values.MarginMode==='USDPerLb'||field.key==='MarginUSDPerLb'&&values.MarginMode!=='USDPerLb')continue;
+  if(field.kind==='days'?(!/^\d{1,10}$/.test(value)||Number(value)>2147483647):(!/^\d{1,17}(\.\d{1,2})?$/.test(value)||field.kind==='pct'&&Number(value)>100))return 'Check '+field.label+': '+(field.kind==='days'?'use whole nonnegative days.':field.kind==='pct'?'use 0 to 100 with up to two decimals.':'use nonnegative USD with up to two decimals.');
  }
  return '';
 }
-export function ShipmentSections({values,requirements,customer,ports=[],child=false,requirementsLocked=false,onChange,onRequirementChange}:{values:Record<string,string>;requirements:Record<string,string>;customer?:Row;ports?:Row[];child?:boolean;requirementsLocked?:boolean;onChange:(key:string,value:string)=>void;onRequirementChange:(key:string,value:string)=>void}){
+export function ShipmentSections({values,requirements,customer,currency='',exchangeRate='',ports=[],child=false,requirementsLocked=false,onChange,onRequirementChange}:{values:Record<string,string>;requirements:Record<string,string>;customer?:Row;currency?:string;exchangeRate?:string;ports?:Row[];child?:boolean;requirementsLocked?:boolean;onChange:(key:string,value:string)=>void;onRequirementChange:(key:string,value:string)=>void}){
  const available=ports.filter(p=>String(p.CustomerID)===String(customer?.ID)&&String(p.MarketID)===String(customer?.MarketID));
  function select(key:string,label:string,options:{id:string;label:string}[],value:string,help?:string,requirement=false){
   const known=options.some(o=>o.id===value);
   return <label key={key} className={requirement&&requirementsLocked?'display-only-fields':undefined}><FieldLabel help={requirement&&requirementsLocked?(help||'')+' Locked while a Packaging Request is processing.':help}>{label}</FieldLabel>{child?<input aria-label={label} readOnly value={options.find(o=>o.id===value)?.label||value}/>:<select aria-label={label} disabled={requirement&&requirementsLocked} value={value} onChange={event=>(requirement?onRequirementChange:onChange)(key,event.target.value)}><option value="">Choose {label.toLowerCase()}</option>{value&&!known&&<option value={value} disabled>Existing {key==='PortOfEntryID'?'port #':''}{value} (unavailable)</option>}{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select>}</label>;
  }
  const options=(values:string[])=>values.map(value=>({id:value,label:value}));
+ function costInput(field:CostField){
+  const value=values[field.key]||'';
+  return <input aria-label={field.label} inputMode={field.kind==='days'?'numeric':'decimal'} readOnly={child} value={child&&field.kind!=='days'?fixedCost(value):value} onChange={event=>{onChange(field.key,event.target.value);if(field.key==='ImportClearanceCustomerPerPallet')onChange('ImportClearanceUSDPerContainer','')}} onBlur={()=>{if(!child&&field.kind!=='days')onChange(field.key,fixedCost(value))}}/>;
+ }
+ function cost(field:CostField){
+  const value=values[field.key]||'',amount=quantity(value,true),fx=currency==='USD'?quantity('1'):quantity(exchangeRate);
+  const conversion=field.key==='ImportClearanceCustomerPerPallet'&&value?(amount&&fx?quantityDisplay(divide(amount,fx),2)+' USD/pallet':'USD: enter exchange rate'):'';
+  return <label key={field.key}><FieldLabel>{field.label}</FieldLabel><span className="shipment-cost-input">{costInput(field)}{conversion&&<output aria-label="Import clearance USD per pallet">{conversion}</output>}</span>{field.key==='ImportClearanceCustomerPerPallet'&&!value&&values.ImportClearanceUSDPerContainer&&<small>Legacy: {values.ImportClearanceUSDPerContainer} USD/container. Enter a pallet amount to replace.</small>}</label>;
+ }
+ function margin(){
+  const dollar=values.MarginMode==='USDPerLb',field=fields.find(f=>f.key===(dollar?'MarginUSDPerLb':'MarginPct'))!;
+  return <div className="margin-cost-field" role="group" aria-label="Margin"><FieldLabel>{field.label}</FieldLabel><span className="shipment-cost-input margin-cost-input"><select aria-label="Margin basis" disabled={child} value={dollar?'USDPerLb':'Percent'} onChange={e=>onChange('MarginMode',e.target.value)}><option value="Percent">Margin %</option><option value="USDPerLb">Margin ($/lbs)</option></select>{costInput(field)}</span></div>;
+ }
  return <div className={'requirement-sections shipment-sections'+(child?' display-only-fields':'')}>
  <section aria-label="Shipment"><h4>Shipment</h4><div className="shipment-entry-grid">
-  {select('ContainerRequest','Configuration request',options(['Dry','Reefer']),requirements.ContainerRequest||'','Transport category. Captured in each new Packaging Request.',true)}
+  <label className={requirementsLocked?'display-only-fields':undefined}><FieldLabel help="Required. The exact container type is captured in each new Packaging Request and locked while it is processing.">Container Type *</FieldLabel>{child?<input aria-label="Container Type" readOnly value={requestedContainerType(requirements,values)||requirements.ContainerRequest||''}/>:<select aria-label="Container Type" required aria-required="true" disabled={requirementsLocked} value={requestedContainerType(requirements,values)} onChange={event=>{const kind=event.target.value;onRequirementChange('ContainerRequest',kind);onChange('ContainerSizeFT',kind?kind.slice(0,2)+'FT':'')}}><option value="">Choose container type</option>{containerTypes.map(kind=><option key={kind} value={kind}>{kind}</option>)}</select>}</label>
   {select('ConfigurationRequest','Loading request',options(['Pallet load','Floor load','Both']),requirements.ConfigurationRequest||'','Container and loading selections remain frozen in an existing PCR.',true)}
+  {['Floor load','Both'].includes(requirements.ConfigurationRequest)&&cost({key:'FloorLoadUSDPerMT',label:'Floor load cost ($/MT)',kind:'usd'})}
   {select('Incoterm','Incoterm',options(['CFA','DDP','EXW','FOB']),values.Incoterm||'')}
   {select('PortOfEntryID','Port of Entry',available.map(p=>({id:String(p.ID),label:String(p.PortName)})),values.PortOfEntryID||'','Filtered by this Customer and its Market. Admin maintains Ports of Entry in Shared masters.')}
-  {select('ContainerSizeFT','Container',options(['20FT','40FT']),values.ContainerSizeFT||'','20FT: 20DC for Dry or 20RC for Reefer. 40FT: 40DC/40HC for Dry or 40RHC for Reefer. New PCR responses follow this captured size.')}
  </div></section>
- {costSections.map(section=><section key={section.title} aria-label={section.title}><h4>{section.title}</h4><div className="shipment-entry-grid">{section.fields.map(field=><label key={field.key}><FieldLabel>{field.label}</FieldLabel><input aria-label={field.label} inputMode={field.kind==='months'?'numeric':'decimal'} readOnly={child} value={child&&field.kind!=='months'?fixedCost(values[field.key]||''):values[field.key]||''} onChange={event=>onChange(field.key,event.target.value)} onBlur={()=>{if(!child&&field.kind!=='months')onChange(field.key,fixedCost(values[field.key]||''))}}/></label>)}</div></section>)}
+ {costSections.filter(section=>section.title!=='Co-Man'||values.Incoterm==='DDP').map(section=><section key={section.title} aria-label={section.title}><h4>{section.title}</h4><div className="shipment-entry-grid">{section.fields.filter(field=>field.key!=='MarginUSDPerLb').map(field=>field.key==='MarginPct'?<Fragment key={field.key}>{margin()}</Fragment>:cost(field))}</div></section>)}
+
  </div>;
 }

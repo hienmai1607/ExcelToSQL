@@ -12,18 +12,18 @@ export const analysisRows=[
  {label:'Product ($/unit)',help:'Product USD/lb ÷ 453.59237 × net weight in grams × (1 − Product loss % ÷ 100).'},
  {label:'Self Packaging ($/unit)',help:'Sum of each own layer price ÷ (1 − that layer loss % / 100) ÷ its smallest-unit count.'},
  {label:'Parent Packaging ($/unit)',help:'Sum of Mix parent layer prices adjusted for each layer loss, normalized per mix unit, then divided by total smallest child units. Equal allocation per smallest child unit.'},
- {label:'Pallet ($/unit)',help:'Parent pallet price ÷ total smallest units on one pallet. Floor load excludes pallets.'},
+ {label:'Pallet & Floor cost ($/unit)',help:'Pallet: pallet price / total smallest units on a pallet. Floor: USD/MT x applicable net weight (g) / 1,000,000. Both: sum of these two costs.'},
  {label:'Packing ($/unit)',help:'Packing USD/lb ÷ 453.59237 × this product’s net weight in grams.'},
  {label:'Initial Design ($/unit)',help:'Initial Design ÷ estimated awarded units. For Mix, awarded mix units × total child quantity.'},
  {label:'Fixed costs ($/unit)',help:'Other fixed costs ÷ estimated awarded units. For Mix, awarded mix units × total child quantity.'},
  {label:'Fobbing fee ($/unit)',help:'Fobbing USD/container ÷ total smallest units in that container and loading scenario.'},
- {label:'Interest ($/unit)',help:'Sum of Product through Fobbing × Interest % ÷ 100 × Interest months ÷ 12.'},
- {label:'Margin ($/unit)',help:'Sum of Product through Interest × Margin % ÷ 100.'},
+ {label:'Interest ($/unit)',help:'Sum of Product through Fobbing x Interest % / 100 x Interest days / 360. Legacy months are converted to days using 30 days/month.'},
+ {label:'Margin ($/unit)',help:'Choose percentage of costs through Interest, or Margin USD/lb x product net weight (g) / 453.59237.'},
  {label:'FOB ($/unit)',help:'Sum of all above, including Interest and Margin. USD.'},
  {label:'FOB (customer currency/unit)',help:'FOB USD × Opportunity customer-currency-per-USD rate (VND uses VND-per-USD).'}
 ,{label:'Freight ($/unit)',help:'Freight USD/container ÷ total smallest product units in one container.'},
  {label:'Duty ($/unit)',help:'(FOB USD/unit + Freight USD/unit) × Duty % / 100.'},
- {label:'Dest. Clearance ($/unit)',help:'Import clearance USD/container ÷ total smallest product units in one container.'},
+ {label:'Dest. Clearance ($/unit)',help:'Customer-currency clearance per pallet / customer-currency-per-USD rate / smallest units per pallet. Legacy USD/container amounts retain their original basis.'},
  {label:'Dest. Haulage (Port-WH) ($/unit)',help:'Port–WH USD/container ÷ total smallest product units in one container.'},
  {label:'WH Cost (dest.) ($/unit)',help:'Destination WH USD/pallet ÷ total smallest product units on one pallet.'},
  {label:'Overage, Shortage & Damage ($/unit)',help:'Sum of FOB, Freight, Duty, Clearance, Haulage and destination WH cost × Damage % / 100.'},
@@ -109,7 +109,7 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
   const selected=String(root.row.SelectedContainerType??'');
   const kind=configured.includes(selected as typeof types[number])?selected:configured.length===1?configured[0]:'';
   const mode=String(root.row.PackingConfiguration??root.row.ConfigurationRequest??'');
-  const resolved=mode==='Pallet load'||mode==='Floor load';
+  const resolved=mode==='Pallet load'||mode==='Floor load'||mode==='Both';
   const parentPM=root.mix?perCount(packaging(root,root.row),total,'Missing captured Mix unit quantities.'):good(zero);
   const awarded=quantity(root.row.AnnualUnit),award=quantity(root.row.EstPctAwarded,true);
   const awardedUnits=awarded&&award&&award.n<=100n*award.d&&total?divide(multiply(multiply(awarded,award),total),hundred):null;
@@ -119,12 +119,11 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
   const final=unitsPerFinal(root.row),palletUnits=quantity(root.row.UnitsPerPallet);
   {
    const profiles=parseContainerProfiles(root.row.ContainerLoadProfiles),profile=profiles[kind],result=objectValue(objectValue(root.row.ContainerLoadResults)[kind]);
-   const cartons=mode==='Floor load'?(profile?.CartonsPerContainerFloor??(root.row.SelectedContainerType===kind?root.row.CartonsPerContainerFloor:null)):
-    (result.CalculatedCartonsPerContainer??(root.row.SelectedContainerType===kind?root.row.CalculatedCartonsPerContainer:null));
+   const cartons=result.CalculatedCartonsPerContainer??(root.row.SelectedContainerType===kind?root.row.CalculatedCartonsPerContainer:null);
    const n=quantity(cartons),containerUnits=n&&final&&total?multiply(multiply(n,final),total):null;
    const sharedPalletUnits=palletUnits&&total?multiply(palletUnits,total):null;
-   const pallet=!resolved?missing('Loading request Both or unset: loading calculation is deferred.'):mode==='Floor load'?good(zero):perCount(palletPrice?good(palletPrice):missing('Enter a pallet cost on the parent item (zero is allowed).'),sharedPalletUnits,'Missing units per pallet or Mix unit quantities.');
-   const fobbing=!resolved?missing('Loading request Both or unset: loading calculation is deferred.'):perCount(optional(shipping.FobbingUSDPerContainer,'Fobbing/container'),containerUnits,'Missing container capacity, packaging quantities or Mix unit quantities.');
+   const pallet=!resolved?missing('Choose a loading request.'):mode==='Floor load'?good(zero):perCount(palletPrice?good(palletPrice):missing('Enter a pallet cost on the parent item (zero is allowed).'),sharedPalletUnits,'Missing units per pallet or Mix unit quantities.');
+   const fobbing=!resolved?missing('Choose a loading request.'):perCount(optional(shipping.FobbingUSDPerContainer,'Fobbing/container'),containerUnits,'Missing container capacity, packaging quantities or Mix unit quantities.');
    const columns=products.map(d=>{
     const calc=costs({...d.costingInputs,Prices:d.selections},d.quoteGrades,d.quotes),weight=quantity(d.row.WeightGrams),loss=productLossValue(d,tested[Number(d.row.ItemID)]);
     const validLoss=loss&&loss.n<=100n*loss.d;
@@ -132,24 +131,30 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
     const product=d.pricingGradeKey!==JSON.stringify(d.grades)?missing('Reload pricing for current grades.'):
      calc.product&&factor?good(multiply(calc.product,factor)):missing('Product price, weight or current loss calculation is incomplete.');
     const packing=scale(optional(shipping.PackingUSDPerLb,'Packing cost'),weight?divide(weight,gramsPerLb):null,'Missing product net weight.');
-    const cells=[product,packaging(d,root.row),parentPM,pallet,packing,design,fixed,fobbing];
-    const interestRate=pct(optional(shipping.InterestPct,'Interest %'),'Interest %'),months=optional(shipping.InterestMonths,'Interest months');
-    const interestFactor=interestRate.value&&months.value?divide(multiply(interestRate.value,months.value),quantity('12')!):null;
-    cells.push(scale(sum(cells),interestFactor,'Invalid Interest % or months.'));
+    const applicableWeight=quantity('ApplicableNetWeightGrams' in d.row?d.row.ApplicableNetWeightGrams:d.row.WeightGrams);
+    const floor=['Floor load','Both'].includes(mode)?scale(optional(shipping.FloorLoadUSDPerMT,'Floor load cost'),applicableWeight?divide(applicableWeight,quantity('1000000')!):null,'Missing applicable net weight.'):good(zero);
+    const cells=[product,packaging(d,root.row),parentPM,sum([pallet,floor]),packing,design,fixed,fobbing];
+    const interestRate=pct(optional(shipping.InterestPct,'Interest %'),'Interest %'),duration=optional(shipping.InterestDays??shipping.InterestMonths,'Interest duration');
+    const interestFactor=interestRate.value&&duration.value?divide(multiply(interestRate.value,duration.value),quantity(shipping.InterestDays!=null?'360':'12')!):null;
+    cells.push(scale(sum(cells),interestFactor,'Invalid Interest % or days.'));
     const margin=pct(optional(shipping.MarginPct,'Margin %'),'Margin %');
-    cells.push(scale(sum(cells),margin.value,'Invalid Margin %.'));
+    cells.push(shipping.MarginMode==='USDPerLb'||shipping.MarginMode==null&&shipping.MarginUSDPerLb!=null?
+     scale(optional(shipping.MarginUSDPerLb,'Margin USD/lb'),weight?divide(weight,gramsPerLb):null,'Missing product weight.'):
+     scale(sum(cells),margin.value,'Invalid Margin %.'));
     cells.push(sum(cells));
     const rate=currency==='USD'?one:quantity(currency==='VND'?root.row.ExchangeRateVNDPerUSD:root.row.ExchangeRateCustomerCurrencyPerUSD);
     cells.push(scale(cells[10],currency?rate:null,'Missing Opportunity customer currency or exchange rate.'));
-    const perContainer=(field:string,label:string)=>!resolved?missing('Loading request Both or unset: loading calculation is deferred.'):
+    const perContainer=(field:string,label:string)=>!resolved?missing('Choose a loading request.'):
      perCount(optional(shipping[field],label),containerUnits,'Missing container capacity, packaging quantities or Mix unit quantities.');
-    const perPallet=(field:string,label:string)=>!resolved?missing('Loading request Both or unset: loading calculation is deferred.'):
+    const perPallet=(field:string,label:string)=>!resolved?missing('Choose a loading request.'):
      perCount(optional(shipping[field],label),sharedPalletUnits,'Missing units per pallet or Mix unit quantities.');
     const percentage=(field:string,label:string)=>pct(optional(shipping[field],label),label);
     const freight=perContainer('FreightUSDPerContainer','Freight/container');
     const duty=scale(sum([cells[10],freight]),percentage('DutyPct','Duty %').value,'Invalid Duty %.');
     const destination=[
-     freight,duty,perContainer('ImportClearanceUSDPerContainer','Import clearance/container'),
+     freight,duty,shipping.ImportClearanceCustomerPerPallet!=null?
+      !resolved?missing('Choose a loading request.'):perCount(scale(optional(shipping.ImportClearanceCustomerPerPallet,'Import clearance/customer currency/pallet'),rate?divide(one,rate):null,'Missing customer exchange rate.'),sharedPalletUnits,'Missing units per pallet.'):
+      perContainer('ImportClearanceUSDPerContainer','Import clearance/container'),
      perContainer('PortToWHUSDPerContainer','Port–WH/container'),perPallet('WHCostUSDPerPallet','Destination WH cost/pallet')
     ];
     destination.push(scale(sum([cells[10],...destination]),percentage('OverageShortageDamagePct','Damage %').value,'Invalid Damage %.'));

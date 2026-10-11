@@ -1,6 +1,6 @@
 export type Row = Record<string, string | number | boolean | null>;
 export interface Page { rows: Row[]; total: number; page: number; page_size?: number }
-export interface Session { username: string; scopes: string[]; is_admin: boolean; user_id?:number }
+export interface Session { username: string; scopes: string[]; is_admin: boolean; user_id?:number; permissions?:Record<string,"none"|"display"|"edit">|null }
 export interface RequestPayload {
  OpportunityID: number; ExpectedRowVersion: string; CreationKey: string;
  ResponseDue: string; RequestNotes: string | null;

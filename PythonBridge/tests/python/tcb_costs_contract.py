@@ -156,6 +156,10 @@ class SQL(unittest.TestCase):
  request=foundation.PackagingFoundation.request
  def setUp(self):
   foundation.PackagingFoundation.setUp(self)
+  for sql in re.split(r"^GO\s*$",(foundation.ROOT/"sql/103_pallet_price.sql").read_text(),flags=re.M|re.I):
+   if sql.strip():
+    self.cur.execute(sql)
+    while self.cur.nextset():pass
   for _ in range(2):
    for sql in re.split(r"^GO\s*$",(foundation.ROOT/"sql/91_opportunity_tcb.sql").read_text(),flags=re.M|re.I):
     if sql.strip():
