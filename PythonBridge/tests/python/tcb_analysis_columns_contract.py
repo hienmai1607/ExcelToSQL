@@ -14,6 +14,12 @@ def row(id=1):
   ShipmentCostInfo=dict(PackingUSDPerLb=".5",InitialDesignUSD="100",OtherFixedCostsUSD="50",FobbingUSDPerContainer="200",InterestPct="12",InterestMonths="10",MarginPct="10"),
   _TCBCostInfo=dict(ProductUSDPerLb="2",Inputs=dict(PalletUSDPerEA="10",LossProductPct="10")))
 class Contracts(unittest.TestCase):
+ def test_response_palletization_overrides_manual_and_missing_is_unknown(self):
+  for snapshot,expected in (({"UnitUSDPrice":"15.5"},"0.0155"),({"UnitUSDPrice":"0"},"0"),(None,None)):
+   r=row();r["PalletPricingJSON"]=snapshot
+   add_tcb_columns([r])
+   self.assertEqual(r["TCBPalletPerUnit"],expected)
+
  def test_saved_standalone_foB_and_destination_math(self):
   r=row();r["ShipmentCostInfo"].update(FreightUSDPerContainer="1000",DutyPct="10",ImportClearanceUSDPerContainer="100",PortToWHUSDPerContainer="200",
    WHCostUSDPerPallet="300",OverageShortageDamagePct="5",WHToCoManWHUSDPerPallet="400",CoManOverheadUSDPerPallet="500",

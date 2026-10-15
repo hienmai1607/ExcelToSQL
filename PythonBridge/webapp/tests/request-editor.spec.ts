@@ -15,15 +15,15 @@ test('response last-layer dropdown requires Shipping and follows confirmed layer
  await expect(item.getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','Carton','Storage box']);
  await expect(item.getByLabel('Tertiary Type',{exact:true}).locator('option')).toHaveText(['Choose tertiary type','Crate']);
 });
-async function setup(page:Page,failSecond=false){
+async function setup(page:Page,failSecond=false,sessionOverride:Record<string,unknown>={},editorPageSize=25){
  const writes:any[]=[];
  const rows=[1,2,3].map(id=>({RequestID:1,ItemID:id,ProductCode:'P'+id,ProductName:'Product '+id,ItemDescription:'Item '+id,ItemStage:id===3?'Approved':'Assigned',PICUserID:1,PIC:'Admin',ItemRowVersion:'AAAAAAAAAAE=',AnnualUnit:100,WeightGrams:10}));
  await page.route('**/api/**',route=>{
  const p=new URL(route.request().url()).pathname;
- if(p.endsWith('/session'))return route.fulfill({json:{username:'Admin',user_id:1,is_admin:true,scopes:['Admin']}});
- if(p.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25},version:0}});
+ if(p.endsWith('/session'))return route.fulfill({json:{username:'Admin',user_id:1,is_admin:true,scopes:['Admin'],...sessionOverride}});
+ if(p.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,requests:{editor_page_size:editorPageSize}},version:0}});
  if(p==='/api/workbench/requests')return route.fulfill({json:{rows:[{RequestID:1,RequestNumber:'PCR-1',CustomerName:'Customer',OpportunityNumber:'OPP-1',RequestStatus:'Open',ItemCount:3}],total:1}});
- if(p==='/api/packaging/requests')return route.fulfill({json:{rows,total:30,page:1}});
+ if(p==='/api/packaging/requests'){const u=new URL(route.request().url()),page=Number(u.searchParams.get('page')||1),size=Number(u.searchParams.get('page_size')||200);return route.fulfill({json:{rows:rows.slice((page-1)*size,page*size),total:rows.length,page}})}
  if(p==='/api/workbench/pics')return route.fulfill({json:{rows:[{ID:1,UserName:'Admin'},{ID:2,UserName:'PIC'}]}});
  if(p==='/api/packaging/lookups')return route.fulfill({json:{currencies:[],packagingTypes:[{ID:1,PackagingOrder:'Primary',PackagingType:'Film'},{ID:2,PackagingOrder:'Secondary',PackagingType:'Carton',Shipping:true}]}});
  if(p==='/api/packaging/response/batch'){const data=route.request().postDataJSON();writes.push(data);const r=data.rows[0];if(failSecond&&r.ID===2)return route.fulfill({json:{results:[{RowNum:1,Status:'ERROR',Message:'Conflict: refresh required.'}]}});Object.assign(rows.find(x=>x.ItemID===r.ID)!,r,{ItemRowVersion:'AAAAAAAAAAI='});return route.fulfill({json:{results:[{RowNum:1,Status:'OK'}]}})}
@@ -74,7 +74,7 @@ test('responses group primary, secondary and palletization fields; PIC stays bes
  await page.getByRole('button',{name:'Edit request PCR-1'}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request'}),item=editor.getByRole('region',{name:'Request item 1',exact:true});
  const header=item.locator('header');
- await expect(header.getByLabel('PIC for item 1',{exact:true})).toHaveCount(0);
+ await expect(header.getByLabel('PIC for item 1',{exact:true})).toHaveCount(1);
  await expect(header.getByText('PIC: Admin',{exact:true})).toBeVisible();
  await expect(header.getByText('Assigned',{exact:true})).toBeVisible();
  const primary=item.getByRole('region',{name:'Primary packaging response',exact:true});
@@ -210,26 +210,25 @@ test('partial save preserves failed draft and never resends successful items',as
  await editor.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect.poll(()=>writes.length).toBe(3);expect(writes.map(w=>w.rows[0].ID)).toEqual([1,2,2]);
 });
-test('Item View assignment refreshes row version before response editing',async({page})=>{
- const writes=await setup(page);await page.getByRole('button',{name:'View request',exact:true}).click();
+test('Item View reassignment removes the former non-Admin PIC response edit access',async({page})=>{
+ const writes=await setup(page,false,{is_admin:false,scopes:['Packaging','PackagingManager'],can_assign_packaging:true});await page.getByRole('button',{name:'View request',exact:true}).click();
  await page.getByLabel('PIC for item 1',{exact:true}).selectOption('2');
  await page.getByRole('button',{name:'Assign PIC for item 1',exact:true}).click();
  await expect(page.getByLabel('PIC for item 1',{exact:true})).toHaveValue('2');
  await page.getByRole('button',{name:'Edit request PCR-1'}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request'});
- await expect(editor.getByLabel('PIC for item 1',{exact:true})).toHaveCount(0);
- await editor.getByRole('region',{name:'Request item 1',exact:true}).getByLabel('No of Primary Unit',{exact:true}).fill('14');
- await editor.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(editor.getByRole('status')).toContainText('1 item(s) saved.');
- expect(writes[0]).toEqual({PICUserID:2,ExpectedRowVersion:'AAAAAAAAAAE='});
- expect(writes[1].rows[0].RowVersion).toBe('AAAAAAAAAAI=');
+ await expect(editor.getByLabel('PIC for item 1',{exact:true})).toHaveValue('2');
+ await expect(editor.getByRole('region',{name:'Request item 1',exact:true}).getByLabel('No of Primary Unit',{exact:true})).toBeDisabled();
+ expect(writes).toEqual([{PICUserID:2,ExpectedRowVersion:'AAAAAAAAAAE='}]);
 });
-test('canceling discard keeps drafts on close and pagination',async({page})=>{
- await setup(page);await page.getByRole('button',{name:'Edit request PCR-1'}).click();
+test('pagination retains drafts and canceling discard keeps the editor open',async({page})=>{
+ await setup(page,false,{},1);
+ await page.getByRole('button',{name:'Edit request PCR-1'}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request'});
  const field=editor.getByRole('region',{name:'Request item 1',exact:true}).getByLabel('No of Primary Unit',{exact:true});
  await field.fill('15');page.on('dialog',d=>d.dismiss());
  await editor.getByRole('button',{name:'Next',exact:true}).click();
+ await editor.getByRole('button',{name:'Previous',exact:true}).click();
  await expect(field).toHaveValue('15');
  await editor.getByRole('button',{name:'Close request editor',exact:true}).click();
  await expect(field).toHaveValue('15');

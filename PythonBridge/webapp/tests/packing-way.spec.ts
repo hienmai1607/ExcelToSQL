@@ -84,7 +84,7 @@ test('mix response uses captured Product structure and mix unit labels',async({p
  const mix={MixVersionID:7,items:[{ProductID:2,ProductCode:'PRD-A',ProductName:'Almonds',UnitQuantity:'2',WeightGrams:'150',ProductGradeSnapshot:{items:[]}}]};
  const {editor}=await setup(page,2,{ProductMixSnapshot:JSON.stringify(mix)});
  await expect(editor.getByLabel('No of Primary Mix Unit',{exact:true})).toBeVisible();
- await expect(editor.getByRole('region',{name:'Packing Way response',exact:true}).getByText('No of Secondary Mix Unit',{exact:true})).toBeVisible();
+ await expect(editor.getByRole('region',{name:'Packing Way response',exact:true}).getByText('No of Secondary Mix',{exact:true})).toBeVisible();
  await editor.getByRole('button',{name:'View grade snapshot',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'Product structure',exact:true});
  await expect(dialog.getByRole('cell',{name:'PRD-A · Almonds',exact:true})).toBeVisible();
@@ -209,7 +209,7 @@ for(const layers of [1,2,3])test('layer typography and dividers stay consistent 
  for(const width of [1920,390])for(const theme of ['light','dark']){
   await page.setViewportSize({width,height:width===1920?1080:844});
   await page.evaluate(theme=>document.documentElement.setAttribute('data-theme',theme),theme);
-  const reference=await packing.getByLabel('Shipping height (mm)',{exact:true}).evaluate(el=>{
+  const reference=await packing.locator('.packing-layer-weight input').first().evaluate(el=>{
    const s=getComputedStyle(el);return {fontFamily:s.fontFamily,fontSize:s.fontSize,fontWeight:s.fontWeight,lineHeight:s.lineHeight,color:s.color};
   });
   for(const card of await packing.locator('.packing-way-layer').all()){
@@ -217,10 +217,10 @@ for(const layers of [1,2,3])test('layer typography and dividers stay consistent 
     const s=getComputedStyle(el);return {fontFamily:s.fontFamily,fontSize:s.fontSize,fontWeight:s.fontWeight,lineHeight:s.lineHeight,color:s.color};
    }));
    expect(labels[1]).toEqual(labels[0]);
-   const value=await card.locator('.packing-layer-weight input').evaluate(el=>{
+   const values=await card.locator('.packing-layer-weight input').evaluateAll(els=>els.map(el=>{
     const s=getComputedStyle(el);return {fontFamily:s.fontFamily,fontSize:s.fontSize,fontWeight:s.fontWeight,lineHeight:s.lineHeight,color:s.color};
-   });
-   expect(value).toEqual(reference);
+   }));
+   expect(values).toEqual([reference,reference]);
   }
   const packingDividers=packing.locator('.packing-way-layer+.packing-way-layer');
   await expect(packingDividers).toHaveCount(layers-1);
@@ -249,9 +249,11 @@ test('Packing Way displays captured parent names and units per layer, omitting o
   }});
  const packing=editor.getByRole('region',{name:'Packing Way response',exact:true});
  const primary=packing.getByLabel('Primary captured dimensions',{exact:true}),secondary=packing.getByLabel('Secondary captured dimensions',{exact:true}),tertiary=packing.getByLabel('Tertiary captured dimensions',{exact:true});
- await expect(primary.locator('span').first()).toHaveText('Length × Width');
+ await expect(primary.locator('span').first()).toHaveText('Dimension');
+ await expect(primary.locator('span').first()).toHaveAttribute('title','Length × Width');
  await expect(primary.locator('.captured-dimensions-value')).toHaveText('100mm × 200mm');
- await expect(secondary.locator('span').first()).toHaveText('Length × Width × Height');
+ await expect(secondary.locator('span').first()).toHaveText('Dimension');
+ await expect(secondary.locator('span').first()).toHaveAttribute('title','Length × Width × Height');
  await expect(secondary.locator('.captured-dimensions-value')).toHaveText('10cm × 20cm × 30cm');
  await expect(tertiary.locator('.captured-dimensions-value')).toHaveText('100mm × 200mm × 300mm');
  await expect(tertiary.getByLabel('Tertiary dimension height',{exact:true})).toHaveText('300mm');
@@ -269,7 +271,7 @@ test('Packing Way displays captured parent names and units per layer, omitting o
  await page.setViewportSize({width:1920,height:1080});
  await packing.screenshot({path:info.outputPath('packing-way-captured-dimensions.png')});
  await editor.getByLabel('Primary Type',{exact:true}).selectOption('');
- await expect(primary.locator('span').first()).toHaveText('Dimensions');
+ await expect(primary.locator('span').first()).toHaveText('Dimension');
  await expect(primary.locator('.captured-dimensions-value')).toHaveText('—');
  await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('2');
  await expect(tertiary).toHaveCount(0);
@@ -290,15 +292,15 @@ test('three layers calculate 10g, 100g, 500g and 25kg per pallet; saves counts o
  await expect(editor.getByLabel('Tertiary net weight (g)',{exact:true})).toHaveValue('500');
  const pallet=editor.getByRole('region',{name:'Palletization response',exact:true});
  await pallet.getByLabel('Cartons / layer',{exact:true}).fill('10');await pallet.getByLabel('Max pallet height (mm)',{exact:true}).fill('1900');await expect(packing.getByLabel('Shipping height (mm)',{exact:true})).toHaveValue('350');
- await expect(pallet.getByLabel('Net weight per pallet (kg)',{exact:true})).toHaveValue('25');
- for(const label of ['Primary net weight (g)','Secondary net weight (g)','Tertiary net weight (g)','Net weight per pallet (kg)'])await expect(editor.getByLabel(label,{exact:true})).toHaveAttribute('readonly','');
+ await expect(pallet.getByLabel('Net weight / Pallet (kg)',{exact:true})).toHaveValue('25');
+ for(const label of ['Primary net weight (g)','Secondary net weight (g)','Tertiary net weight (g)','Net weight / Pallet (kg)'])await expect(editor.getByLabel(label,{exact:true})).toHaveAttribute('readonly','');
  await expect(editor.getByRole('region',{name:'Secondary packaging response',exact:true}).getByLabel('No of Primary Unit',{exact:true})).toHaveCount(0);
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
  expect(writes[0].rows[0]).toMatchObject({UnitsPerCarton:'10',UnitsPerTertiary:'5',CartonsPerLayer:'10',ResponseMaxPalletHeightMM:'1900'});
  for(const key of ['NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','LayersPerPallet'])expect(writes[0].rows[0]).not.toHaveProperty(key);
  await expect(editor.getByLabel('Tertiary net weight (g)',{exact:true})).toHaveValue('500');
- await expect(editor.getByLabel('Net weight per pallet (kg)',{exact:true})).toHaveValue('25');
+ await expect(editor.getByLabel('Net weight / Pallet (kg)',{exact:true})).toHaveValue('25');
 });
 
 test('two layers use 10 x 1, then one layer fixes Primary at 1 and clears inactive payload fields',async({page})=>{
@@ -312,14 +314,14 @@ test('two layers use 10 x 1, then one layer fixes Primary at 1 and clears inacti
  await expect(packing.getByLabel('No of Tertiary Unit',{exact:true})).toHaveCount(0);
  await expect(editor.getByLabel('Tertiary net weight (g)',{exact:true})).toHaveCount(0);
  await expect(editor.getByLabel('Secondary net weight (g)',{exact:true})).toHaveValue('100');
- await expect(editor.getByLabel('Net weight per pallet (kg)',{exact:true})).toHaveValue('');
+ await expect(editor.getByLabel('Net weight / Pallet (kg)',{exact:true})).toHaveValue('');
  await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('1');
  await expect(editor.getByLabel('Shipping height (mm)',{exact:true})).toHaveValue('');
  await expect(editor.getByLabel('Shipping height (mm)',{exact:true})).toHaveAttribute('readonly','');
  await expect(packing.getByLabel('No of Primary Unit',{exact:true})).toHaveValue('1');
  await expect(packing.getByLabel('No of Primary Unit',{exact:true})).toHaveAttribute('readonly','');
  await expect(packing.getByLabel('No of Secondary Unit',{exact:true})).toHaveCount(0);
- await expect(editor.getByLabel('Net weight per pallet (kg)',{exact:true})).toHaveValue('');
+ await expect(editor.getByLabel('Net weight / Pallet (kg)',{exact:true})).toHaveValue('');
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
  expect(writes[0].rows[0].ResponseLayerCount).toBe('1');
  expect(writes[0].rows[0]).not.toHaveProperty('UnitsPerCarton');expect(writes[0].rows[0]).not.toHaveProperty('UnitsPerTertiary');
@@ -328,7 +330,7 @@ test('two layers use 10 x 1, then one layer fixes Primary at 1 and clears inacti
 test('missing counts or weight show blank calculations, never guessed zeros',async({page})=>{
  const {editor}=await setup(page);
  await expect(editor.getByLabel('Primary net weight (g)',{exact:true})).toHaveValue('10');
- for(const label of ['Secondary net weight (g)','Tertiary net weight (g)','Net weight per pallet (kg)'])await expect(editor.getByLabel(label,{exact:true})).toHaveValue('');
+ for(const label of ['Secondary net weight (g)','Tertiary net weight (g)','Net weight / Pallet (kg)'])await expect(editor.getByLabel(label,{exact:true})).toHaveValue('');
  await editor.getByLabel('No of Primary Unit',{exact:true}).fill('10');
  await expect(editor.getByLabel('Secondary net weight (g)',{exact:true})).toHaveValue('100');
  await expect(editor.getByLabel('Tertiary net weight (g)',{exact:true})).toHaveValue('');
@@ -357,7 +359,7 @@ test('fractional product weight stays precise and readonly responses preserve sa
  await expect(editor.getByLabel('No of Secondary Unit',{exact:true})).toBeDisabled();
  await expect(editor.getByLabel('Secondary net weight (g)',{exact:true})).toHaveValue('1.234');
  await expect(editor.getByLabel('Tertiary net weight (g)',{exact:true})).toHaveValue('6.17');
- await expect(editor.getByLabel('Net weight per pallet (kg)',{exact:true})).toHaveValue('0.3085');
+ await expect(editor.getByLabel('Net weight / Pallet (kg)',{exact:true})).toHaveValue('0.3085');
  await expect(editor.getByRole('button',{name:'Review & save',exact:true})).toBeDisabled();
 });
 
@@ -367,7 +369,7 @@ test('Packing Way and pallet fields fit standard 1920x1080 and narrow viewports'
   await page.setViewportSize({width,height:width===1920?1080:844});
   const packing=editor.getByRole('region',{name:'Packing Way response',exact:true});
   await packing.scrollIntoViewIfNeeded();await expect(packing).toBeVisible();
-  for(const label of ['No of Primary Unit','No of Secondary Unit','No of Tertiary Unit','Net weight per pallet (kg)']){
+  for(const label of ['No of Primary Unit','No of Secondary Unit','No of Tertiary Unit','Net weight / Pallet (kg)']){
    const box=await editor.getByLabel(label,{exact:true}).boundingBox();
    expect(box).not.toBeNull();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(width);
   }

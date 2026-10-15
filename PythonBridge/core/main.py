@@ -23,6 +23,8 @@ from packaging_master_api import router as packaging_master_router
 from raw_material_api import router as raw_material_router
 from unit_conversion_api import router as unit_conversion_router
 from pallet_api import router as pallet_router
+from load_planning_api import router as load_planning_router
+from pallet_pricing_api import router as pallet_pricing_router
 from packaging_dimension_api import router as packaging_dimension_router
 from pkg_pricing_api import router as pkg_pricing_router
 from packaging_type_api import router as packaging_type_router
@@ -72,6 +74,8 @@ app.include_router(packaging_router)
 app.include_router(workbench_router)
 app.include_router(unit_conversion_router)
 app.include_router(pallet_router)
+app.include_router(load_planning_router)
+app.include_router(pallet_pricing_router)
 app.include_router(packaging_dimension_router)
 app.include_router(pkg_pricing_router)
 app.include_router(packaging_type_router)

@@ -26,6 +26,15 @@ class AccessContext:
 
     permissions: dict[str, str] | None = None
 
+    direct_scopes: frozenset[str] | None = None
+
+    @property
+    def can_manage_packaging(self) -> bool:
+        direct = self.scopes if self.direct_scopes is None else self.direct_scopes
+        return (self.is_admin or "PackagingManager" in direct) and (
+            self.is_admin or self.permissions is None or self.permissions.get("requests") == "edit"
+        )
+
     @property
     def is_admin(self) -> bool:
         return "Admin" in self.scopes
@@ -73,6 +82,7 @@ def get_access_context(
         )
         rows = cursor.fetchall()
         permissions = None
+        direct = {str(row[2]) for row in rows if row[2] is not None}
         if rows:
             cursor.execute("SELECT OBJECT_ID('dbo.WorkspaceRole','U')")
             if cursor.fetchone()[0] is not None:
@@ -95,6 +105,7 @@ def get_access_context(
         username=str(rows[0][1]),
         scopes=frozenset(str(row[2]) for row in rows if row[2] is not None),
         permissions=permissions,
+        direct_scopes=frozenset(direct),
     )
 
 

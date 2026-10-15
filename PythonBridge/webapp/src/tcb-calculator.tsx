@@ -3,9 +3,10 @@ import {call,type Row} from './api';
 import {Modal,ErrorNote,InfoTip,FieldLabel} from './ui';
 import {IconButton} from './icons';
 import {objectValue,quantity,quantityDisplay} from './packaging-summary-model';
-import {defaultInputs,costs,money,packagingUSD,productFields,type TCBInputs,type TCBGrade} from './tcb-model';
+import {defaultInputs,costs,money,packagingUSD,palletizationValue,productFields,type TCBInputs,type TCBGrade} from './tcb-model';
 import {migrateLossProcesses,processOptions,lossError,lossTotals,lossDisplay,lossFields,type LossStep} from './loss-processes';
 import './tcb-calculator.css';
+import {decimalDisplay} from './number-format';
 
 type Data={lossMasters?:LossStep[];item:Row;saved:Record<string,unknown>;grades:TCBGrade[];prices:Row[];gradeError:string};
 export function TCBCalculator({row,opportunity,onClose,onSaved,lossOnly=false}:{lossOnly?:boolean;row:Row;opportunity:Row;onClose:()=>void;onSaved:(version:string)=>void}){
@@ -34,13 +35,13 @@ export function TCBCalculator({row,opportunity,onClose,onSaved,lossOnly=false}:{
  function input(key:string,label:string,disabled=readonly){return <label key={key}><FieldLabel>{label}</FieldLabel><input aria-label={label} type="number" min="0" max={key.endsWith('Pct')||key.endsWith('Ratio')?100:undefined} step={key.endsWith('Pct')||key.endsWith('Ratio')?'0.01':'0.000001'} value={String(inputs[key]??'')} disabled={disabled||saving} onChange={e=>change(key,e.target.value===''?null:e.target.value)}/></label>}
  async function save(){
   if(!data||saving)return;setSaving(true);setError('');setMessage('');
-  try{const result=await call<{saved:Record<string,unknown>;RowVersion:string}>(lossOnly?path.replace(/\/tcb$/,'/loss-processes'):path,{RowVersion:data.item.RowVersion,Inputs:lossOnly?{ProductLossFormula:inputs.ProductLossFormula||null,LossProcesses:steps.map(step=>({...step,Sequence:Number(step.Sequence)}))}:{...Object.fromEntries(Object.entries(inputs).filter(([key])=>!lossFields.some(field=>field===key))),LossProcesses:steps.map(step=>({...step,Sequence:Number(step.Sequence)}))}});setData({...data,saved:result.saved,item:{...data.item,RowVersion:result.RowVersion}});setBaseline(JSON.stringify(inputs));setChanged(false);setMessage('TCB costs saved.');onSaved(result.RowVersion)}
+  try{const result=await call<{saved:Record<string,unknown>;RowVersion:string}>(lossOnly?path.replace(/\/tcb$/,'/loss-processes'):path,{RowVersion:data.item.RowVersion,Inputs:lossOnly?{ProductLossFormula:inputs.ProductLossFormula||null,LossProcesses:steps.map(step=>({...step,Sequence:Number(step.Sequence)}))}:{...Object.fromEntries(Object.entries(inputs).filter(([key])=>!lossFields.some(field=>field===key))),LossProcesses:steps.map(step=>({...step,Sequence:Number(step.Sequence)}))}});setData({...data,saved:result.saved,item:{...data.item,...('PalletUSDPerEA' in objectValue(result.saved.Inputs)?{DefaultPalletUSDPerEA:objectValue(result.saved.Inputs).PalletUSDPerEA==null?null:String(objectValue(result.saved.Inputs).PalletUSDPerEA)}:{}),RowVersion:result.RowVersion}});setBaseline(JSON.stringify(inputs));setChanged(false);setMessage('TCB costs saved.');onSaved(result.RowVersion)}
   catch(e){setError((e as Error).message)}finally{setSaving(false)}
  }
  const savedRM=quantity(data?.saved.RMCostUSDPerLb,true),savedProduct=quantity(data?.saved.ProductUSDPerLb,true);
  const staleGrades=!!data?.saved.GradeSnapshot&&JSON.stringify(objectValue(data.saved.GradeSnapshot))!==JSON.stringify(objectValue(data.item.ProductGradeSnapshot));
  function packaging(item:Row,isMix:boolean){
-  return <div className="tcb-grid">{['Primary','Secondary','Tertiary'].slice(0,layers).map((layer,index)=><Fragment key={layer}><label><FieldLabel>{(isMix?'Mix ':'')+layer+' PM ($/EA)'}</FieldLabel><output>{money(packagingUSD(item,index,opportunity))}</output></label><label><FieldLabel>Loss ({isMix?'Mix ':''}{['1st','2nd','3rd'][index]} PM) %</FieldLabel><output>{lossDisplay(losses[((isMix?'Mix':'')+layer+'LossPct') as keyof typeof losses])}</output></label></Fragment>)}{!data?.item.ParentItemID&&!row.ParentItemID&&input('PalletUSDPerEA','Pallet cost ($/EA)')}</div>
+  return <div className="tcb-grid">{['Primary','Secondary','Tertiary'].slice(0,layers).map((layer,index)=><Fragment key={layer}><label><FieldLabel>{(isMix?'Mix ':'')+layer+' PM ($/EA)'}</FieldLabel><output>{money(packagingUSD(item,index,opportunity))}</output></label><label><FieldLabel>Loss ({isMix?'Mix ':''}{['1st','2nd','3rd'][index]} PM) %</FieldLabel><output>{lossDisplay(losses[((isMix?'Mix':'')+layer+'LossPct') as keyof typeof losses])}</output></label></Fragment>)}{!data?.item.ParentItemID&&!row.ParentItemID&&<label><FieldLabel help="Copied from Packaging response: pallet plus accessories, in USD per pallet (EA).">Palletization ($/EA)</FieldLabel><input aria-label="Palletization ($/EA)" readOnly value={decimalDisplay(palletizationValue({...row,...data?.item},inputs),6)??''}/></label>}</div>
  }
  return <Modal label={title} className="dialog tcb-dialog" onClose={close}>
   <header className="customer-editor-heading"><div><h2>{title}</h2><p>{String(row.ProductCode)} · {String(row.ProductName)}</p></div><IconButton icon="close" label={'Close '+title} disabled={saving} onClick={close}/></header>

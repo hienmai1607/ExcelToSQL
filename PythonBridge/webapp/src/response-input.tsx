@@ -1,3 +1,4 @@
+import {palletDimensionLabel} from './pallet-label';
 import {useEffect,useState} from 'react';
 import {call,type Row} from './api';
 import {NumericInput} from './numeric-input';
@@ -7,6 +8,7 @@ import {responseOrderFields,selectableType,layerCount} from './packaging-orders'
 
 export function responseValues(row:Row){
  const values=fieldValues(row,webResponseFields);
+ try{const p=JSON.parse(values.LoadPlanJSON||'null');if(p?.Code)values.SelectedContainerType=p.Code}catch{}
  if(!values.ApplicableNetWeightGrams)values.ApplicableNetWeightGrams=String(row.ApplicableNetWeightGrams??row.WeightGrams??'');
  if(!values.NutDensity&&row.NutDensityDefault!=null)values.NutDensity=String(row.NutDensityDefault);
  values.NutDensityDefaultUpdate='0';values.NutDensityDefaultRowVersion=String(row.NutDensityDefaultRowVersion??'');
@@ -33,8 +35,8 @@ export function ResponseInput({field,value,onChange,types,pallets=[],loading,lay
  if(field.readOnly)return <input readOnly aria-label={field.label} value={field.numeric?(decimalDisplay(value,9)??''):value}/>;
  const order=orderFor(field.key),choices=types.filter(t=>!!order&&selectableType(t,order,layers,mixChild,mixParent));
  if(field.key==='ResponsePalletSize'||field.key==='ResponsePalletStacking'){
-  const options=field.key==='ResponsePalletSize'?pallets.map(p=>String(p.PalletSize)):['Single','Double'];
-  return <select aria-label={field.label} value={value} disabled={loading} onChange={e=>onChange(e.target.value)}><option value="">Choose {field.label.toLowerCase()}</option>{value&&!options.includes(value)&&<option value={value} disabled>{value} (existing value — unavailable)</option>}{options.map(option=><option key={option} value={option}>{option}</option>)}</select>;
+  const options=field.key==='ResponsePalletSize'?pallets.map(p=>({value:String(p.PalletSize),label:palletDimensionLabel(p)})):['Single','Double'].map(value=>({value,label:value}));
+  return <select aria-label={field.label} value={value} disabled={loading} onChange={e=>onChange(e.target.value)}><option value="">Choose {field.label.toLowerCase()}</option>{value&&!options.some(o=>o.value===value)&&<option value={value} disabled>{value} (existing value — unavailable)</option>}{options.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select>;
  }
  if(field.key==='ResponseLayerCount')return <select aria-label={field.label} value={value} onChange={e=>onChange(e.target.value)}>{[1,2,3].map(n=><option key={n} value={n}>{n} — {['Primary','Primary + Secondary','Primary + Secondary + Tertiary'][n-1]}</option>)}</select>;
  if(order)return <select aria-label={field.label} value={value} disabled={loading} onChange={e=>onChange(e.target.value)}>

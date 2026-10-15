@@ -5,23 +5,23 @@ const grades=[{Path:'0/1',RawGradeID:1,RawMaterialID:10,Grade:'Almonds',Proporti
 const prices=[{PriceID:1,PriceVersion:version,RawGradeID:1,MaterialID:10,MaterialCode:'RM-A',VendorName:'Vendor A',QuantityFrom:0,QuantityTo:100,PriceBasis:'KG',USDPerLb:'2'},{PriceID:2,PriceVersion:version,RawGradeID:2,MaterialID:11,MaterialCode:'RM-B',VendorName:'Vendor B',QuantityFrom:100,QuantityTo:null,PriceBasis:'LB',USDPerLb:'4'}];
 const row={OpportunityID:1,OpportunityNumber:'OPP-TCB',CustomerName:'Northstar',HeaderStage:'Draft',HeaderRowVersion:rv,ItemID:11,ProductID:2,ProductCode:'PRD-2',ProductName:'Almonds',ItemStage:'Draft',ItemRowVersion:rv,AnnualUnit:1000,WeightGrams:150,CustomerCurrencyCode:'AUD',ExchangeRateCustomerCurrencyPerUSD:'1.5',ExchangeRateVNDPerUSD:'25000',PackagingRequestID:9,ResponseLayerCount:2,PrimaryPricePerUnit:'2500',PrimaryPriceCurrencyCode:'VND',SecondaryPricePerUnit:'.3',SecondaryPriceCurrencyCode:'AUD',HasOpenPackagingRequest:true};
 const lossMasters=[['Sorting','5',1],['Processing','10',2],['PrimaryPackaging','2',3],['PrimaryPackaging','3',4],['SecondaryPackaging','7',5],['PrimaryPackaging','5',6],['MixPrimaryPackaging','2',1],['MixSecondaryPackaging','3',2],['Processing','8',1]].map(([ProcessType,LossPct,Sequence],i)=>({MasterID:i+1,MasterVersion:version,ProcessType,LossPct,Sequence}));
-async function setup(page:Page,mix=false,readonly=false,saved:Record<string,unknown>={},layers=2){
+async function setup(page:Page,mix=false,readonly=false,saved:Record<string,unknown>={},layers=2,palletUSD:string|null='15.5'){
  const writes:any[]=[];
  const item={...row,IsMixParent:mix,HeaderStage:readonly?'Closed':'Draft',ItemStage:readonly?'Approved':'Draft'};
- const data={item:{ID:11,LossLayerCount:layers,IsMixParent:mix,ProductCode:item.ProductCode,ProductName:item.ProductName,RowVersion:rv,HeaderStage:item.HeaderStage,ItemStage:item.ItemStage,ProductGradeSnapshot:JSON.stringify({items:[]})},saved,lossMasters,grades:mix?[]:grades,prices:mix?[]:prices,gradeError:''};
+ const data={item:{ID:11,DefaultPalletUSDPerEA:palletUSD,LossLayerCount:layers,IsMixParent:mix,ProductCode:item.ProductCode,ProductName:item.ProductName,RowVersion:rv,HeaderStage:item.HeaderStage,ItemStage:item.ItemStage,ProductGradeSnapshot:JSON.stringify({items:[]})},saved,lossMasters,grades:mix?[]:grades,prices:mix?[]:prices,gradeError:''};
  await page.route('**/api/**',route=>{
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',user_id:1,is_admin:false,scopes:['Opportunity']}});
   if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{},version:0}});
   if(path==='/api/opportunity/grid')return route.fulfill({json:{rows:[item],total:1,page:1}});
-  if(path==='/api/opportunity/items/11/tcb'||path==='/api/opportunity/items/11/commercial'||path==='/api/opportunity/items/11/commercial/preview'){
+  if(path==='/api/opportunity/items/11/loss-processes'||path==='/api/opportunity/items/11/loss-formula'||path==='/api/opportunity/items/11/tcb'||path==='/api/opportunity/items/11/commercial'||path==='/api/opportunity/items/11/commercial/preview'){
    if(route.request().method()==='GET')return route.fulfill({json:data});
-   const body=route.request().postDataJSON();if(path.endsWith('/preview'))return route.fulfill({json:{LossProductPct:'0',saved:{RMCostUSDPerLb:'2.8'}}});writes.push(body);return route.fulfill({json:{saved:{Inputs:body.Inputs,RMCostUSDPerLb:'2.8',ProductUSDPerLb:'2.82',GradeSnapshot:{items:[]}},RowVersion:'AAAAAAAAAAI='}});
+   const body=route.request().postDataJSON();if(path.endsWith('/preview')||path.endsWith('/loss-formula'))return route.fulfill({json:{LossProductPct:'0',saved:{RMCostUSDPerLb:'2.8'}}});writes.push(body);return route.fulfill({json:{saved:{Inputs:body.Inputs,RMCostUSDPerLb:'2.8',ProductUSDPerLb:'2.82',GradeSnapshot:{items:[]}},RowVersion:'AAAAAAAAAAI='}});
   }
   return route.fulfill({json:{rows:[],total:0,page:1}});
  });
  await page.goto('/workbench/');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'View details',exact:true}).click();
- await page.getByRole('button',{name:'Product Info',exact:true}).click();
+ await page.getByRole('button',{name:'TCB Review',exact:true}).click();
  await page.getByRole('button',{name:'TCB Review for PRD-2 item 11',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'TCB Review',exact:true});
  await expect(dialog.getByRole('heading',{name:'Packaging',exact:true})).toBeVisible();
@@ -53,12 +53,14 @@ test('calculator selects prices, calculates live and saves item inputs even with
  await expect(dialog.getByText('0.10 USD',{exact:true})).toBeVisible();
  await expect(dialog.getByText('0.20 USD',{exact:true})).toBeVisible();
  await expect(dialog.getByText('Mix Primary PM ($/EA)',{exact:true})).toHaveCount(0);
- await dialog.getByLabel('Pallet cost ($/EA)').fill('10');
+ await expect(dialog.getByLabel('Palletization ($/EA)')).toHaveValue('15.5');
+ await expect(dialog.getByLabel('Palletization ($/EA)')).toHaveAttribute('readonly','');
  await dialog.getByRole('button',{name:'Review & save'}).click();
  await dialog.getByRole('button',{name:'Confirm save'}).click();
  await expect(dialog.getByText('Saved item settings for 1 item(s).')).toBeVisible();
- expect(writes[0]).toMatchObject({RowVersion:rv,CostInputs:{RMRatio:'90',PalletUSDPerEA:'10'},Prices:[{Path:'0/1',PriceID:1,PriceVersion:version},{Path:'0/2',PriceID:2,PriceVersion:version}]});
+ expect(writes[0]).toMatchObject({RowVersion:rv,CostInputs:{RMRatio:'90'},Prices:[{Path:'0/1',PriceID:1,PriceVersion:version},{Path:'0/2',PriceID:2,PriceVersion:version}]});
  expect(writes[0].CostInputs.RMCostUSDPerLb).toBeUndefined();
+ expect(writes[0].CostInputs.PalletUSDPerEA).toBeUndefined();
  await dialog.getByRole('button',{name:'Close TCB Review'}).click();
  await expect(page.getByRole('table',{name:'Opportunity items'})).toBeVisible();
 });
@@ -67,11 +69,13 @@ test('Mix parent has only Mix packaging inputs, losses and pallet; no Product co
  await expect(dialog.getByRole('heading',{name:'Product',exact:true})).toHaveCount(0);
  await expect(dialog.getByText('Mix Primary PM ($/EA)',{exact:true})).toBeVisible();
  await expect(dialog.getByText('Mix Secondary PM ($/EA)',{exact:true})).toBeVisible();
- await dialog.getByLabel('Pallet cost ($/EA)').fill('12');
+ await expect(dialog.getByLabel('Palletization ($/EA)')).toHaveValue('15.5');
+ await expect(dialog.getByLabel('Palletization ($/EA)')).toHaveAttribute('readonly','');
+ await dialog.getByLabel('Packaging loss ratio item 11 layer 2',{exact:true}).fill('4');
  await dialog.getByRole('button',{name:'Review & save'}).click();
  await dialog.getByRole('button',{name:'Confirm save'}).click();
- expect(writes[0].CostInputs.PalletUSDPerEA).toBe('12');
- expect(writes[0].Inputs.LossProcesses.find((p:any)=>p.ProcessType==='MixSecondaryPackaging')).toMatchObject({LossPct:'3'});
+ expect(writes[0].CostInputs?.PalletUSDPerEA).toBeUndefined();
+ expect(writes[0].Inputs.LossProcesses.find((p:any)=>p.ProcessType==='MixSecondaryPackaging')).toMatchObject({LossPct:'4'});
  expect(writes[0].Inputs.MixSecondaryLossPct).toBeUndefined();
 });
 test('read-only calculator closes without writes or closing Opportunity details',async({page})=>{
@@ -90,6 +94,21 @@ test('invalid total blocks save and unsaved close keeps the calculator when canc
  await expect(dialog).toBeVisible();expect(writes).toEqual([]);
 });
 
+test('Palletization copies current response USD price instead of an old manual cost',async({page})=>{
+ const {dialog,writes}=await setup(page,true,false,{Inputs:{PalletUSDPerEA:'15'}});
+ const field=dialog.getByLabel('Palletization ($/EA)',{exact:true});
+ await expect(field).toHaveValue('15.5');
+ await expect(field).toHaveAttribute('readonly','');
+ await expect(dialog.getByLabel('Pallet cost ($/EA)',{exact:true})).toHaveCount(0);
+ expect(writes).toHaveLength(0);
+});
+test('missing response palletization stays blank and explicit zero is retained',async({page})=>{
+ for(const price of [null,'0']){
+  const {dialog}=await setup(page,true,false,{Inputs:{PalletUSDPerEA:'15'}},2,price);
+  await expect(dialog.getByLabel('Palletization ($/EA)',{exact:true})).toHaveValue(price??'');
+ }
+});
+
 
 test('TCB Review displays saved Product loss and exposes its loss editor',async({page})=>{
  const {dialog}=await setup(page,false,false,{Inputs:{LossProcesses:lossMasters.slice(0,2)}});
@@ -102,7 +121,7 @@ test('TCB Review displays saved Product loss and exposes its loss editor',async(
  await expect(losses.getByText('Loss product (%)',{exact:true})).toBeVisible();
  await expect(losses.getByLabel('Product Loss Formula result item 11',{exact:true})).toHaveText('14.5%');
 });
-test('TCB Review is in Product Info and Packaging Summary only in Responses',async({page})=>{
+test('TCB Review uses its own tab and Packaging Summary appears only in Responses',async({page})=>{
  const {dialog}=await setup(page);
  await dialog.getByRole('button',{name:'Close TCB Review',exact:true}).click();
  await expect(page.getByRole('button',{name:'Loss processes for PRD-2 item 11',exact:true})).toHaveCount(0);
@@ -116,7 +135,7 @@ test('TCB Review is in Product Info and Packaging Summary only in Responses',asy
  await expect(summary).toBeVisible();
  await page.getByRole('button',{name:'All Fields',exact:true}).click();
  await expect(summary).toHaveCount(0);
- await page.getByRole('button',{name:'Product Info',exact:true}).click();
+ await page.getByRole('button',{name:'TCB Review',exact:true}).click();
  await page.getByRole('button',{name:'TCB Review for PRD-2 item 11',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'TCB Review',exact:true}).getByRole('tab')).toHaveCount(0);
 });
@@ -171,8 +190,8 @@ test('packaging layers are horizontal columns with price and loss on one line an
   const inputs=table.locator('input'),bounds=await inputs.evaluateAll(elements=>elements.map(el=>el.getBoundingClientRect().toJSON()));
   expect(bounds).toHaveLength(layers);
   for(const field of bounds)expect(Math.abs(field.y-bounds[0].y)).toBeLessThan(1);
-  await expect(packaging.getByLabel('Pallet cost ($/EA)',{exact:true})).toHaveCount(1);
-  const pallet=(await packaging.getByLabel('Pallet cost ($/EA)',{exact:true}).boundingBox())!,box=(await table.boundingBox())!;
+  await expect(packaging.getByLabel('Palletization ($/EA)',{exact:true})).toHaveCount(1);
+  const pallet=(await packaging.getByLabel('Palletization ($/EA)',{exact:true}).boundingBox())!,box=(await table.boundingBox())!;
   expect(pallet.y).toBeGreaterThan(box.y+box.height);
   await page.setViewportSize({width:390,height:844});
   expect(await packaging.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);

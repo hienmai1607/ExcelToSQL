@@ -83,7 +83,7 @@ def catalog(cur, type_id, order, locked=False, mix_parent=False):
     # Shared serializable source locks keep snapshots stable without serializing
     # independent pricing saves behind exclusive/update locks on the masters.
     hint = " WITH(HOLDLOCK)" if locked else ""
-    types = decode_orders(select(cur, f"SELECT ID,ParentTypeID,PackagingType,PackagingOrder,PackagingOrdersJSON,PriceBasis,Shipping,FinalComponent,Status,RowVersion FROM dbo.v_PackagingTypeWeb{hint}")[0])
+    types = decode_orders(select(cur, f"SELECT ID,ParentTypeID,PackagingType,PackagingOrder,PackagingOrdersJSON,PriceBasis,Shipping,FinalComponent,CopyDim,Status,RowVersion FROM dbo.v_PackagingTypeWeb{hint}")[0])
     by_id = {t["ID"]: t for t in types}
     root = by_id.get(type_id)
     if not root or root["ParentTypeID"] is not None or root["Status"] != "Active" or not (any(o in ("Secondary","Tertiary") for o in root["PackagingOrders"]) if mix_parent else order in root["PackagingOrders"]):
@@ -109,10 +109,10 @@ def catalog(cur, type_id, order, locked=False, mix_parent=False):
         FROM dbo.PackagingDimension d{hint} JOIN dbo.PackagingType t ON t.ID=d.PackagingTypeID
         JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID LEFT JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID
         WHERE d.Status='Active' AND d.PackagingTypeID IN(SELECT value FROM OPENJSON(?)) ORDER BY d.ID""", document(ids + [type_id]))[0]
-    prices = select(cur, f"""SELECT m.ID AS MaterialID,m.MaterialCode,m.MaterialName,m.UnitOfMeasure,m.PackagingTypeID,m.RowVersion AS MaterialRowVersion,
-        t.PackagingType,t.PriceBasis AS CalculationBasis,p.ID AS PriceID,p.RowVersion AS PriceRowVersion,p.CurrencyID,c.CurrencyCode,c.RowVersion AS CurrencyRowVersion,
+    prices = select(cur, f"""SELECT m.ID AS MaterialID,m.MaterialCode,m.MaterialName,m.UnitOfMeasure,m.PackagingTypeID,m.RowVersion AS MaterialRowVersion,m.TareWeight,m.TareWeightBasis,
+        t.PackagingType,t.CopyDim,t.PriceBasis AS CalculationBasis,p.ID AS PriceID,p.RowVersion AS PriceRowVersion,p.CurrencyID,c.CurrencyCode,c.RowVersion AS CurrencyRowVersion,
         p.VendorID,v.VendorName,p.PriceBasis AS PriceUoM,p.UnitPrice,p.QuantityFrom AS VendorMOQ,p.QuantityTo,p.ExchangeRateToUSD,p.EffectiveFrom,p.EffectiveTo,
-        p.SupplierDimensionID,p.SupplierDimensionRowVersion,p.SupplierD1,p.SupplierD2,p.SupplierD3,p.SupplierAreaPerPriceUnit
+        p.SupplierDimensionID,p.SupplierDimensionRowVersion,p.SupplierD1,p.SupplierD2,p.SupplierD3,p.SupplierAreaPerPriceUnit,p.MaterialDimensionID,p.MaterialDimensionRowVersion,p.MaterialD1,p.MaterialD2,p.MaterialD3
         FROM dbo.PackagingMaterial m{hint} JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID
         LEFT JOIN dbo.PackagingPrice p{hint} ON p.MaterialID=m.ID AND p.Status='Active'
          AND p.EffectiveFrom<=CONVERT(DATE,SYSUTCDATETIME()) AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=CONVERT(DATE,SYSUTCDATETIME()))
@@ -123,6 +123,21 @@ def catalog(cur, type_id, order, locked=False, mix_parent=False):
         ORDER BY t.PackagingType,m.MaterialName,p.VendorID,p.QuantityFrom,p.ID""", document(ids))[0]
     return root, paths, units, dimensions, prices
 
+
+def hydrate_copy(cur,payload,root,prices,dimensions,units,locked=False):
+    from copy_dimensions import uses_copy,copied_geometry
+    selected=[p for p in prices if any(c.PriceID==p["PriceID"] for c in payload.components)]
+    if not uses_copy(root,selected):return payload
+    if len(payload.components)!=1 or len(selected)!=1:
+        raise HTTPException(422,"Copy Dim. allows exactly one material price.")
+    price=selected[0]
+    if not version_matches(price["PriceRowVersion"],payload.components[0].PriceRowVersion):
+        raise HTTPException(409,"Material price changed. Refresh the calculator.")
+    def conversion(source,target):
+        row=output_conversion_lookup(cur,source,target,price,locked)
+        return row.get("Factor") if row else None
+    dimension,values=copied_geometry(root,price,dimensions,units,conversion)
+    return payload.model_copy(update={"DimensionID":dimension["ID"],"DimensionRowVersion":encode(dimension["RowVersion"]),**values})
 
 def version_matches(raw, supplied):
     return raw is not None and bytes(raw) == rv(supplied)
@@ -175,6 +190,10 @@ def parent_geometry(cur, payload, root, dimension_map, unit_map, locked=False, a
 
 def inherited_component(component, payload, price, paths, dimension_map, parent):
     """Child consumption uses parent measurements, never the parent's occupied formulas."""
+    if parent is not None and price["PackagingTypeID"]==parent["PackagingTypeID"] and any(node.get("CopyDim") for node in paths[price["PackagingTypeID"]]):
+        if price["CalculationBasis"]=="Count":return component,dimension_map
+        # Keep occupied shipping area separate from material consumption.
+        raise HTTPException(422,"Single area-priced material needs a material consumption formula; copied occupied dimensions are not a cut-area formula.")
     modern = any("ConvertFromParentFormula" in d for d in dimension_map.values())
     if modern:
         if parent is None:
@@ -392,6 +411,7 @@ def calculate(cur, ctx, item_id, payload, locked=False, expected_version=None):
     price_map = {p["PriceID"]: p for p in prices if p["PriceID"] is not None}
     dimension_map = {d["ID"]: d for d in dimensions}
     unit_map = {u["ID"]: u for u in units if u["Status"] == "Active"}
+    payload=hydrate_copy(cur,payload,root,prices,dimension_map,unit_map,locked)
     area_unit = unit_map.get(payload.SquareMeterUoMID)
     parent,height,height_conversion=parent_geometry(cur,payload,root,dimension_map,unit_map,locked,
         final_layer=not snapshot_context['Request'].get('ParentItemID') and ORDERS.index(payload.PackagingOrder)+1==layers)
@@ -422,6 +442,11 @@ def calculate(cur, ctx, item_id, payload, locked=False, expected_version=None):
                 TypePath=paths[p["PackagingTypeID"]], Consumption=consumption, ProductMOQ=moq,
                 ProductUnitPrice=price, ProductUnitUSDPrice=usd)
             row.update(geometry_details(component,geometry))
+            from packaging_weight import material_tare
+            # A Count formula can output pieces, never square metres. Vendor
+            # price-unit conversion must not change physical packaging weight.
+            tare_quantity=component.Quantity*(area if area is not None and basis=='Count' else Decimal(1))
+            row['TareWeightKG']=material_tare(p.get('TareWeight'),p.get('TareWeightBasis'),tare_quantity,area if basis=='Square meter' else None)
             rows.append(row)
         hint = ' WITH(HOLDLOCK)' if locked else ''
         currencies = select(cur, "SELECT ID FROM dbo.Currency" + hint + " WHERE CurrencyCode='USD'")[0]
@@ -438,6 +463,8 @@ def calculate(cur, ctx, item_id, payload, locked=False, expected_version=None):
         source = select(cur, 'SELECT ID FROM dbo.PkgPricingMaster'+(' WITH(HOLDLOCK)' if locked else '')+' WHERE ID=? AND PackagingOrder=?', payload.ReferencePricingMasterID,payload.PackagingOrder)[0]
         if not source:
             raise HTTPException(422,'Pricing reference was not found in the matching packaging order.')
+    from packaging_weight import layer_tare
+    result['Tare']=layer_tare(rows)
     result["Fingerprint"] = hashlib.sha256(document(result).encode("utf-8")).hexdigest()
     return json.loads(document(result))
 
@@ -449,6 +476,15 @@ def options(item_id: ItemID, packaging_type_id: int = Query(ge=1, le=2147483647)
     with api_cursor() as cur:
         authorize(cur, ctx.username, item_id); item_kind = pricing_item_kind(cur,item_id)
         root, paths, units, dimensions, prices = catalog(cur, packaging_type_id, packaging_order, mix_parent=item_kind['IsMixParent'])
+        dimension_map={d["ID"]:d for d in dimensions};unit_map={u["ID"]:u for u in units if u["Status"]=="Active"}
+        for price in prices:
+            if not price.get("PriceID") or not (root.get("CopyDim") or price.get("CopyDim")):continue
+            try:
+                input=Calculation(PackagingOrder=packaging_order,PackagingTypeID=packaging_type_id,
+                    components=[dict(PriceID=price["PriceID"],PriceRowVersion=encode(price["PriceRowVersion"]),Quantity=1)])
+                hydrated=hydrate_copy(cur,input,root,prices,dimension_map,unit_map)
+                price["CopiedDimensions"]={key:getattr(hydrated,key) for key in ("DimensionID","DimensionRowVersion","D1","D2","D3")}
+            except HTTPException as exc:price["CopyDimensionError"]=exc.detail
         saved = select(cur, "SELECT TOP(20) ID,PackagingTypeID,PackagingTypeName,FinalMOQ,UnitPrice,CurrencyCode,UnitUSDPrice,InputJSON,IsCurrent,CreatedAt FROM dbo.PkgPricingMaster WHERE RequestItemID=? AND PackagingOrder=? ORDER BY ID DESC", item_id, packaging_order)[0]
         matching=select(cur,"SELECT TOP(1) ID,CreatedAt FROM dbo.PkgPricingMaster WHERE RequestItemID=? AND PackagingOrder=? AND PackagingTypeID=? ORDER BY IsCurrent DESC,ID DESC",item_id,packaging_order,packaging_type_id)[0]
         previous=matching[0] if matching else None
@@ -550,6 +586,7 @@ def geometry_preview(item_id: ItemID, payload: Calculation, ctx: AccessContext =
         price_map={p['PriceID']:p for p in prices if p['PriceID'] is not None}
         unit_map={u['ID']:u for u in units if u['Status']=='Active'}
         dimension_map={d['ID']:d for d in dimensions}
+        payload=hydrate_copy(cur,payload,root,prices,dimension_map,unit_map)
         parent,_,_=parent_geometry(cur,payload,root,dimension_map,unit_map,allow_incomplete=True)
         rows=[]
         with localcontext() as context:

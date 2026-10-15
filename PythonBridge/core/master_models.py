@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 Entity=Literal["materials","prices","raw-materials","raw-prices","raw-grades","products","vendors","uoms","pallets","packaging-types"]
 AUDIT={"CreatedAt":"Created at","CreatedByName":"Created by","UpdatedAt":"Updated at","UpdatedByName":"Updated by"}
 COLUMNS={
- "packaging-types":{"ParentType":"Parent Type","PackagingOrder":"Order","PackagingType":"Packaging Type","Shipping":"Shipping","FinalComponent":"Final component","Status":"Status",**AUDIT},
+ "packaging-types":{"ParentType":"Parent Type","PackagingOrder":"Order","PackagingType":"Packaging Type","Shipping":"Shipping","FinalComponent":"Single","CopyDim":"Copy Dim.","Status":"Status",**AUDIT},
  "pallets":{"PalletPriceUSDPerEA":"Pallet price ($/EA)","UnitOfMeasure":"UoM","Width":"Width","Length":"Length","PalletAreaMM2":"Pallet area (mm²)","PalletSize":"Pallet size",**PALLET_CAPACITY_LABELS,"ConversionStatus":"Conversion status","Status":"Status",**AUDIT},
  "uoms":{"UoMCode":"UoM code","UoMName":"UoM name","Status":"Status",**AUDIT},
  "vendors":{"VendorName":"Vendor name","Address":"Address","CurrencyCode":"Currency","Status":"Status",**AUDIT},
@@ -31,13 +31,14 @@ COLUMNS["prices"].update(SUPPLIER_FIELDS, SupplierAreaPerPriceUnit="Supplier con
 COLUMNS["raw-materials"]["GradeName"]="Grade"
 COLUMNS["materials"]["PackagingType"]="Packaging Type"
 COLUMNS["materials"].pop("Description",None)
+COLUMNS["materials"].update(TareWeight="Tare weight",TareWeightBasis="Tare basis")
 COLUMNS["raw-grades"]={"ParentGradeName":"Parent grade","GradeName":"Grade name","Status":"Status",**AUDIT}
 FILTERS["raw-grades"]={"search","status","created_by"}
 MASTER_REQUIRED_COLUMNS["raw-grades"]=("GradeName",)
 FILTERS["pallets"]={"search","status","created_by"}
 MASTER_REQUIRED_COLUMNS["pallets"]=("UnitOfMeasure","Width","Length")
 FILTERS["packaging-types"]={"search","status","created_by"}
-MASTER_REQUIRED_COLUMNS["packaging-types"]=("PackagingOrder","PackagingType","Shipping","FinalComponent")
+MASTER_REQUIRED_COLUMNS["packaging-types"]=("PackagingOrder","PackagingType","FinalComponent","CopyDim","Shipping")
 
 class MasterSort(BaseModel):
  model_config=ConfigDict(extra="forbid")

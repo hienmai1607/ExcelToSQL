@@ -37,6 +37,8 @@ class MaterialRow(MasterRow):
 
 class PackagingMaterialRow(MaterialRow):
     PackagingTypeID: int | None = Field(None, ge=1)
+    TareWeight: Decimal | None = Field(None, ge=0, max_digits=18, decimal_places=9, allow_inf_nan=False)
+    TareWeightBasis: Literal['kg/EA', 'kg/m2'] | None = None
 
     @computed_field
     @property
@@ -103,6 +105,11 @@ class PriceBatch(Input):
     rows: list[PriceRow] = Field(min_length=1, max_length=500)
 
 class PackagingPriceRow(PriceRow):
+    MaterialDimensionID: int | None = Field(None, ge=1)
+    MaterialDimensionRowVersion: str | None = None
+    MaterialD1: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
+    MaterialD2: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
+    MaterialD3: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
     SupplierDimensionID: int | None = Field(None, ge=1)
     SupplierDimensionRowVersion: str | None = None
     SupplierD1: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
@@ -136,10 +143,12 @@ class ManualRequest(Input):
         return items
 
 class Assignment(Input):
+    ExpectedGroupVersions: dict[int,str] | None = Field(None,max_length=10000)
     PICUserID: int = Field(ge=1)
     ExpectedRowVersion: str
 
 class Transition(Input):
+    ExpectedGroupVersions: dict[int,str] | None = Field(None,max_length=10000)
     ExpectedRowVersion: str
     TargetStage: Literal['Working', 'Pending Review', 'Approved', 'Returned', 'Canceled']
     Comment: str | None = Field(None, max_length=1000)
@@ -213,7 +222,7 @@ def tvp_sql(type_name, fields):
     values = ','.join(f'CONVERT(VARBINARY(8),[{name}],1)' if name in ('RowVersionB64','ExpectedRowVersion','SupplierDimensionRowVersion') else f'[{name}]' for name, _ in fields)
     return f'DECLARE @Rows dbo.{type_name}; INSERT @Rows SELECT {values} FROM OPENJSON(?) WITH ({columns}); '
 
-def batch(payload, ctx, type_name, proc, fields, scope="Packaging", document_extra=None):
+def batch(payload, ctx, type_name, proc, fields, scope="Packaging", document_extra=None, json_input=False):
     require(ctx, scope)
     documents = []
     seen = set()
@@ -232,13 +241,44 @@ def batch(payload, ctx, type_name, proc, fields, scope="Packaging", document_ext
         documents.append(data)
     if len({r.RowNum for r in payload.rows}) != len(payload.rows):
         raise HTTPException(422, 'Duplicate RowNum values.')
-    result = execute(tvp_sql(type_name, fields)+f'EXEC dbo.{proc} @Rows,?;', [json.dumps(documents),ctx.username])
+    result = execute(f'EXEC dbo.{proc} ?,?;' if json_input else tvp_sql(type_name, fields)+f'EXEC dbo.{proc} @Rows,?;', [json.dumps(documents),ctx.username])
     return {'results': result[0]}
 
 @router.post('/material/batch')
 def material_save(payload: MaterialBatch, ctx: AccessContext = Depends(get_access_context)):
-    return batch(payload,ctx,'PackagingMaterialBatchTypeV2','usp_PackagingMaterial_BatchV2',
-                 MATERIAL+[('PackagingTypeID','INT'),('PackagingTypeSet','BIT')])
+    require(ctx,'Packaging')
+    if len({r.RowNum for r in payload.rows})!=len(payload.rows) or len({r.ID for r in payload.rows if r.ID})!=sum(r.ID is not None for r in payload.rows):
+        raise HTTPException(422,'Duplicate row or material ID.')
+    documents=[]
+    for row in payload.rows:
+        data=row.model_dump(mode='json'); version=rv(data.pop('RowVersion'),row.Command!='C')
+        if row.Command!='C' and row.ID is None:raise HTTPException(422,'Update/block requires ID.')
+        data['RowVersionB64']='0x'+version.hex() if version else None
+        documents.append(data)
+    from packaging_fields import consume
+    with get_raw_cursor() as cur:
+        own=cur.execute('SELECT @@TRANCOUNT').fetchval()==0
+        cur.execute('SET QUOTED_IDENTIFIER ON; SET XACT_ABORT ON; '+('BEGIN TRANSACTION' if own else 'SAVE TRANSACTION MaterialTare'))
+        try:
+            cur.execute(tvp_sql('PackagingMaterialBatchTypeV2',MATERIAL+[('PackagingTypeID','INT'),('PackagingTypeSet','BIT')])+'EXEC dbo.usp_PackagingMaterial_BatchV2 @Rows,?;',json.dumps(documents),ctx.username)
+            results=consume(cur)[0]
+            by_num={r.RowNum:r for r in payload.rows}
+            for saved in results:
+                row=by_num[saved['RowNum']]
+                if saved['Status']!='OK' or row.Command=='D' or not ({'TareWeight','TareWeightBasis'} & row.model_fields_set):continue
+                current=cur.execute('SELECT TareWeight,TareWeightBasis FROM dbo.PackagingMaterial WITH(UPDLOCK,HOLDLOCK) WHERE ID=?',saved['NewID']).fetchone()
+                weight=row.TareWeight if 'TareWeight' in row.model_fields_set else current[0]
+                basis=row.TareWeightBasis if 'TareWeightBasis' in row.model_fields_set else current[1]
+                if (weight is None)!=(basis is None):raise HTTPException(422,'Enter both tare weight and basis, or clear both.')
+                cur.execute('UPDATE dbo.PackagingMaterial SET TareWeight=?,TareWeightBasis=? WHERE ID=?',weight,basis,saved['NewID'])
+                saved['NewRowVersion']=cur.execute('SELECT RowVersion FROM dbo.PackagingMaterial WHERE ID=?',saved['NewID']).fetchval()
+            for saved in results:
+                if isinstance(saved.get('NewRowVersion'),(bytes,bytearray)):saved['NewRowVersion']=base64.b64encode(saved['NewRowVersion']).decode('ascii')
+            if own:cur.execute('COMMIT')
+            return {'results':results}
+        except Exception:
+            cur.execute('IF @@TRANCOUNT>0 '+('ROLLBACK' if own else 'BEGIN IF XACT_STATE()=1 ROLLBACK TRANSACTION MaterialTare; ELSE ROLLBACK; END'))
+            raise
 
 @router.post('/price/batch')
 def price_save(payload: PackagingPriceBatch, ctx: AccessContext = Depends(get_access_context)):
@@ -312,12 +352,18 @@ def price_save(payload: PackagingPriceBatch, ctx: AccessContext = Depends(get_ac
     supplier_columns = [('SupplierDimensionID','INT'),('SupplierDimensionRowVersion','VARCHAR(18)'),
         ('SupplierD1','DECIMAL(18,6)'),('SupplierD2','DECIMAL(18,6)'),('SupplierD3','DECIMAL(18,6)'),
         ('SupplierAreaPerPriceUnit','DECIMAL(28,9)'),('SupplierSet','BIT')]
-    return batch(payload,ctx,'PackagingPriceBatchTypeV4','usp_PackagingPrice_BatchV5',
-        PRICE+[('VendorID','INT'),('ExchangeRateToUSD','DECIMAL(18,10)')]+supplier_columns, document_extra=extra)
+    for row in payload.rows:
+        extra[row.RowNum]['MaterialDimensionSet'] = any(k in row.model_fields_set for k in ('MaterialDimensionID','MaterialDimensionRowVersion','MaterialD1','MaterialD2','MaterialD3'))
+        version = rv(getattr(row, "MaterialDimensionRowVersion", None), getattr(row, "MaterialDimensionID", None) is not None)
+        extra[row.RowNum]['MaterialDimensionRowVersion'] = '0x'+version.hex() if version else None
+    return batch(payload,ctx,'PackagingPriceBatchTypeV4','usp_PackagingPrice_BatchV6',
+        PRICE+[('VendorID','INT'),('ExchangeRateToUSD','DECIMAL(18,10)')]+supplier_columns, document_extra=extra, json_input=True)
 
 @router.post('/response/batch')
 def response_save(payload: ResponseBatch, ctx: AccessContext = Depends(get_access_context)):
     require(ctx,'Packaging')
+    if not ctx.is_admin and ctx.permissions is not None and ctx.permissions.get("requests") != "edit":
+        raise HTTPException(403, "Packaging Request edit access is required.")
     return enriched_response(payload,ctx)
 
 def paged(sql, params, page, page_size):
@@ -362,7 +408,7 @@ def lookups(ctx: AccessContext = Depends(get_access_context)):
     types=execute('EXEC dbo.usp_PackagingResponseTypeLookup_Read ?', [ctx.username])[0]
     from packaging_orders import decode_orders
     decode_orders(types)
-    pallets=execute("SELECT p.ID,p.PalletSize,p.PalletAreaMM2,c.PalletsPer20DC,c.PalletsPer40DC,c.PalletsPer40HC,c.PalletsPer20RC,c.PalletsPer40RHC FROM dbo.v_PalletMaster p JOIN dbo.Pallet c ON c.ID=p.ID JOIN dbo.UoM u ON u.ID=p.UoMID WHERE p.Status='Active' AND u.Status='Active' ORDER BY p.PalletSize,p.ID",[])[0]
+    pallets=execute("SELECT p.ID,p.PalletSize,p.LengthMM,p.WidthMM,p.PalletAreaMM2,p.PalletsPer20DC,p.PalletsPer40DC,p.PalletsPer40HC,p.PalletsPer20RC,p.PalletsPer40RHC FROM dbo.v_PalletSizeChoice p JOIN dbo.UoM u ON u.ID=p.UoMID WHERE p.ChoiceSource='Material' AND p.Status='Active' AND u.Status='Active' ORDER BY p.PalletSize,p.ID",[])[0]
     return {'materials':results[0],'currencies':results[1],'packagingTypes':types,'pallets':pallets}
 
 @router.post('/manual')
@@ -388,13 +434,21 @@ def manual_create(payload: ManualRequest, ctx: AccessContext = Depends(get_acces
 
 @router.post('/items/{item_id}/assign')
 def assign(item_id: int, payload: Assignment, ctx: AccessContext = Depends(get_access_context)):
-    require(ctx,'PackagingManager')
-    return {'result':execute('EXEC dbo.usp_PackagingRequestItem_Assign ?,?,?,?', [ctx.username,item_id,payload.PICUserID,rv(payload.ExpectedRowVersion)])[0][0]}
+    if not ctx.can_manage_packaging:
+        raise HTTPException(403, 'Packaging manager access is required.')
+    from request_groups import perform_group
+    return perform_group(item_id,payload,ctx,assignment=True)
 
 @router.post('/items/{item_id}/transition')
 def transition(item_id: int, payload: Transition, ctx: AccessContext = Depends(get_access_context)):
-    require(ctx,'Packaging' if payload.TargetStage in ('Working','Pending Review') else 'PackagingManager')
-    return {'result':execute('EXEC dbo.usp_PackagingRequestItem_Transition ?,?,?,?,?', [ctx.username,item_id,rv(payload.ExpectedRowVersion),payload.TargetStage,payload.Comment])[0][0]}
+    if not ctx.is_admin and ctx.permissions is not None and ctx.permissions.get("requests")!="edit":
+        raise HTTPException(403,"Packaging Request edit access is required.")
+    if payload.TargetStage in ('Working','Pending Review'):
+        require(ctx, 'Packaging')
+    elif not ctx.can_manage_packaging:
+        raise HTTPException(403, 'Packaging manager access is required.')
+    from request_groups import perform_group
+    return perform_group(item_id,payload,ctx)
 
 @router.post("/vendor/batch")
 def vendor_save(payload:VendorBatch,ctx:AccessContext=Depends(get_access_context)):

@@ -16,7 +16,7 @@ export function decimalDisplay(value:unknown,places:number,fixed=false):string|n
  return (sign&&amount!==0n?'-':'')+(amount/scale).toString().replace(/\B(?=(\d{3})+(?!\d))/g,',')+(decimal?'.'+decimal:'');
 }
 export function numberDisplay(key:string,value:unknown):string|null{
- if(['SupplierD1','SupplierD2','SupplierD3'].includes(key))return decimalDisplay(value,6);
+ if(['SupplierD1','SupplierD2','SupplierD3','MaterialD1','MaterialD2','MaterialD3'].includes(key))return decimalDisplay(value,6);
  if(key==='SupplierAreaPerPriceUnit')return decimalDisplay(value,9);
  if(palletCapacityKeys.includes(key))return decimalDisplay(value,0);
  if(['RelativeCartonEfficiencyPct','PalletUtilizationPct','PalletHeightEfficiencyPct'].includes(key))return decimalDisplay(value,2,true);
@@ -25,7 +25,7 @@ export function numberDisplay(key:string,value:unknown):string|null{
  if(['RequestedLayerCount','ResponseLayerCount','NumberOfPrimary','NumberOfSecondary','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','ThirdPMMOQ','CalculatedCartonsPerContainer'].includes(key))return decimalDisplay(value,0);
  if(['PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','NetWeightPerContainerKG','NetWeightPerContainerFloorKG'].includes(key))return decimalDisplay(value,3);
  if(key==='NutDensity'||key==='UsedVolumeML')return decimalDisplay(value,6);
- if(key==='TareWeight')return decimalDisplay(value,3);
+ if(key==='TareWeight')return decimalDisplay(value,9);
  if(key==='Width'||key==='Length')return decimalDisplay(value,4);
  if(key==='PalletAreaMM2')return decimalDisplay(value,8);
  if(key==='AnnualUnit'||key==='MixUnitQuantity')return decimalDisplay(value,4);

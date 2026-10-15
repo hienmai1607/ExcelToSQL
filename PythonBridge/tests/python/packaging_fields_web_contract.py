@@ -90,6 +90,7 @@ class WebFields(PackagingFoundation):
     def test_response_fields_save_and_submit(self):
         from db import bytes_to_b64
         req=self.request()
+        self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET PICUserID=? WHERE ID=?",self.actor,req)
         version=self.cur.execute("SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",req).fetchval()
         body=packaging_api.ResponseBatch(rows=[dict(RowNum=1,ID=req,RowVersion=bytes_to_b64(version),
             FirstPMType="Film",SecondPMType="Carton",UnitsPerCarton=12,PackagingDescription="Test pack",

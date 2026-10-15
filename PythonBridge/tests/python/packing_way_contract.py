@@ -65,6 +65,7 @@ class PackingSQL(unittest.TestCase):
         self.save_fields(PrimaryTypeID=self.types["Primary"])
         created = self.request([self.item])
         self.req = created["items"][0]["ID"]
+        self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET PICUserID=? WHERE ID=?",self.actor,self.req)
         self.header = created["header"]["ID"]
 
     def save(self, **fields):

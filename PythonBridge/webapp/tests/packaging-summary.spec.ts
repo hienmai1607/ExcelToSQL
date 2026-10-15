@@ -70,6 +70,23 @@ test('normal packaging tree shows layers, dimensions, price flow and one unified
  await expect(page.getByRole('table',{name:'Opportunity items',exact:true})).toBeVisible();expect(writes).toEqual([]);
 });
 
+test('summary displays gross below net for every parent and child layer without writes',async({page})=>{
+ const {open,writes}=await setup(page,{...mix,PrimaryGrossWeightKG:'5.78885',SecondaryGrossWeightKG:'10.88885'},[
+  {...children[0],PrimaryGrossWeightKG:'0.160123456',SecondaryGrossWeightKG:'0.580370368'},
+  {...children[1],PrimaryGrossWeightKG:null}
+ ]);
+ const dialog=await open(),nodes=dialog.locator('.summary-layer-chain .summary-node');
+ await expect(nodes).toHaveCount(5);
+ const expected=['160.123','580.37','—','5,788.85','10,888.85'];
+ for(let i=0;i<expected.length;i++){
+  const rows=nodes.nth(i).getByRole('row');
+  await expect(rows.nth(0).getByRole('rowheader')).toHaveText('Net weight (g)');
+  await expect(rows.nth(1).getByRole('rowheader')).toHaveText('Gross weight (g)');
+  await expect(rows.nth(1).getByRole('cell')).toHaveText(expected[i]);
+ }
+ expect(writes).toEqual([]);
+});
+
 test('mix tree loads every parent-PCR child and splits shared cost equally down to smallest units',async({page},info)=>{
  const {open,reads,writes}=await setup(page,mix,children);const dialog=await open();
  const costs=dialog.getByRole('region',{name:'Smallest unit packaging costs',exact:true});

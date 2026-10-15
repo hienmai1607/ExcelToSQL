@@ -19,7 +19,7 @@ export function NumericInput({field,value,onValueChange,...props}:Omit<InputHTML
 }
 export function numericEntryError(field:string,value:string){
  if(!value)return '';
- if(['SupplierD1','SupplierD2','SupplierD3'].includes(field))return /^\d{1,12}(\.\d{0,6})?$/.test(value)&&Number(value)>0?'':'Use a positive measurement with up to 12 whole digits and 6 decimal places.';
+ if(['SupplierD1','SupplierD2','SupplierD3','MaterialD1','MaterialD2','MaterialD3'].includes(field))return /^\d{1,12}(\.\d{0,6})?$/.test(value)&&Number(value)>0?'':'Use a positive measurement with up to 12 whole digits and 6 decimal places.';
  if(palletCapacityKeys.includes(field))return /^\d{1,10}$/.test(value)&&Number(value)<=2147483647?'':'Use a whole number from 0 to 2,147,483,647, or leave blank.';
  if(field==='HeightMM')return /^\d{1,10}(\.\d{0,2})?$/.test(value)&&Number(value)>0?'':'Use a positive height in mm with up to 2 decimal places.';
  if(field==='ResponseMaxPalletHeightMM')return /^\d{1,9}$/.test(value)&&Number(value)>=1?'':'Use a positive whole number of millimeters up to 999,999,999.';
@@ -28,7 +28,7 @@ export function numericEntryError(field:string,value:string){
  if(field==='NutDensity')return /^\d{1,12}(\.\d{0,6})?$/.test(value)&&Number(value)>0?'':'Use a positive density with up to 12 whole digits and 6 decimal places.';
  if(field==='Width'||field==='Length')return /^\d{1,8}(\.\d{0,4})?$/.test(value)&&Number(value)>0?'':'Use a positive number with up to 8 whole digits and 4 decimal places.';
  if(field==='ShelfLifeDays')return /^\d+$/.test(value)&&Number(value)<=2147483647?'':'Use whole days from 0 to 2,147,483,647.';
- const places=field==='Factor'||field==='ConversionFactor'?9:field==='UnitPrice'?2:3;
+ const places=field==='TareWeight'||field==='Factor'||field==='ConversionFactor'?9:field==='UnitPrice'?2:3;
  if(!new RegExp('^\\d+(\\.\\d{0,'+places+'})?$').test(value))return 'Use a non-negative number with up to '+places+' decimal places.';
  return '';
 }

@@ -50,7 +50,10 @@ class View(BaseModel):
   return self
 
 def can_edit(ctx,row):
- return row.get("ItemStage") in ("Assigned","Working","Returned") and (ctx.is_admin or ("Packaging" in ctx.scopes and row.get("PICUserID")==ctx.user_id))
+ return (row.get("ItemStage") in ("Assigned","Working","Returned")
+  and (ctx.is_admin or row.get("PICUserID")==ctx.user_id)
+  and (ctx.is_admin or ("Packaging" in ctx.scopes
+   and (ctx.permissions is None or ctx.permissions.get("requests")=="edit"))))
 
 def serialize(row,ctx):
  row={k:str(v) if isinstance(v,(Decimal,date,datetime)) else v for k,v in row.items()}
@@ -175,7 +178,7 @@ def load_sources(ctx,request_ids):
 def prepare(edit,source,ctx):
  if source.get("RequestID")!=edit.request_id:raise ValueError("Item does not belong to this request.")
  if source.get("ItemRowVersion")!=edit.version:raise ValueError("Item changed. Refresh before saving.")
- if not can_edit(ctx,source):raise ValueError("Only the assigned Packaging PIC or Admin can update an Assigned, Working or Returned response.")
+ if not can_edit(ctx,source):raise ValueError("Only the assigned Packaging PIC can update an Assigned, Working or Returned response.")
  base={k:source.get(k) for k in ("MaterialID","HeightMM","WidthMM","LengthMM","Cost","CurrencyID","CostBasis","ResponseNotes")}
  for key in ("HeightMM","WidthMM","LengthMM","CostBasis","ResponseNotes"):
   if key in edit.changes:base[key]=edit.changes[key]

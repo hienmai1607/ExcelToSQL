@@ -18,7 +18,7 @@ There is no Header Command: request creation, header/source changes, PIC assignm
 ## Permissions and workflow
 
 - Packaging users can update only their assigned responses in Assigned, Working or Returned stage.
-- Admin can update responses in those editable stages regardless of PIC.
+- Admin also needs the saved PIC assignment; there is no ownership override. See [migration 105](packaging-pic-access.md).
 - PackagingManager alone can read the workbook but cannot maintain responses unless also authorized as the assigned Packaging PIC.
 - Opportunity/Sales users can download for reference. Unapproved response values remain hidden by the existing read policy.
 - Pending Review, Approved and Canceled items are not editable.

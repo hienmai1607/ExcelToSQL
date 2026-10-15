@@ -1,8 +1,9 @@
 import type {Row} from './api';
 import type {Draft} from './opportunity-losses';
-import {costs,packagingUSD} from './tcb-model';
+import {costs,packagingUSD,palletizationValue} from './tcb-model';
 import {quantity,add,multiply,divide,objectValue,type Fraction} from './packaging-summary-model';
 import {lossTotals,lossError,processOptions} from './loss-processes';
+import {savedLoadPlan} from './load-plan-values';
 import {allowedContainerTypes,parseContainerProfiles} from './container-loading';
 
 export type AnalysisCell={value:Fraction|null;issues:string[]};
@@ -107,7 +108,8 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
   const types=allowedContainerTypes(root.row.ResponseContainerFamily??root.row.ContainerRequest,root.row.ShipmentContainerSizeFT??shipping.ContainerSizeFT);
   const configured=types.filter(t=>parseContainerProfiles(root.row.ContainerLoadProfiles)[t]||root.row.SelectedContainerType===t);
   const selected=String(root.row.SelectedContainerType??'');
-  const kind=configured.includes(selected as typeof types[number])?selected:configured.length===1?configured[0]:'';
+  const plan=savedLoadPlan(root.row.LoadPlanJSON);
+  const kind=plan?(plan.Code||'Load plan'):configured.includes(selected as typeof types[number])?selected:configured.length===1?configured[0]:'';
   const mode=String(root.row.PackingConfiguration??root.row.ConfigurationRequest??'');
   const resolved=mode==='Pallet load'||mode==='Floor load'||mode==='Both';
   const parentPM=root.mix?perCount(packaging(root,root.row),total,'Missing captured Mix unit quantities.'):good(zero);
@@ -115,7 +117,7 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
   const awardedUnits=awarded&&award&&award.n<=100n*award.d&&total?divide(multiply(multiply(awarded,award),total),hundred):null;
   const design=perCount(optional(shipping.InitialDesignUSD,'Initial Design'),awardedUnits,'Estimated awarded units must be positive for Initial Design.');
   const fixed=perCount(optional(shipping.OtherFixedCostsUSD,'Other fixed costs'),awardedUnits,'Estimated awarded units must be positive for fixed costs.');
-  const palletPrice=quantity(root.costingInputs.PalletUSDPerEA,true);
+  const palletPrice=quantity(palletizationValue(root.row,root.costingInputs),true);
   const final=unitsPerFinal(root.row),palletUnits=quantity(root.row.UnitsPerPallet);
   {
    const profiles=parseContainerProfiles(root.row.ContainerLoadProfiles),profile=profiles[kind],result=objectValue(objectValue(root.row.ContainerLoadResults)[kind]);

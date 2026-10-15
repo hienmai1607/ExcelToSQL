@@ -31,6 +31,7 @@ class ResponseTypes(unittest.TestCase):
      while self.cur.nextset():pass
   self.ctx=AccessContext(self.actor,self.username,frozenset({"Admin"}))
   self.req=foundation.PackagingFoundation.request(self)
+  self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET PICUserID=? WHERE ID=?",self.actor,self.req)
   self.primary="Primary-"+uuid4().hex[:12]
   self.secondary="Secondary-"+uuid4().hex[:12]
   for order,name in (("Primary",self.primary),("Secondary",self.secondary)):

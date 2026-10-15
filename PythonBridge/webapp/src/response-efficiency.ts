@@ -1,6 +1,7 @@
+import {savedLoadPlan} from './load-plan-values';
 import {decimalDisplay} from './number-format';
 import {layerCount} from './packaging-orders';
-import {palletLayers} from './packing-way';
+import {palletLayers,palletBaseHeight} from './packing-way';
 
 type Rational={n:bigint;d:bigint};
 export type GeometryMetrics={AreaM2?:unknown;VolumeM3?:unknown};
@@ -58,8 +59,9 @@ export function responseEfficiency(netWeight:unknown,values:Record<string,string
   const units=count(values[key]);last=last&&units?multiply(last,units):null;
  }
  const volume=value(geometry.VolumeM3),area=value(geometry.AreaM2),density=value(values.NutDensity);
- const cartons=count(values.CartonsPerLayer),palletArea=value(palletAreaMM2);
- const palletHeight=height&&palletCount?{...multiply(height,palletCount),n:height.n*palletCount.n+150n*height.d*palletCount.d}:null;
+ const saved=savedLoadPlan(values.LoadPlanJSON);
+ const cartons=count(saved?saved.Result.cartons_per_layer:values.CartonsPerLayer),palletArea=value(saved?.Inputs.pallet?saved.Inputs.pallet.length*saved.Inputs.pallet.width:palletAreaMM2);
+ const palletHeight=saved?value(saved.Result.loaded_unit_height):height&&palletCount?add(multiply(height,palletCount),value(palletBaseHeight(values))!):null;
  if(mix)last=mix.weight;
  const carton=last&&volume?divide(divide(last,constant(1000)),volume):null;
  const relative=mix?(mix.volume&&volume?multiply(divide(divide(mix.volume,constant(1000000)),volume),constant(100)):null)
@@ -69,6 +71,6 @@ export function responseEfficiency(netWeight:unknown,values:Record<string,string
   carton:display(carton),
   relative:display(relative,2,true),
   utilization:display(area&&cartons&&palletArea?multiply(divide(multiply(area,cartons),divide(palletArea,constant(1000000))),constant(100)):null,2,true),
-  heightEfficiency:display(palletHeight&&maximum?multiply(divide(palletHeight,maximum),constant(100)):null,2,true),
+  heightEfficiency:display(palletHeight&&(saved?value(saved.Inputs.max_pallet_height):maximum)?multiply(divide(palletHeight,(saved?value(saved.Inputs.max_pallet_height):maximum)!),constant(100)):null,2,true),
  };
 }

@@ -18,17 +18,16 @@ def serial(value):
 
 def item_read(item_id, ctx):
     rows = execute(AUTH + """SELECT i.ID,i.RowVersion,i.ProductGradeSnapshot,i.TCBCostInfo,i.ProductLossSnapshot,i.ParentItemID,
-      i.Stage ItemStage,o.Stage HeaderStage,p.ProductCode,p.ProductName,pallet.PalletPriceUSDPerEA DefaultPalletUSDPerEA,
+      i.Stage ItemStage,o.Stage HeaderStage,p.ProductCode,p.ProductName,CASE WHEN response.PalletPricingID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(ps.SnapshotJSON,'$.UnitUSDPrice')) FROM dbo.PalletPricingSnapshot ps WHERE ps.ID=response.PalletPricingID AND ps.ItemID=response.ID AND JSON_VALUE(ps.SnapshotJSON,'$.PalletSize')=response.ResponsePalletSize) WHEN response.LoadPlanID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(lp.Result,'$.PalletUnitUSDPrice')) FROM dbo.ContainerLoadPlan lp WHERE lp.ID=response.LoadPlanID AND lp.ItemID=response.ID) ELSE NULL END DefaultPalletUSDPerEA,
       COALESCE(response.ResponseLayerCount,response.RequestedLayerCount,i.PackagingLayerCount,1) LossLayerCount,
       CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.OpportunityItem c WHERE c.ParentItemID=i.ID) THEN 1 ELSE 0 END AS BIT) IsMixParent,
       CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.PackagingConfigurationRequestItem active WHERE active.OpportunityItemID=i.ID AND active.IsOpen=1 AND active.Stage<>\'Canceled\') THEN 1 ELSE 0 END AS BIT) HasOpenPackagingRequest
       FROM dbo.OpportunityItem i JOIN dbo.Opportunity o ON o.ID=i.OpportunityID
       JOIN dbo.Product p ON p.ID=i.ProductID
-      OUTER APPLY(SELECT TOP(1) r.ResponseLayerCount,r.RequestedLayerCount,r.ResponsePalletSize
+      OUTER APPLY(SELECT TOP(1) r.ID,r.LoadPlanID,r.PalletPricingID,r.ResponseLayerCount,r.RequestedLayerCount,r.ResponsePalletSize
         FROM dbo.PackagingConfigurationRequestItem r WHERE r.OpportunityItemID=i.ID AND r.Stage<>'Canceled'
         ORDER BY r.IsOpen DESC,r.ID DESC) response
-      OUTER APPLY(SELECT TOP(1) pm.PalletPriceUSDPerEA FROM dbo.v_PalletMaster pm
-        WHERE pm.PalletSize=COALESCE(response.ResponsePalletSize,i.PalletSize) AND pm.Status='Active' ORDER BY pm.ID) pallet WHERE i.ID=?;""", [ctx.username,item_id])[0]
+      WHERE i.ID=?;""", [ctx.username,item_id])[0]
     if not rows:
         raise HTTPException(404, "Opportunity item not found.")
     return rows[0]
@@ -88,10 +87,7 @@ def read(item_id: int = Path(ge=1),ctx: AccessContext=Depends(get_access_context
         except HTTPException as exc:
             error = exc.detail
     saved=json.loads(item["TCBCostInfo"] or "{}")
-    if not item.get("ParentItemID") and item.get("DefaultPalletUSDPerEA") is not None and saved.get("Inputs",{}).get("PalletUSDPerEA") is None:
-        saved.setdefault("Inputs",{})["PalletUSDPerEA"]=str(item["DefaultPalletUSDPerEA"])
-    if item.get("ParentItemID") and saved.get("Inputs"):
-        saved["Inputs"]["PalletUSDPerEA"]=None
+    saved.setdefault("Inputs",{})["PalletUSDPerEA"]=str(palletization_usd(item)) if palletization_usd(item) is not None else None
     return {"lossMasters":active_loss_masters(ctx),"item":item,"saved":saved,
             "grades":json.loads(json.dumps(grades,default=serial)),
             "prices":current_prices(grades,ctx) if grades else [],"gradeError":error}
@@ -141,9 +137,13 @@ def resolve_loss_assignments(item, inputs, ctx):
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
 
+def palletization_usd(item):
+    value=item.get("DefaultPalletUSDPerEA")
+    return Decimal(str(value)) if not item.get("ParentItemID") and value is not None else None
+
+
 def compute(item, inputs, ctx):
-    if item.get("ParentItemID"):
-        inputs.PalletUSDPerEA=None
+    inputs.PalletUSDPerEA=palletization_usd(item)
     if inputs.LossProcesses is not None:
         packaging = ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging"]
         layer_count = int(item.get("LossLayerCount") or 1)
@@ -216,8 +216,7 @@ def save_losses(body: LossSave,item_id: int = Path(ge=1),ctx: AccessContext=Depe
     previous=value.get("Inputs",{})
     value["Inputs"]={**previous,"ProductLossFormula":inputs.ProductLossFormula,**{field:str(getattr(inputs,field)) for field in LOSS_FIELDS},
                     "LossProcesses":[step.model_dump(mode="json") for step in inputs.LossProcesses or []]}
-    if item.get("ParentItemID"):
-        value["Inputs"]["PalletUSDPerEA"]=None
+    value["Inputs"]["PalletUSDPerEA"]=palletization_usd(item)
     row=execute("EXEC dbo.usp_OpportunityTCB_Save ?,?,?,?,?",
                 [ctx.username,item_id,rv(body.RowVersion),json.dumps(value,default=serial),1])[0][0]
     return {"saved":value,"RowVersion":row["RowVersion"]}
@@ -266,8 +265,7 @@ def commercial_value(body,item,ctx,cursor):
         new["Prices"]=[p.model_dump(mode="json") for p in body.Prices]
     elif body.Grades is not None:
         new["Prices"]=[]
-    if item.get("ParentItemID"):
-        new["PalletUSDPerEA"]=None
+    new["PalletUSDPerEA"]=palletization_usd(item)
     inputs=resolve_loss_assignments(item,Inputs(**new),ctx)
     allowed={"Mix"+p if item["IsMixParent"] else p for p in ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging"][:int(item.get("LossLayerCount") or 1)]}
     if not item["IsMixParent"]: allowed.update(("Sorting","Processing"))

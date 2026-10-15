@@ -17,8 +17,7 @@ class Contract(unittest.TestCase):
             self.assertEqual(error.exception.status_code,403)
             sql.assert_not_called()
             self.assertEqual(api.pics(AccessContext(1,"Manager",frozenset({"PackagingManager"})))["rows"][0]["ID"],2)
-            self.assertIn("u.IsActive=1",sql.call_args.args[0])
-            self.assertIn("N'Packaging',N'Admin'",sql.call_args.args[0])
+            self.assertIn("fn_PackagingPICMember(u.ID)=1",sql.call_args.args[0])
     def test_summary_parameterized_paging(self):
         with patch.object(api,"execute",return_value=[[],[{"Total":17}]]) as sql:
             result=api.requests(3,10,"Acme","Open",AccessContext(1,"Admin",frozenset({"Admin"})))
@@ -35,6 +34,6 @@ class Contract(unittest.TestCase):
             self.assertEqual(result["rows"][0]["ItemID"],7)
             self.assertEqual(sql.call_args.args[1],["Admin",None,10,2,None,5])
     def test_verified_session(self):
-        self.assertEqual(api.session(AccessContext(1,"Manager",frozenset({"PackagingManager"}))),{"user_id":1,"username":"Manager","scopes":["PackagingManager"],"is_admin":False})
+        self.assertEqual(api.session(AccessContext(1,"Manager",frozenset({"PackagingManager"}))),{"user_id":1,"username":"Manager","scopes":["PackagingManager"],"is_admin":False,"can_assign_packaging":True})
 if __name__=="__main__":
     unittest.main()

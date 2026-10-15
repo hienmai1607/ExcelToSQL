@@ -16,6 +16,26 @@ test('mix child pricing does not require Shipping D3 even on its last packaging 
  expect(previews[0]).toMatchObject({PackagingOrder:'Secondary',LayerCount:2,D3:null});
 });
 
+test('Copy Dim. locks final inputs and permits only one material',async({page})=>{
+ const {editor,dialog,optionsData,previews}=await setup(page);
+ await dialog.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
+ optionsData.parentType.CopyDim=true;
+ for(const p of optionsData.materials){p.CopyDim=true;p.CopiedDimensions={DimensionID:1,DimensionRowVersion:'AAAAAAAAAAE=',D1:'250',D2:'150',D3:null}}
+ await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
+ const calculator=page.getByRole('dialog',{name:'Primary Pricing Calculator',exact:true});
+ await calculator.getByRole('button',{name:'Add PKG-Label price 1',exact:true}).click();
+ await expect(calculator.getByLabel('Parent D1',{exact:true})).toHaveValue('250');
+ await expect(calculator.getByLabel('Parent D2',{exact:true})).toHaveValue('150');
+ await expect(calculator.getByLabel('Parent D1',{exact:true})).toBeDisabled();
+ await expect(calculator.getByLabel('Parent dimension definition',{exact:true})).toBeDisabled();
+ await expect(calculator.getByRole('button',{name:'Add PKG-Jar price 2',exact:true})).toBeDisabled();
+ await calculator.getByRole('button',{name:'Calculate pricing',exact:true}).click();
+ await expect(calculator.getByRole('button',{name:'Apply to response',exact:true})).toBeEnabled();
+ expect(previews[0].components).toHaveLength(1);expect(previews[0].D1).toBe('250');
+ await calculator.getByRole('button',{name:'Remove component 1',exact:true}).click();
+ await expect(calculator.getByRole('button',{name:'Add PKG-Jar price 2',exact:true})).toBeEnabled();
+});
+
 test('pricing popup actions stay visible while content scrolls',async({page})=>{
  const {dialog}=await setup(page);
  const footer=dialog.locator('.pricing-calculator-actions'),before=await footer.boundingBox();
@@ -68,8 +88,8 @@ test('supplier conversion measurements are read-only in the response calculator'
 async function setup(page:Page,area=false,previewFailure=false,threeLayers=false,stored:Record<string,unknown>={}){
  const writes:any[]=[],previews:any[]=[],geometryPreviews:any[]=[];
  const row={RequestID:1,ItemID:1,ProductCode:'PRD-1',ProductName:'Nut product',WeightGrams:'10',ItemDescription:'Item 1',ItemStage:'Assigned',PIC:'Admin',PICUserID:1,ItemRowVersion:'AAAAAAAAAAE=',FirstPMType:'PET jar',RequestedLayerCount:threeLayers?3:2,...stored};
- const materials=[{MaterialID:1,MaterialCode:'PKG-Label',MaterialName:'Label',PackagingType:'Label',PackagingTypeID:2,CalculationBasis:area?'Square meter':'Count',PriceID:1,PriceRowVersion:'AAAAAAAAAAE=',UnitPrice:'10000',CurrencyCode:'VND',VendorMOQ:'5000',QuantityTo:null,PriceUoM:area?'m':'EA',EffectiveFrom:'2026-01-01',EffectiveTo:'2026-12-31'},
-  {MaterialID:2,MaterialCode:'PKG-Jar',MaterialName:'Jar',PackagingType:'Jar',PackagingTypeID:3,CalculationBasis:'Count',PriceID:2,PriceRowVersion:'AAAAAAAAAAE=',UnitPrice:'3000',CurrencyCode:'VND',VendorMOQ:'1000',QuantityTo:null,PriceUoM:'EA',EffectiveFrom:'2026-01-01',EffectiveTo:null},
+ const materials=[{TareWeight:'0.00125',TareWeightBasis:area?'kg/m2':'kg/EA',MaterialID:1,MaterialCode:'PKG-Label',MaterialName:'Label',PackagingType:'Label',PackagingTypeID:2,CalculationBasis:area?'Square meter':'Count',PriceID:1,PriceRowVersion:'AAAAAAAAAAE=',UnitPrice:'10000',CurrencyCode:'VND',VendorMOQ:'5000',QuantityTo:null,PriceUoM:area?'m':'EA',EffectiveFrom:'2026-01-01',EffectiveTo:'2026-12-31'},
+  {TareWeight:'0',TareWeightBasis:'kg/EA',MaterialID:2,MaterialCode:'PKG-Jar',MaterialName:'Jar',PackagingType:'Jar',PackagingTypeID:3,CalculationBasis:'Count',PriceID:2,PriceRowVersion:'AAAAAAAAAAE=',UnitPrice:'3000',CurrencyCode:'VND',VendorMOQ:'1000',QuantityTo:null,PriceUoM:'EA',EffectiveFrom:'2026-01-01',EffectiveTo:null},
   {MaterialID:3,MaterialCode:'PKG-NoPrice',MaterialName:'No price',PackagingType:'Jar',PackagingTypeID:3,CalculationBasis:'Count',PriceID:null}];
  const optionsData:any={parentType:{ID:1,Shipping:false},materials,dimensions:[{ID:1,PackagingTypeID:1,PackagingType:'PET jar',DimensionBasis:'Square meter',D1Name:'Height',D2Name:'Width',D1Unit:'mm',D2Unit:'mm',SquareMeterFormula:'D1*D2/1000000',RowVersion:'AAAAAAAAAAE='}],types:[{ID:2,AncestorIDs:[2,1]},{ID:3,AncestorIDs:[3,1]}],uoms:[{ID:1,UoMCode:'m2',UoMName:'Square meter'}],saved:[],savedComponents:[]};
  await page.route('**/api/**',route=>{
@@ -295,6 +315,10 @@ test('applied parent dimensions appear immediately in Packing Way and remain sna
 
 test('material lines show effective date ranges and count items have no area section',async({page})=>{
  const {dialog,geometryPreviews}=await setup(page);
+ await expect(dialog.getByRole('columnheader',{name:'Tare weight',exact:true})).toBeVisible();
+ await expect(dialog.getByRole('row').filter({hasText:'PKG-Label'})).toContainText('0.00125 kg/EA');
+ await expect(dialog.getByRole('row').filter({hasText:'PKG-Jar'})).toContainText('0 kg/EA');
+ await expect(dialog.getByRole('row').filter({hasText:'PKG-NoPrice'}).getByRole('cell').nth(3)).toHaveText('—');
  await expect(dialog.getByRole('columnheader',{name:'Effective date',exact:true})).toBeVisible();
  await expect(dialog.getByRole('row').filter({hasText:'PKG-Label'})).toContainText('2026-01-01 → 2026-12-31');
  await expect(dialog.getByRole('row').filter({hasText:'PKG-Jar'})).toContainText('2026-01-01 → Open-ended');

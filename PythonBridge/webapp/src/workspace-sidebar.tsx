@@ -17,7 +17,7 @@ export function WorkspaceSidebar({session,tab,onNavigate}:{session:Session;tab:s
    {key:'prices',label:'Packaging Pricing',icon:'price',allowed:has('Packaging','PackagingManager')},
    {key:'packaging-types',label:'Packaging Type Master',icon:'grade',allowed:has('Packaging','PackagingManager')},
    {key:'packaging-dimensions',label:'Packaging Dimension Master',icon:'layout',allowed:has('Packaging','PackagingManager')},
-   {key:'pallets',label:'Pallet Master',icon:'package',allowed:has('Packaging','PackagingManager')}]},
+   {key:'containers',label:'Container Type Master',icon:'package',allowed:session.is_admin}]},
   {label:'Raw materials',items:[
    {key:'raw-materials',label:'Raw Material',icon:'package',allowed:has('RawMaterial')},
    {key:'raw-prices',label:'Raw Pricing',icon:'price',allowed:has('RawMaterial')},

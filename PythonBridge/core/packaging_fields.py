@@ -100,6 +100,9 @@ WEB_RESPONSE_FIELDS = ["NutDensity","ResponseLayerCount","ThirdPMType","ThirdPMM
                        "ResponsePalletSize","ResponsePalletStacking","ResponseMaxPalletHeightMM","HeightMM"]
 WEB_RESPONSE_FIELDS += ["SelectedContainerType", "ContainerLoadProfiles", "SameConfig", "ApplicableNetWeightGrams"]
 class ResponseFields(BaseModel):
+    LoadPlanID: int | None = Field(None, ge=1)
+    ContainerLoadPlanIDs: dict[int,int] | None = Field(None,max_length=100)
+    PalletPricingID: int | None = Field(None, ge=1)
     ApplicableNetWeightGrams: Decimal | None = Field(None, max_digits=18, decimal_places=6, ge=0, allow_inf_nan=False)
     NutDensityDefaultUpdate: bool = Field(False, strict=True)
     NutDensityDefaultRowVersion: str | None = None
@@ -283,12 +286,23 @@ def enriched_response(payload, ctx):
             # original rows in ID order; SQL still enforces version, stage and PIC.
             cursor.execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Read',@Actor OUTPUT;", ctx.username)
             consume(cursor)
+            from response_load_plan import lock_response_roots,response_dependencies,invalidate_changed_plans
+            lock_response_roots(cursor,[row.ID for row in payload.rows])
             from mix_same_config import validate_group_batch
             validate_group_batch(cursor, payload.rows)
+            dependencies=response_dependencies(cursor,[row.ID for row in payload.rows])
             for row in sorted(payload.rows, key=lambda r: r.ID):
-                cursor.execute("SELECT Cost,CurrencyID,CostBasis,FirstPMMOQ,FirstPMType,SecondPMMOQ,SecondPMType,ThirdPMMOQ,ThirdPMType,ResponseLayerCount,RequestedLayerCount,HeightMM FROM dbo.PackagingConfigurationRequestItem WITH(UPDLOCK,HOLDLOCK) WHERE ID=?", row.ID)
+                cursor.execute("SELECT Cost,CurrencyID,CostBasis,FirstPMMOQ,FirstPMType,SecondPMMOQ,SecondPMType,ThirdPMMOQ,ThirdPMType,ResponseLayerCount,RequestedLayerCount,HeightMM,PICUserID,Stage,WidthMM,LengthMM FROM dbo.PackagingConfigurationRequestItem WITH(UPDLOCK,HOLDLOCK) WHERE ID=?", row.ID)
                 original = cursor.fetchone()
+                if original is None:
+                    raise HTTPException(409, "Response item no longer exists. Refresh before saving.")
+                if not ctx.is_admin and original[12] != ctx.user_id:
+                    raise HTTPException(403, "Only the assigned PIC or Admin can edit this response.")
+                if original[13] not in ("Assigned", "Working", "Returned"):
+                    raise HTTPException(409, "This response stage is locked. Refresh before saving.")
                 if original is not None:
+                    for field,value in zip(('WidthMM','LengthMM'),original[14:16]):
+                        if field not in row.model_fields_set:documents_by_id[row.ID][field]=str(value) if value is not None else None
                     if 'HeightMM' not in row.model_fields_set:
                         documents_by_id[row.ID]['HeightMM']=str(original[11]) if original[11] is not None else None
                     for key, value in zip(("Cost", "CurrencyID", "CostBasis"), original[:3]):
@@ -352,7 +366,22 @@ def enriched_response(payload, ctx):
                 from db import bytes_to_b64
                 from pkg_pricing_api import save_calculations
                 save_calculations(cursor, ctx, row, saved["NewRowVersion"])
+                from pallet_pricing_api import apply_selection
+                pallet_version=apply_selection(cursor,row)
+                if pallet_version is not None:saved["NewRowVersion"]=pallet_version
                 saved["NewRowVersion"]=bytes_to_b64(saved["NewRowVersion"])
+            # Child pricing/quantities must be saved before validating a parent's gross load.
+            from response_load_plan import apply_plan
+            invalidated=invalidate_changed_plans(cursor,dependencies,ctx.user_id)
+            for saved in result:
+                if saved.get('Status')!='OK':continue
+                row=by_num[saved['RowNum']]
+                if row.ID in invalidated:
+                    # Never reattach stale IDs resubmitted by a full-form client.
+                    saved['NewRowVersion']=bytes_to_b64(cursor.execute('SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?',row.ID).fetchval())
+                    continue
+                plan_version=apply_plan(cursor,row,ctx.user_id)
+                if plan_version is not None:saved['NewRowVersion']=bytes_to_b64(plan_version)
             from grade_density import save_density_defaults
             save_density_defaults(cursor,ctx,payload.rows)
             if owns_transaction: cursor.execute("COMMIT TRANSACTION")

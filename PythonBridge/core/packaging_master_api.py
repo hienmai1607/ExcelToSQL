@@ -50,7 +50,7 @@ def lookups(ctx:AccessContext=Depends(get_access_context),entity:Entity="materia
    SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.PackagingType p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID;
   """,[ctx.username])
   types=execute(master_auth(entity)+"""
-   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
+   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,CopyDim,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
   """,[ctx.username])[0]
   return dict(materials=[],currencies=[],creators=sets[0],packagingTypes=decode_orders(types))
  if entity=="pallets":
@@ -75,7 +75,7 @@ def lookups(ctx:AccessContext=Depends(get_access_context),entity:Entity="materia
  """,[ctx.username])
  result=dict(materials=sets[0],currencies=sets[1],creators=sets[2],vendors=sets[3],uoms=sets[4])
  if entity=="prices":
-  result["materials"]=execute(master_auth(entity)+"""SELECT m.ID,m.MaterialCode,m.MaterialName,m.Status,m.PackagingTypeID,t.PriceBasis
+  result["materials"]=execute(master_auth(entity)+"""SELECT m.ID,m.MaterialCode,m.MaterialName,m.Status,m.PackagingTypeID,t.PriceBasis,t.CopyDim
    FROM dbo.PackagingMaterial m LEFT JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID ORDER BY m.MaterialCode,m.ID;""",[ctx.username])[0]
   result["supplierDimensions"]=execute(master_auth(entity)+"""SELECT d.ID,d.PackagingTypeID,d.D1Name,d.D2Name,d.D3Name,
    u1.UoMCode AS D1Unit,u2.UoMCode AS D2Unit,u3.UoMCode AS D3Unit,
@@ -83,9 +83,14 @@ def lookups(ctx:AccessContext=Depends(get_access_context),entity:Entity="materia
    FROM dbo.v_PackagingDimensionWeb d JOIN dbo.PackagingType t ON t.ID=d.PackagingTypeID
    JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID LEFT JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID
    WHERE t.ParentTypeID IS NOT NULL AND t.Status='Active' AND d.Status='Active' ORDER BY d.ID;""",[ctx.username])[0]
+ if entity=="prices":
+  result["materialDimensions"]=execute(master_auth(entity)+"""SELECT d.ID,d.PackagingTypeID,d.ParentDimensionID,d.D1Name,d.D2Name,d.D3Name,d.RowVersion,d.Status,
+   u1.UoMCode D1Unit,u2.UoMCode D2Unit,u3.UoMCode D3Unit FROM dbo.PackagingDimension d
+   JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID LEFT JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID
+   WHERE d.Status='Active' ORDER BY d.ID""",[ctx.username])[0]
  if entity=="materials":
   result["packagingTypes"]=execute(master_auth(entity)+"""
-   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
+   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,CopyDim,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
   """,[ctx.username])[0]
   result["packagingTypes"]=decode_orders(result["packagingTypes"])
  if entity in ("raw-grades","raw-materials"):
@@ -111,7 +116,7 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="packaging-types":
   source="dbo.PackagingType p LEFT JOIN dbo.PackagingType parent ON parent.ID=p.ParentTypeID"
-  select="p.ID,p.ParentTypeID,p.PackagingOrder,(SELECT PackagingOrdersJSON FROM dbo.v_PackagingTypeWeb WHERE ID=p.ID) AS PackagingOrdersJSON,p.PackagingType,p.PriceBasis,p.Shipping,p.FinalComponent,p.Status,p.CreatedAt,p.CreatedBy,p.UpdatedAt,p.UpdatedBy,p.RowVersion,parent.PackagingType AS ParentType"
+  select="p.ID,p.ParentTypeID,p.PackagingOrder,(SELECT PackagingOrdersJSON FROM dbo.v_PackagingTypeWeb WHERE ID=p.ID) AS PackagingOrdersJSON,p.PackagingType,p.PriceBasis,p.Shipping,p.FinalComponent,p.CopyDim,p.Status,p.CreatedAt,p.CreatedBy,p.UpdatedAt,p.UpdatedBy,p.RowVersion,parent.PackagingType AS ParentType"
   where="(?='' OR p.PackagingType LIKE ? OR p.PackagingOrder LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="pallets":

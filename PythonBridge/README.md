@@ -1,8 +1,14 @@
 # Excel-to-SQL Bridge
 
+Single / Copy Dim.: [migration 106 and behavior](docs/packaging-copy-dimensions.md).
+
+Packaging PIC permissions: [migration 105 and deployment notes](docs/packaging-pic-access.md).
+
 Current user documentation: [User Guide](docs/user-guide.md)
 
-Latest VM incremental upgrade (database already through migration 96): [combined migrations 97-104 and deployment notes](docs/vm-upgrade-097-to-104.md). For older databases, apply the prerequisite [89-96 bundle](docs/vm-upgrade-089-to-096.md) first, following its documented upgrade order.
+Latest VM incremental upgrade (database already through migration 104): [combined migrations 105-116 and deployment notes](docs/vm-upgrade-105-to-116.md).
+
+For databases through migration 96: [combined migrations 97-104 and deployment notes](docs/vm-upgrade-097-to-104.md). For older databases, apply the prerequisite [89-96 bundle](docs/vm-upgrade-089-to-096.md) first, following its documented upgrade order.
 
 Company migration documentation starts at: [Company Deployment and Handover Package](deployment/company/README.md)
 

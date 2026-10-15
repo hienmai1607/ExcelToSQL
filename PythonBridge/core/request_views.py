@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from master_models import MasterSort, ColumnWidth
 from packaging_fields import OPPORTUNITYITEM_FIELDS, PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS, RETIRED_RESPONSE_COLUMNS
 from packing_way import packing_way
+from packaging_weight import layer_sql
 from packaging_efficiency import response_derived
 from web_item_fields import WEB_ITEM_FIELDS, CALCULATED_FIELDS
 
@@ -70,11 +71,13 @@ def header_read(username,page,size,search,status,sort):
           h.ResponseDue,h.RequestedAt,h.RequestNotes,u.UserName RequestedByName,t.ItemCount,t.Unassigned,
           CASE WHEN t.OpenCount>0 THEN 'Open' WHEN t.ApprovedCount>0 THEN 'Completed' ELSE 'Canceled' END RequestStatus
         FROM dbo.PackagingConfigurationRequest h JOIN dbo.Users u ON u.ID=h.RequestedBy
-        CROSS APPLY(SELECT COUNT(*) ItemCount,
-          COALESCE(SUM(CASE WHEN i.PICUserID IS NULL AND i.IsOpen=1 THEN 1 ELSE 0 END),0) Unassigned,
+        CROSS APPLY(SELECT COUNT(CASE WHEN oi.ParentItemID IS NULL OR parent_item.ID IS NULL THEN 1 END) ItemCount,
+          COALESCE(SUM(CASE WHEN (oi.ParentItemID IS NULL OR parent_item.ID IS NULL) AND i.PICUserID IS NULL AND i.IsOpen=1 THEN 1 ELSE 0 END),0) Unassigned,
           SUM(CONVERT(INT,i.IsOpen)) OpenCount,
           SUM(CASE WHEN i.Stage='Approved' THEN 1 ELSE 0 END) ApprovedCount
-          FROM dbo.PackagingConfigurationRequestItem i WHERE i.RequestID=h.ID) t
+          FROM dbo.PackagingConfigurationRequestItem i JOIN dbo.OpportunityItem oi ON oi.ID=i.OpportunityItemID
+          LEFT JOIN dbo.PackagingConfigurationRequestItem parent_item ON parent_item.RequestID=i.RequestID AND parent_item.OpportunityItemID=oi.ParentItemID
+          WHERE i.RequestID=h.ID) t
         WHERE h.RequestNumber LIKE ? OR h.OpportunityNumber LIKE ? OR h.CustomerName LIKE ?
     )"""
     params=[search+"%"]*3+[status,status]
@@ -100,7 +103,7 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
         LEFT JOIN dbo.PkgPricingMaster primary_pricing ON primary_pricing.RequestItemID=i.ID AND primary_pricing.PackagingOrder='Primary' AND primary_pricing.IsCurrent=1
         LEFT JOIN dbo.PkgPricingMaster secondary_pricing ON secondary_pricing.RequestItemID=i.ID AND secondary_pricing.PackagingOrder='Secondary' AND secondary_pricing.IsCurrent=1
         LEFT JOIN dbo.PkgPricingMaster tertiary_pricing ON tertiary_pricing.RequestItemID=i.ID AND tertiary_pricing.PackagingOrder='Tertiary' AND tertiary_pricing.IsCurrent=1
-        OUTER APPLY(SELECT TOP(1) p.PalletAreaMM2 FROM dbo.v_PalletMaster p JOIN dbo.UoM u ON u.ID=p.UoMID
+        OUTER APPLY(SELECT TOP(1) p.PalletAreaMM2 FROM dbo.v_PalletSizeChoice p JOIN dbo.UoM u ON u.ID=p.UoMID
           WHERE p.PalletSize=i.ResponsePalletSize AND p.Status='Active' AND u.Status='Active' ORDER BY p.ID) efficiency_pallet
         WHERE (? IS NULL OR h.ID=?) AND (? IS NULL OR i.Stage=?)
           AND (? IS NULL OR h.OpportunityNumber LIKE ?)"""
@@ -119,7 +122,12 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
           @CanReadDraft AS NutDensityDefaultsVisible,i.ProductName,i.WeightGrams,i.Category,i.Grade,i.MixRatioPct,oi.ParentItemID,i.ProductMixSnapshot,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN COALESCE(i.ApplicableNetWeightGrams,i.WeightGrams) END ApplicableNetWeightGrams,
           CASE WHEN oi.ParentItemID IS NULL AND (@CanReadDraft=1 OR i.Stage='Approved') THEN
-            (SELECT child.ID ItemID,child_oi.ProductID,
+            (SELECT child.ID ItemID,child_oi.ProductID,child_oi.MixUnitQuantity UnitQuantity,child.WeightGrams,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.ResponseLayerCount END ResponseLayerCount,
+                child.RequestedLayerCount,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerCarton END UnitsPerCarton,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerTertiary END UnitsPerTertiary,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN {layer_sql('child')} END LayerTareJSON,
               CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN COALESCE(child.ApplicableNetWeightGrams,child.WeightGrams) END ApplicableNetWeightGrams,
               CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN CONVERT(VARCHAR(40),child.NutDensity) END NutDensity
              FROM dbo.PackagingConfigurationRequestItem child JOIN dbo.OpportunityItem child_oi ON child_oi.ID=child.OpportunityItemID
@@ -131,6 +139,11 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponseLayerCount END ResponseLayerCount,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.SelectedContainerType END SelectedContainerType,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ContainerLoadProfiles END ContainerLoadProfiles,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN
+           (SELECT p.ID,JSON_QUERY(p.Inputs) Inputs,JSON_QUERY(JSON_MODIFY(JSON_MODIFY(p.Result,'$.pallet_layer',NULL),'$.container_layer',NULL)) Result,COALESCE(JSON_VALUE(p.Result,'$.ContainerCode'),c.Code) Code FROM dbo.ContainerLoadPlan p JOIN dbo.ContainerTypeMaster c ON c.ID=p.ContainerID WHERE p.ID=i.LoadPlanID AND p.ItemID=i.ID FOR JSON PATH,WITHOUT_ARRAY_WRAPPER) END LoadPlanJSON,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN (SELECT p.ID,p.ContainerID,JSON_QUERY(p.Inputs) Inputs,JSON_QUERY(JSON_MODIFY(JSON_MODIFY(p.Result,'$.pallet_layer',NULL),'$.container_layer',NULL)) Result,COALESCE(JSON_VALUE(p.Result,'$.ContainerCode'),c.Code) Code FROM dbo.ResponseContainerLoadPlan m JOIN dbo.ContainerLoadPlan p ON p.ID=m.PlanID AND p.ItemID=m.ItemID AND p.ContainerID=m.ContainerID JOIN dbo.ContainerTypeMaster c ON c.ID=m.ContainerID WHERE m.ItemID=i.ID FOR JSON PATH) END ContainerPlansJSON,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN {layer_sql('i')} END LayerTareJSON,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN (SELECT JSON_MODIFY(s.SnapshotJSON,'$.ID',s.ID) FROM dbo.PalletPricingSnapshot s WHERE s.ID=i.PalletPricingID AND s.ItemID=i.ID) END PalletPricingJSON,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponsePalletSize END ResponsePalletSize,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponsePalletStacking END ResponsePalletStacking,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponseMaxPalletHeightMM END ResponseMaxPalletHeightMM,

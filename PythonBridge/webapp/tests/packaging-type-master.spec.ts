@@ -12,18 +12,37 @@ test('edit places names, orders and flags in three rows and fits on mobile',asyn
  const orders=await Promise.all(['Primary','Secondary','Tertiary'].map(o=>form.getByRole('checkbox',{name:o+' order',exact:true}).boundingBox()));
  expect(Math.max(...orders.map(o=>o!.y))-Math.min(...orders.map(o=>o!.y))).toBeLessThanOrEqual(2);
  expect(orders[0]!.y).toBeGreaterThan(name!.y+name!.height);
- const flags=await Promise.all(['Shipping','FinalComponent','Status'].map(key=>form.locator('[data-field="'+key+'"]').boundingBox()));
+ const flags=await Promise.all(['FinalComponent','CopyDim','Shipping'].map(key=>form.locator('[data-field="'+key+'"]').boundingBox()));
  expect(Math.max(...flags.map(o=>o!.y))-Math.min(...flags.map(o=>o!.y))).toBeLessThanOrEqual(2);
  expect(flags[0]!.y).toBeGreaterThan(orders[0]!.y);
  expect(flags[0]!.x).toBeLessThan(flags[1]!.x);expect(flags[1]!.x).toBeLessThan(flags[2]!.x);
- for(const label of ['Shipping','Final component']){
+ for(const label of ['Single','Copy Dim.','Shipping']){
   const checkbox=form.getByRole('checkbox',{name:label,exact:true});
   expect(await checkbox.evaluate(input=>{const label=input.closest('label')!,a=input.getBoundingClientRect(),b=label.getBoundingClientRect();return getComputedStyle(label).flexDirection==='row'&&getComputedStyle(input).order==='-1'&&Math.abs(a.top+a.height/2-b.top-b.height/2)<2})).toBe(true);
  }
+ for(let i=0;i<flags.length;i++)expect(Math.abs(flags[i]!.x-orders[i]!.x)).toBeLessThanOrEqual(2);
+ const status=await form.getByLabel('Status',{exact:true}).boundingBox();
+ expect(Math.abs(status!.y+status!.height/2-flags[0]!.y-flags[0]!.height/2)).toBeLessThanOrEqual(2);
+ expect(status!.x).toBeGreaterThan(flags[2]!.x);
  const primary=form.locator('.packaging-order-option').first();
  expect(await primary.evaluate(el=>getComputedStyle(el).flexDirection)).toBe('row');
  await page.setViewportSize({width:390,height:844});
  expect(await form.evaluate(el=>el.scrollWidth<=el.clientWidth+2)).toBeTruthy();
+});
+
+test('Copy Dim. follows Single, is conditional, and clears when Single is unticked',async({page})=>{
+ await setup(page);await open(page);await page.getByRole('button',{name:'New packaging type',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New packaging type',exact:true});
+ const single=form.getByRole('checkbox',{name:'Single',exact:true}),copy=form.getByRole('checkbox',{name:'Copy Dim.',exact:true}),shipping=form.getByRole('checkbox',{name:'Shipping',exact:true});
+ await expect(copy).toBeDisabled();await single.check();await expect(copy).toBeEnabled();await copy.check();
+ await expect(form.getByLabel('Parent Type',{exact:true})).toBeDisabled();
+ const a=await single.boundingBox(),b=await copy.boundingBox(),c=await shipping.boundingBox();
+ expect(a!.x).toBeLessThan(b!.x);expect(b!.x).toBeLessThan(c!.x);expect(Math.abs(a!.y-b!.y)).toBeLessThan(2);
+ await single.uncheck();await expect(copy).not.toBeChecked();await expect(copy).toBeDisabled();
+ await expect(form.getByLabel('Parent Type',{exact:true})).toBeEnabled();
+ await single.check();await form.getByLabel('Parent Type',{exact:true}).selectOption('2');
+ await expect(copy).toBeDisabled();
+ await form.getByLabel('Parent Type',{exact:true}).selectOption('');await expect(copy).toBeEnabled();
 });
 
 test('type form uses three horizontal rows without Order and Price Basis captions',async({page})=>{
@@ -34,7 +53,7 @@ test('type form uses three horizontal rows without Order and Price Basis caption
  await expect(form.getByLabel('Price Basis',{exact:true})).toHaveCount(0);
  await form.getByRole('checkbox',{name:'Primary order',exact:true}).check();
  await form.getByLabel('Packaging Type',{exact:true}).fill('Ready pouch');
- await form.getByRole('checkbox',{name:'Final component',exact:true}).check();
+ await form.getByRole('checkbox',{name:'Single',exact:true}).check();
  const name=await form.getByLabel('Packaging Type',{exact:true}).boundingBox();
  const shipping=await form.getByRole('checkbox',{name:'Shipping',exact:true}).boundingBox();
  expect(shipping!.y).toBeGreaterThan(name!.y);
@@ -89,14 +108,14 @@ test('Packaging maintains types without tare weight',async({page})=>{
  const state=await setup(page,'Packaging');await open(page);
  await expect(page.getByRole('cell',{name:'1,234.123',exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'New packaging type',exact:true}).click();
- await expect(page.getByRole('group',{name:'Packaging orders'}).getByRole('checkbox')).toHaveCount(3);
+ await expect(page.getByRole('group',{name:'Packaging orders'}).getByRole('checkbox')).toHaveCount(4);
  await expect(page.getByLabel('Price Basis',{exact:true})).toHaveCount(0);
  await page.getByRole('checkbox',{name:'Primary order',exact:true}).check();
  await expect(page.getByLabel('Tare weight (g)',{exact:true})).toHaveCount(0);
  await page.getByLabel('Packaging Type',{exact:true}).fill('Film');
  await page.getByRole('button',{name:'Review & save',exact:true}).click();expect(state.writes).toHaveLength(0);
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(state.writes[0].rows[0]).toEqual({RowNum:1,Command:'C',ID:null,RowVersion:null,ParentTypeID:null,PackagingOrders:['Primary'],PackagingType:'Film',Shipping:false,FinalComponent:false});
+ expect(state.writes[0].rows[0]).toEqual({RowNum:1,Command:'C',ID:null,RowVersion:null,ParentTypeID:null,PackagingOrders:['Primary'],PackagingType:'Film',Shipping:false,FinalComponent:false,CopyDim:false});
 });
 
 test('one type can support all three orders and persist the selected set',async({page})=>{
@@ -163,13 +182,13 @@ test('new type can select a parent from either order',async({page})=>{
  await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[0].rows[0].ParentTypeID).toBe(2);expect(state.writes[0].rows[0]).not.toHaveProperty('PackagingOrders');
 });
 
-test('parent dropdown excludes self, disables descendants and clears assignment',async({page})=>{
+test('parent dropdown removes self, descendants and unavailable choices and clears assignment',async({page})=>{
  const state=await setup(page,'Admin',2);await open(page);
  await expect(page.getByRole('cell',{name:'Group',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Edit packaging type 1'}).click();
  const select=page.getByLabel('Parent Type',{exact:true});await expect(select).toHaveValue('2');
  await expect(select.locator('option[value="1"]')).toHaveCount(0);
- for(const id of [3,4])await expect(select.locator('option[value="'+id+'"]')).toHaveAttribute('disabled','');
+ for(const id of [3,4])await expect(select.locator('option[value="'+id+'"]')).toHaveCount(0);
  await expect(select.locator('option[value="5"]')).toHaveCount(0);
  await select.selectOption('');await page.getByRole('checkbox',{name:'Primary order',exact:true}).check();await page.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);

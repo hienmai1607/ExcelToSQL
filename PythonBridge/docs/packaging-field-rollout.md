@@ -28,7 +28,7 @@ The webapp is ready for testing. Hard-refresh the browser (Ctrl+F5).
 - Select items for request creation only on the Packaging Request tab. Its
   request box is visible only on that tab with at least one item selected;
   switching tabs preserves selected items and entered request notes.
-- Packaging Requests: the assigned Packaging PIC or Admin can edit responses
+- Packaging Requests: only the saved assigned Packaging PIC can edit responses (including Admin; see [migration 105](packaging-pic-access.md))
   in Assigned, Working or Returned. Save incomplete data, then Submit.
   Both PM types, Unit/CTN, Packaging description and both PM MOQs are required
   before manager review. Zero MOQ is distinct from blank and is accepted.

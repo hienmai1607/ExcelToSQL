@@ -45,25 +45,42 @@
 .customer-sections>.customer-entry{scroll-margin-block-end:80px}
 .opportunity-items,.opportunity-request-box{scroll-margin-block-end:16px}
 
-/* Packing quantities stay compact; dimensions use the remaining layer width. */
+/* Packing and calculator sections share identical layer columns. */
+.response-sections .packing-way-grid[data-layers],
+.response-sections .packaging-layer-sections[data-layers]{min-width:0;gap:12px}
+.response-sections .packing-way-grid[data-layers="1"],
+.response-sections .packaging-layer-sections[data-layers="1"]{grid-template-columns:minmax(0,1fr)}
+.response-sections .packing-way-grid[data-layers="2"],
+.response-sections .packaging-layer-sections[data-layers="2"]{grid-template-columns:repeat(2,minmax(0,1fr))}
+.response-sections .packing-way-grid[data-layers="3"],
+.response-sections .packaging-layer-sections[data-layers="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+.response-sections .packing-way-grid{overflow:visible;padding-bottom:4px}
 .response-sections .packing-way-layer,
 .response-sections .packing-way-layer[data-shipping="true"]{
- grid-template-columns:minmax(0,145px) minmax(0,165px) minmax(0,1fr)}
-.response-sections .packing-way-layer>label{min-width:0}
-.response-sections .captured-dimensions-value{white-space:normal;overflow-wrap:anywhere}
-.response-sections .captured-dimensions-value>span{display:inline-block;white-space:normal;max-width:100%}
-@media(max-width:1500px){
- .response-sections .packing-way-grid[data-layers="3"],
- .response-sections .packaging-layer-sections[data-layers="3"]{grid-template-columns:1fr}
-}
-@media(max-width:1100px){
- .response-sections .packing-way-grid[data-layers="2"],
- .response-sections .packaging-layer-sections[data-layers="2"]{grid-template-columns:1fr}
+ min-width:0;container-type:inline-size;grid-template-columns:minmax(max-content,.75fr) minmax(74px,.75fr) minmax(80px,.8fr) minmax(0,1.7fr);gap:6px}
+.response-sections .packing-way-layer>label{min-width:0;white-space:nowrap;font-size:clamp(10px,2.6cqw,12px)}
+.response-sections .packing-layer-quantity input{width:88px;max-width:100%;min-width:0;box-sizing:border-box}
+.response-sections .packing-layer-weight input{width:100%;min-width:0;font-size:clamp(11px,3cqw,14px)}
+.response-sections .packing-way-layer>.captured-dimensions{grid-column:auto}
+.response-sections .captured-dimensions-value{white-space:normal;overflow-wrap:normal;font-size:clamp(11px,3cqw,14px)}
+.response-sections .captured-dimensions-value>span{display:inline;white-space:normal;max-width:none}
+.response-sections .packaging-layer-sections>section{min-width:0;container-type:inline-size}
+.response-sections .packaging-layer-sections .packaging-entry-grid>label{font-size:clamp(10px,2.6cqw,12px);white-space:normal}
+.response-sections .packaging-layer-sections .packaging-entry-grid{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr) minmax(0,1.45fr);column-gap:8px}
+.response-sections .packaging-layer-sections .packaging-entry-grid>label:last-child{padding-right:12px;white-space:nowrap}
+.response-sections .packaging-layer-sections .response-price-field input{width:0;min-width:0;flex:1 1 0}
+.response-sections .packaging-layer-sections>section+section::before{inset:0 auto 0 -6px;border-left:1px solid var(--border);border-top:0}
+@media(max-width:900px){
+ .response-sections .packing-way-grid[data-layers],
+ .response-sections .packaging-layer-sections[data-layers]{grid-template-columns:1fr}
+ .response-sections .packaging-layer-sections>section+section::before{inset:-6px 0 auto;border-left:0;border-top:1px solid var(--border)}
 }
 @media(max-width:700px){
  .response-sections .packing-way-layer,
- .response-sections .packing-way-layer[data-shipping="true"]{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .response-sections .packing-way-layer[data-shipping="true"]{grid-template-columns:repeat(3,minmax(0,1fr))}
  .response-sections .packing-way-layer>label{white-space:normal}
+ .response-sections .packing-way-layer>.captured-dimensions{grid-column:1/-1}
+ .response-sections .captured-dimensions-value{white-space:normal;overflow-wrap:anywhere}
 }
 
 /* Keep the shared editor heading and Close attached to the dialog. */
@@ -81,10 +98,27 @@ dialog .add-section{scroll-margin-block-end:80px}
 @media(max-width:600px){dialog.dimension-dialog{--editor-inset:16px}}
 
 /* Boolean flags use the same checkbox-first row as the order choices. */
+.customer-drawer .master-fields.packaging-type-fields>label[data-field="CopyDim"],
 .customer-drawer .master-fields.packaging-type-fields>label[data-field="Shipping"],
 .customer-drawer .master-fields.packaging-type-fields>label[data-field="FinalComponent"]{
  display:flex;flex-direction:row;align-items:center;gap:8px}
+.packaging-type-fields>label[data-field="CopyDim"]>input,
 .packaging-type-fields>label[data-field="Shipping"]>input,
 .packaging-type-fields>label[data-field="FinalComponent"]>input{order:-1}
+.packaging-type-fields>label[data-field="CopyDim"]>.field-error:empty,
 .packaging-type-fields>label[data-field="Shipping"]>.field-error:empty,
 .packaging-type-fields>label[data-field="FinalComponent"]>.field-error:empty{display:none}
+
+.response-sections .response-efficiency-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+.response-sections .response-pallet-specs{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:12px}
+@media(max-width:900px){.response-sections .response-efficiency-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.request-editor-family{min-width:0;border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--surface,#fff)}
+.request-editor-family>h3{display:flex;gap:12px;align-items:center;font-size:15px;margin:0 0 12px}
+.request-editor-family>h3 small,.request-child-label{font-size:12px;color:var(--muted)}
+.request-editor-family>.request-editor-child{margin-left:24px;border-left:3px solid var(--accent,#276b60)}
+.request-editor-family .request-editor-item+.request-editor-item{margin-top:12px}
+.request-family-children{margin-top:8px}.request-family-children ol{padding-left:20px;margin:8px 0}
+.request-family-children li+li{margin-top:8px}
+.request-editor-item .item-review{min-width:240px}
+@media(max-width:700px){.request-editor-family{padding:8px}.request-editor-family>.request-editor-child{margin-left:8px}.request-editor-item .item-review{min-width:0}}

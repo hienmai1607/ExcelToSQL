@@ -38,6 +38,7 @@ class ResponsePalletSQL(unittest.TestCase):
         self.save_fields(ConfigurationRequest='Floor load', PrimaryTypeID=self.types['Primary'], SecondaryTypeID=self.types['Secondary'],
             NumberOfPrimary=12, PalletSize='Legacy pallet', PalletStacking='Double', MaxPalletHeightMM=1800)
         created=self.request([self.item]);self.req=created['items'][0]['ID'];self.header=created['header']['ID']
+        self.cur.execute('UPDATE dbo.PackagingConfigurationRequestItem SET PICUserID=? WHERE ID=?',self.actor,self.req)
         # Valid floor count for fixtures now that Floor/Both require a manual entry.
         self.cur.execute('UPDATE dbo.PackagingConfigurationRequestItem SET CartonsPerContainerFloor=100 WHERE ID=?',self.req)
 

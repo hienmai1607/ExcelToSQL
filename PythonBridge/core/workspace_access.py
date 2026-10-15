@@ -4,25 +4,25 @@ LEVELS = {"none": 0, "display": 1, "edit": 2}
 PAGES = {
  "opportunities":"Opportunities","customers":"Customers","products":"Products",
  "requests":"Packaging Requests","materials":"Packaging Material","prices":"Packaging Pricing",
- "packaging-types":"Packaging Types","packaging-dimensions":"Packaging Dimensions","pallets":"Pallet Master",
+ "packaging-types":"Packaging Types","packaging-dimensions":"Packaging Dimensions","pallets":"Pallet Master","containers":"Container Type Master",
  "raw-materials":"Raw Material","raw-prices":"Raw Pricing","raw-grades":"Raw Grade Master",
  "categories":"Category Master","loss-processes":"Loss Master","ports":"Ports of Entry",
  "vendors":"Vendors","conversions":"Unit Conversions","uoms":"Units of Measure"}
-ADMIN_EDIT_ONLY = set()
+ADMIN_EDIT_ONLY = {"containers"}
 SCOPES = {"Admin","Customer","Product","Opportunity","Packaging","PackagingManager","RawMaterial"}
 DEFAULTS = {
  "Customer":{"customers":"edit","ports":"display"},
  "Product":{"products":"edit","categories":"display","loss-processes":"display"},
  "Opportunity":{"opportunities":"edit","requests":"display","ports":"display","loss-processes":"display"},
- "Packaging":{k:"edit" for k in ("requests","materials","prices","packaging-types","packaging-dimensions","pallets","vendors","conversions")},
- "PackagingManager":{**{k:"display" for k in ("materials","prices","packaging-types","packaging-dimensions","pallets","vendors","conversions")},"requests":"edit"},
+ "Packaging":{k:"edit" for k in ("requests","materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},
+ "PackagingManager":{**{k:"display" for k in ("materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},"requests":"edit"},
  "RawMaterial":{k:"edit" for k in ("raw-materials","raw-prices","raw-grades","conversions")}}
 def merge_permissions(direct_scopes, role_permissions):
  result={key:"none" for key in PAGES}
  if "Admin" in direct_scopes:return {key:"edit" for key in PAGES}
  for permissions in [*(DEFAULTS.get(scope,{}) for scope in direct_scopes),*role_permissions]:
   for key,level in permissions.items():
-   if key in result and LEVELS.get(level,-1)>LEVELS[result[key]]:result[key]=level
+   if key in result and key not in ADMIN_EDIT_ONLY and LEVELS.get(level,-1)>LEVELS[result[key]]:result[key]=level
  return result
 def permission_scopes(permissions):
  result=set()
@@ -38,7 +38,7 @@ def permission_scopes(permissions):
   if page=="conversions" and level=="edit":result.add("RawMaterial")
  return result
 def can_edit(ctx,page):
- return ctx.is_admin or ctx.permissions is None or ctx.permissions.get(page)=="edit"
+ return ctx.is_admin or page not in ADMIN_EDIT_ONLY and (ctx.permissions is None or ctx.permissions.get(page)=="edit")
 
 def route_pages(path):
  parts=path.strip("/").split("/")
@@ -57,6 +57,10 @@ def route_pages(path):
  if path.startswith("/api/workbench/packaging-excel"):return ("requests",)
  if path.startswith("/api/workbench/product-excel"):return ("products",)
  if path.startswith("/api/workbench/requests") or path.startswith("/api/workbench/pics"):return ("requests","opportunities")
+ if path.startswith("/api/pallet-pricing/items/"):return ("requests",)
+ if path.startswith("/api/load-planning/items/"):return ("requests","opportunities")
+ if path=="/api/load-planning/pallet-prices":return ("requests","opportunities","prices")
+ if path=="/api/load-planning/containers":return ("containers","requests","opportunities") if len(parts)==3 else ()
  resource=parts[1]
  if resource=="raw-material" and len(parts)>2:return ({"material":"raw-materials","price":"raw-prices","grade":"raw-grades"}.get(parts[2],"raw-materials"),)
  simple={"customer":"customers","product":"products","opportunity":"opportunities","raw-material":"raw-materials",

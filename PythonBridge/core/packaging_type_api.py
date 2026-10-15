@@ -13,8 +13,9 @@ class PackagingTypeRow(MasterRow):
     ParentTypeID: int | None = Field(None, ge=1, le=2147483647)
     Shipping: bool = Field(False, strict=True)
     FinalComponent: bool = Field(False, strict=True)
-    PackagingOrder: Literal["Primary", "Secondary", "Tertiary"] | None = None
-    PackagingOrders: list[Literal["Primary", "Secondary", "Tertiary"]] | None = Field(None,max_length=3)
+    CopyDim: bool = Field(False, strict=True)
+    PackagingOrder: Literal["Primary", "Secondary", "Tertiary", "Pallet"] | None = None
+    PackagingOrders: list[Literal["Primary", "Secondary", "Tertiary", "Pallet"]] | None = Field(None,max_length=3)
     PackagingType: str | None = Field(None, max_length=100)
     PriceBasis: Literal["Count", "Square meter", "Volume"] | None = None
     Status: Literal["Active", "Block"] | None = None
@@ -34,6 +35,10 @@ class PackagingTypeRow(MasterRow):
             raise ValueError("Select each packaging order only once.")
         if self.ParentTypeID is not None and self.Shipping:
             raise ValueError("Shipping applies only to root Packaging Types.")
+        if self.CopyDim and (self.Command == "C" or "FinalComponent" in self.model_fields_set) and not self.FinalComponent:
+            raise ValueError("Copy Dim. requires Single.")
+        if self.CopyDim and self.ParentTypeID is not None:
+            raise ValueError("Copy Dim. requires a Single type with no parent.")
         known_root = self.ParentTypeID is None and (self.Command == "C" or "ParentTypeID" in self.model_fields_set)
         if known_root and "PackagingOrders" in self.model_fields_set and not self.PackagingOrders and self.Command!="D":
             raise ValueError("Select at least one packaging order.")
@@ -41,6 +46,9 @@ class PackagingTypeRow(MasterRow):
             raise ValueError("Legacy Order must belong to the selected packaging orders.")
         if self.Command != "D" and ((known_root and not (self.PackagingOrder or self.PackagingOrders)) or not self.PackagingType):
             raise ValueError("Packaging layer selection and Packaging Type are required.")
+        if self.PackagingOrder == "Pallet" or "Pallet" in (self.PackagingOrders or []):
+            if self.ParentTypeID or not self.FinalComponent or not self.CopyDim or self.Shipping or any(o != "Pallet" for o in self.PackagingOrders or []):
+                raise ValueError("Pallet requires Single and Copy Dim., no parent, no Shipping or other orders.")
         rv(self.RowVersion, self.Command != "C")
         return self
 

@@ -56,7 +56,11 @@ class Contracts(unittest.TestCase):
  def test_ownership_stage_and_admin(self):
   for source,ctx in (({**self.row,"PICUserID":2},self.ctx),({**self.row,"ItemStage":"Pending Review"},self.ctx),(self.row,AccessContext(1,"Manager",frozenset({"PackagingManager"})))):
    with self.assertRaisesRegex(ValueError,"assigned Packaging"):m.prepare(self.edit(),source,ctx)
+  # Admin override is permitted on unlocked responses, not on locked stages.
   m.prepare(self.edit(),{**self.row,"PICUserID":2},AccessContext(9,"Admin",frozenset({"Admin"})))
+  with self.assertRaisesRegex(ValueError,"assigned Packaging"):
+   m.prepare(self.edit(),{**self.row,"ItemStage":"Approved"},AccessContext(9,"Admin",frozenset({"Admin"})))
+  m.prepare(self.edit(),{**self.row,"PICUserID":9},AccessContext(9,"Admin",frozenset({"Admin"})))
  def test_snapshot_pic_and_stage_rejected(self):
   for key in ("PIC","ItemStage","PackagingRequirement","ProductCode","ResponseDue"):
    with self.assertRaises(ValidationError):self.edit(changes={key:"x"})

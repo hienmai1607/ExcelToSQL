@@ -18,7 +18,7 @@ Layout, workbook columns, templates and local-update macros are unchanged.
 - Creation snapshots the requested layers, type IDs/names, transparency, counts,
   shelf life and existing requirements. Later Opportunity or master edits do not refresh the request.
 - Packaging staff confirm the response layer count independently. It defaults to the requested count.
-  Only the assigned PIC or Admin can change an unlocked response; existing review permissions remain.
+  Only the saved assigned PIC can change an unlocked response, including Admin; existing review permissions remain. See [migration 105](packaging-pic-access.md).
   Each enabled layer has its own type, calculator, calculated MOQ and read-only price per unit.
   Secondary also has Unit / CTN; Tertiary has Secondary units / tertiary.
 - Submission/approval requires a type and calculated MOQ for each confirmed layer,

@@ -369,8 +369,8 @@ or effective-to means no upper limit. Overlapping active price bands are rejecte
 Packaging or Admin scope is required for maintenance.
 
 Packaging Request saves U commands on responses assigned to the current PIC.
-Admin can also save responses assigned to another PIC, subject to the same
-editable-stage and RowVersion checks.
+Admin must also own the saved PIC assignment; there is no cross-PIC editing
+override. Editable-stage, page Edit access and RowVersion checks still apply.
 Enter Material Code, dimensions in mm, Cost, Currency, Cost Basis and response
 notes as needed. Blank numbers remain blank in SQL; zero is a real value.
 Pending Review, Approved and Canceled responses cannot be edited. PIC assignment,
@@ -428,6 +428,6 @@ Each new request saves its Product information, Opportunity item requirements, a
 
 ### Packaging Request list editor
 
-Use the pencil icon on a Packaging Request header row to open the centered list editor. The expanded item-details table is view-only, including attachment downloads. In the editor, managers assign PICs; authorized PICs and Admin enter responses. Source information remains read-only and locked stages cannot be edited.
+Open the Packaging Request ID to view its response editor. Only the saved assigned PIC with Edit access can enter responses, including Admin. In Items View, managers assign/reassign PIC from active Packaging members and review submissions. Source information remains read-only and locked stages cannot be edited. See [Packaging PIC access](packaging-pic-access.md).
 
 Review & save confirms all changed items on the current page. Items save independently; successful items are not submitted again after a partial failure. Unsaved values remain beside failure messages. An uncertain network result blocks retries until the request is closed and refreshed. Save response changes before using Submit, Approve, Return or Cancel; stage actions still require confirmation. Pagination defaults to 25 items in the editor. Changing pages or closing prompts before discarding unsaved changes.

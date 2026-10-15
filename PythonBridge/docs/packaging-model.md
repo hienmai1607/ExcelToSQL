@@ -116,10 +116,13 @@ Callers must not combine unrelated work in that transaction.
 - Active Opportunity or Admin scope: create requests from Draft source records.
 - Packaging: maintain materials/prices; save/submit responses assigned to that user.
 - PackagingManager: assign PICs, approve, return or cancel request items.
-- Admin: all Packaging actions, including master maintenance, assignment,
-  response editing/submission across PIC ownership, approval, return and cancellation.
-  Admin can also be assigned as PIC. No additional Packaging scope is required.
+- Admin: master maintenance, assignment, approval, return and cancellation.
+  Response editing/submission requires the saved PIC assignment, even for Admin.
+  PIC choices require active Packaging membership and Packaging Request Edit access.
   SQL still checks active users, required fields, valid stages and RowVersions.
+- Role-derived compatibility scopes do not grant assignment/review authority.
+  Managers need an explicit PackagingManager direct grant (or Admin oversight).
+  See [migration 105 policy and deployment](packaging-pic-access.md).
 - Opportunity, Packaging, PackagingManager and Admin can read the request grid.
   Opportunity-only readers see response values/comments only after approval.
 - Packaging, PackagingManager and Admin can read master data.

@@ -1,6 +1,7 @@
 import {type ReactNode} from 'react';
+import {decimalDisplay} from './number-format';
 import {FieldLabel} from './ui';
-import {costs,money,packagingUSD} from './tcb-model';
+import {costs,money,packagingUSD,palletizationValue} from './tcb-model';
 import {ItemGradeEditor,ItemRawPricing,type CommercialProps} from './opportunity-commercial-tabs';
 import type {Draft} from './opportunity-losses';
 import './tcb-calculator.css';
@@ -48,7 +49,7 @@ export function OpportunityTCBTab({drafts,renderProductLoss,...props}:Omit<Comme
       </tbody>
      </table>
     </div>
-    {!d.row.ParentItemID&&<div className="tcb-grid tcb-packaging-pallet">{input('PalletUSDPerEA','Pallet cost ($/EA)')}</div>}
+    {!d.row.ParentItemID&&<div className="tcb-grid tcb-packaging-pallet"><label><FieldLabel help="Copied from Packaging response: pallet plus accessories, in USD per pallet (EA).">Palletization ($/EA)</FieldLabel><input aria-label="Palletization ($/EA)" readOnly value={decimalDisplay(palletizationValue(d.row,i),6)??''}/></label></div>}
    </section>
   </details>;
  })}</div>;

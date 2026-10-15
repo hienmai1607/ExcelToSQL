@@ -29,17 +29,17 @@ Entity=Literal["materials","prices","raw-materials","raw-prices","vendors","uoms
 router=APIRouter(prefix="/api/workbench/master-excel",tags=["Packaging Master Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Packaging_Master_Local_Update.xlsm"
 CONFIG={
- "packaging-types":dict(table="PackagingType",filename="Packaging_Type_Local_Update.xlsm",title="Packaging Type Master",editable={"ParentType","PackagingOrder","PackagingType","Shipping","FinalComponent","Status"}),
+ "packaging-types":dict(table="PackagingType",filename="Packaging_Type_Local_Update.xlsm",title="Packaging Type Master",editable={"ParentType","PackagingOrder","PackagingType","Shipping","FinalComponent","CopyDim","Status"}),
  "pallets":dict(table="v_PalletMaster",filename="Pallet_Master_Local_Update.xlsm",title="Pallet Master",editable={"UnitOfMeasure","Width","Length","PalletPriceUSDPerEA","Status",*PALLET_CAPACITY_LABELS}),
  "uoms":dict(table="UoM",filename="UoM_Local_Update.xlsm",title="UoM",editable={"UoMCode","UoMName","Status"}),
  "vendors":dict(table="Vendor",filename="Vendor_Local_Update.xlsm",title="Vendor",editable={"VendorName","Address","Status","CurrencyCode"}),
  "materials":dict(table="PackagingMaterial",filename="Packaging_Material_Local_Update.xlsm",title="Packaging Material",
-  editable={"MaterialName","UnitOfMeasure","Status","PackagingType"}),
+  editable={"MaterialName","UnitOfMeasure","Status","PackagingType","TareWeight","TareWeightBasis"}),
  "prices":dict(table="PackagingPrice",filename="Packaging_Pricing_Local_Update.xlsm",title="Packaging Pricing",
   editable={"ExchangeRateToUSD","VendorName","MaterialCode","CurrencyCode","BaseUoM","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"})
 }
 CONFIG["raw-materials"]={**CONFIG["materials"],"table":"RawMaterial","filename":"Raw_Material_Local_Update.xlsm","title":"Raw Material",
- "editable":{*(CONFIG["materials"]["editable"]-{"PackagingType"}),"Description","GradeName"}}
+ "editable":{*(CONFIG["materials"]["editable"]-{"PackagingType","TareWeight","TareWeightBasis"}),"Description","GradeName"}}
 CONFIG["raw-prices"]={**CONFIG["prices"],"table":"RawMaterialPrice","filename":"Raw_Material_Pricing_Local_Update.xlsm","title":"Raw Material Pricing"}
 CONFIG["prices"]["editable"] = CONFIG["prices"]["editable"] | set(SUPPLIER_FIELDS)
 AUTH="DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT; "
@@ -69,7 +69,7 @@ def normalize_row(entity,row):
    value=value.astimezone(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %I:%M %p")
   elif isinstance(value,(date,Decimal)):value=str(value)
   result[key]=value
- if entity=='packaging-types':result['FinalComponent']='True' if row.get('FinalComponent') else 'False';result['Shipping']=None if row.get('ParentTypeID') is not None else 'True' if row.get('Shipping') else 'False'
+ if entity=='packaging-types':result['CopyDim']='True' if row.get('CopyDim') else 'False';result['FinalComponent']='True' if row.get('FinalComponent') else 'False';result['Shipping']=None if row.get('ParentTypeID') is not None else 'True' if row.get('Shipping') else 'False'
  result.update(Command="N",_ID=row["ID"],_RowVersion=row["RowVersion"])
  result["_Original"]=json.dumps({k:result.get(k) for k in COLUMNS[entity]},ensure_ascii=False)
  return result
@@ -200,8 +200,12 @@ def prepare(entity,edit,source,ctx):
   data['Shipping']=shipping
   final=values.get("FinalComponent",source.get("FinalComponent",False))
   if isinstance(final,str) and final.strip().lower() in ("true","false"):final=final.strip().lower()=="true"
-  if not isinstance(final,bool):raise ValueError("Final component must be True or False.")
+  if not isinstance(final,bool):raise ValueError("Single must be True or False.")
   data["FinalComponent"]=final
+  copy=values.get("CopyDim",source.get("CopyDim",False))
+  if isinstance(copy,str) and copy.strip().lower() in ("true","false"):copy=copy.strip().lower()=="true"
+  if not isinstance(copy,bool):raise ValueError("Copy Dim. must be True or False.")
+  data["CopyDim"]=copy
   if edit.command!="D" and ("ParentType" in edit.changes or edit.command=="C"):
    name=str(values.get("ParentType") or "").strip()
    if name:

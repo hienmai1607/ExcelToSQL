@@ -46,4 +46,11 @@ export function packagingUSD(row:Row,index:number,opportunity:Row){
  return quantity(snapshot.UnitUSDPrice??row[field.order+'PriceUSDPerUnit'],true);
 }
 
-export const manualCostInputs=(inputs:TCBInputs)=>Object.fromEntries([...productFields.map(([key])=>key),'PalletUSDPerEA'].map(key=>[key,inputs[key]]));
+export const manualCostInputs=(inputs:TCBInputs)=>Object.fromEntries(productFields.map(([key])=>key).map(key=>[key,inputs[key]]));
+
+export function palletizationValue(row:Row,inputs:TCBInputs):unknown{
+ if(row.ParentItemID)return null;
+ if('DefaultPalletUSDPerEA' in row)return row.DefaultPalletUSDPerEA;
+ if('PalletPricingJSON' in row)return objectValue(row.PalletPricingJSON).UnitUSDPrice??null;
+ return inputs.PalletUSDPerEA??null;
+}

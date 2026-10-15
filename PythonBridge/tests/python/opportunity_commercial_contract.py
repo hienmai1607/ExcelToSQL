@@ -84,7 +84,9 @@ class OpportunityCommercialSQL(unittest.TestCase):
   body=self.body()
   body.Inputs=tcb_api.Inputs(LossProcesses=[],ProductLossFormula=None)
   result=tcb_api.commercial_save(body,self.item,self.ctx)["saved"]
-  for key,val in old.items():self.assertEqual(Decimal(result["Inputs"][key]),Decimal(val))
+  for key,val in old.items():
+   if key!="PalletUSDPerEA":self.assertEqual(Decimal(result["Inputs"][key]),Decimal(val))
+  self.assertIsNone(result["Inputs"]["PalletUSDPerEA"])
   self.assertEqual(Decimal(result["ProductUSDPerLb"]),self.expected*Decimal(".95")+Decimal(".037") + Decimal(".10"))
  def test_invalid_master_parent_mapping_rejected(self):
   body=self.body()
@@ -98,7 +100,7 @@ class OpportunityCommercialSQL(unittest.TestCase):
   result=tcb_api.commercial_save(body,self.item,self.ctx)["saved"]
   self.assertEqual(Decimal(result["ProductUSDPerLb"]),self.expected*Decimal(".9")+Decimal(".30"))
   self.assertEqual(result["Inputs"]["Prices"][0]["PriceID"],self.price)
-  self.assertEqual(Decimal(result["Inputs"]["PalletUSDPerEA"]),Decimal(10))
+  self.assertIsNone(result["Inputs"]["PalletUSDPerEA"])
  def test_child_pallet_cost_is_not_applied_even_from_old_saved_inputs(self):
   item=tcb_api.item_read(self.item,self.ctx)
   item["ParentItemID"]=999

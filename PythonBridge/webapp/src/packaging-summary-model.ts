@@ -77,7 +77,7 @@ export function objectValue(value:unknown):SummaryRow{
  try{const result=typeof value==='string'?JSON.parse(value):value;return result&&typeof result==='object'&&!Array.isArray(result)?result as SummaryRow:{}}catch{return {}}
 }
 function unitCount(raw:unknown){const result=quantity(raw);return result&&result.d===1n?result:null}
-export type PackagingLayer={order:string;type:string;weight:unknown;moq:unknown;dimensions:ReturnType<typeof capturedDimensions>;own:Cost;cumulative:Cost;units:Fraction|null;quantityFromPrevious:Fraction|null};
+export type PackagingLayer={order:string;type:string;weight:unknown;gross:Fraction|null;moq:unknown;dimensions:ReturnType<typeof capturedDimensions>;own:Cost;cumulative:Cost;units:Fraction|null;quantityFromPrevious:Fraction|null};
 export type ProductSummary={row:SummaryRow;layers:PackagingLayer[];ownPerUnit:Cost;total:Cost;units:Fraction|null};
 export function productSummary(row:SummaryRow,base=emptyCost(),exchange?:OpportunityCurrency):ProductSummary{
  const count=Number(row.ResponseLayerCount);
@@ -92,7 +92,8 @@ export function productSummary(row:SummaryRow,base=emptyCost(),exchange?:Opportu
   const capture=objectValue(objectValue(row.LayerDimensionCaptures)[field.order]);
   // Display only this PCR's active matching capture, never dimensions from another type.
   const dimensions=capture.PackagingTypeName===row[field.type]&&Array.isArray(capture.Dimensions)?capture.Dimensions as ReturnType<typeof capturedDimensions>:[];
-  layers.push({order:field.order,type:String(row[field.type]||'—'),weight:row[field.order+'NetWeightGrams'],moq:row[field.moq],dimensions,own,cumulative:total,units,quantityFromPrevious:index?factor:null});
+  const gross=quantity(row[field.order+'GrossWeightKG'],true);
+  layers.push({order:field.order,type:String(row[field.type]||'—'),weight:row[field.order+'NetWeightGrams'],gross:gross?multiply(gross,{n:1000n,d:1n}):null,moq:row[field.moq],dimensions,own,cumulative:total,units,quantityFromPrevious:index?factor:null});
  }
  return {row,layers,ownPerUnit,total,units};
 }

@@ -1,5 +1,5 @@
 """Read models for the browser UI. Mutations reuse Packaging procedures."""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from auth import AccessContext, get_access_context
 from packaging_api import execute, require
 
@@ -7,18 +7,17 @@ router = APIRouter(prefix="/api/workbench", tags=["Workbench"])
 
 @router.get("/session")
 def session(ctx: AccessContext = Depends(get_access_context)):
-    return {"user_id": ctx.user_id, "username": ctx.username, "scopes": sorted(ctx.scopes), "is_admin": ctx.is_admin, **({"permissions":ctx.permissions} if ctx.permissions is not None else {})}
+    return {"user_id": ctx.user_id, "username": ctx.username, "scopes": sorted(ctx.scopes), "is_admin": ctx.is_admin, "can_assign_packaging": ctx.can_manage_packaging, **({"permissions":ctx.permissions} if ctx.permissions is not None else {})}
 
 @router.get("/pics")
 def pics(ctx: AccessContext = Depends(get_access_context)):
-    require(ctx, "PackagingManager")
+    if not ctx.can_manage_packaging:
+        raise HTTPException(403, "Packaging manager access is required.")
     rows = execute("""
         DECLARE @Actor INT;
         EXEC dbo.usp_Packaging_Authorize ?, 'Review', @Actor OUTPUT;
         SELECT u.ID, u.UserName FROM dbo.Users u
-        WHERE u.IsActive=1 AND EXISTS(
-            SELECT 1 FROM dbo.UserAccess a WHERE a.UserID=u.ID
-            AND a.Scope IN(N'Packaging',N'Admin'))
+        WHERE dbo.fn_PackagingPICMember(u.ID)=1
         ORDER BY u.UserName, u.ID;
     """, [ctx.username])[0]
     return {"rows": rows}
@@ -49,11 +48,13 @@ def requests(
         FROM dbo.PackagingConfigurationRequest h
         JOIN dbo.Users u ON u.ID=h.RequestedBy
         CROSS APPLY (
-          SELECT COUNT(*) ItemCount,
-            SUM(CASE WHEN i.PICUserID IS NULL AND i.IsOpen=1 THEN 1 ELSE 0 END) Unassigned,
+          SELECT COUNT(CASE WHEN oi.ParentItemID IS NULL OR parent_item.ID IS NULL THEN 1 END) ItemCount,
+            SUM(CASE WHEN (oi.ParentItemID IS NULL OR parent_item.ID IS NULL) AND i.PICUserID IS NULL AND i.IsOpen=1 THEN 1 ELSE 0 END) Unassigned,
             SUM(CONVERT(INT,i.IsOpen)) OpenCount,
             SUM(CASE WHEN i.Stage='Approved' THEN 1 ELSE 0 END) ApprovedCount
-          FROM dbo.PackagingConfigurationRequestItem i WHERE i.RequestID=h.ID
+          FROM dbo.PackagingConfigurationRequestItem i JOIN dbo.OpportunityItem oi ON oi.ID=i.OpportunityItemID
+          LEFT JOIN dbo.PackagingConfigurationRequestItem parent_item ON parent_item.RequestID=i.RequestID AND parent_item.OpportunityItemID=oi.ParentItemID
+          WHERE i.RequestID=h.ID
         ) totals
         WHERE h.RequestNumber LIKE ? OR h.OpportunityNumber LIKE ? OR h.CustomerName LIKE ?;
         SELECT * FROM #summary WHERE (? IS NULL OR RequestStatus=?)

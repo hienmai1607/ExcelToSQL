@@ -114,6 +114,18 @@ class API(unittest.TestCase):
  ctx=AccessContext(1,"Sales",frozenset({"Opportunity"}))
  item=dict(ID=1,RowVersion="AAAAAAAAAAE=",ProductGradeSnapshot='{"items":[]}',TCBCostInfo=None,
            IsMixParent=True,ItemStage="Draft",HeaderStage="Draft")
+ def test_palletization_always_copies_response_and_ignores_manual_override(self):
+  for source,expected in ((Decimal("15.5"),Decimal("15.5")),(Decimal(0),Decimal(0)),(None,None)):
+   item={**self.item,"DefaultPalletUSDPerEA":source,"TCBCostInfo":json.dumps({"Inputs":{"PalletUSDPerEA":"15"}})}
+   with patch.object(tcb_api,"item_read",return_value=item),patch.object(tcb_api,"active_loss_masters",return_value=[]):
+    result=tcb_api.read(1,self.ctx)
+   self.assertEqual(result["saved"]["Inputs"]["PalletUSDPerEA"],str(expected) if expected is not None else None)
+   inputs=Inputs(PalletUSDPerEA=999)
+   tcb_api.compute(item,inputs,self.ctx)
+   self.assertEqual(inputs.PalletUSDPerEA,expected)
+   value,_,_,_=tcb_api.commercial_value(tcb_api.CommercialSave(RowVersion=self.item["RowVersion"],CostInputs=Inputs(PalletUSDPerEA=999)),item,self.ctx,None)
+   self.assertEqual(value["Inputs"]["PalletUSDPerEA"],str(expected) if expected is not None else None)
+
  def test_parent_only_has_packaging_costs(self):
   result=tcb_api.compute(self.item,Inputs(MixPrimaryLossPct=2,PalletUSDPerEA=10),self.ctx)
   self.assertIsNone(result["ProductUSDPerLb"])
@@ -137,10 +149,10 @@ class API(unittest.TestCase):
    tcb_api.save(body,1,self.ctx)
   self.assertEqual(cm.exception.status_code,409);write.assert_not_called()
  def test_saved_snapshots_and_version_are_server_computed(self):
-  with patch.object(tcb_api,"item_read",return_value=self.item),patch.object(tcb_api,"execute",return_value=[[{"RowVersion":"AAAAAAAAAAI="}]]) as write:
+  with patch.object(tcb_api,"item_read",return_value={**self.item,"DefaultPalletUSDPerEA":Decimal("15.5")}),patch.object(tcb_api,"execute",return_value=[[{"RowVersion":"AAAAAAAAAAI="}]]) as write:
    result=tcb_api.save(tcb_api.Save(RowVersion="AAAAAAAAAAE=",Inputs={"PalletUSDPerEA":"12"}),1,self.ctx)
   self.assertEqual(result["RowVersion"],"AAAAAAAAAAI=")
-  self.assertEqual(result["saved"]["Inputs"]["PalletUSDPerEA"],"12")
+  self.assertEqual(result["saved"]["Inputs"]["PalletUSDPerEA"],"15.5")
   self.assertIn("usp_OpportunityTCB_Save",write.call_args.args[0])
 
 import json

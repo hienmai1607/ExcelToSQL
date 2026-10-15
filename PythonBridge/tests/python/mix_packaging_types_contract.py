@@ -49,6 +49,7 @@ class MixTypesSQL(ProfileFixture, unittest.TestCase):
     def test_parent_request_and_response_accept_secondary_and_tertiary_in_any_layer(self):
         self.parent_layers()
         created=self.request([self.parent]);self.req=created["items"][0]["ID"]
+        self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET PICUserID=? WHERE ID=?",self.actor,self.req)
         names={id:self.cur.execute("SELECT PackagingType FROM dbo.PackagingType WHERE ID=?",id).fetchval()
             for id in (self.types["Secondary"],self.tertiary,self.nonshipping)}
         self.save(ResponseLayerCount=3,FirstPMType=names[self.tertiary],
@@ -88,6 +89,7 @@ class MixTypesSQL(ProfileFixture, unittest.TestCase):
     def test_cross_order_pricing_options_preview_reference_and_atomic_save(self):
         self.parent_layers()
         created=self.request([self.parent]);self.req=created["items"][0]["ID"]
+        self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET PICUserID=? WHERE ID=?",self.actor,self.req)
         root=self.types["Secondary"]
         component=self.cur.execute("""INSERT dbo.PackagingType
             (PackagingOrder,PackagingType,ParentTypeID,PriceBasis,TareWeight,CreatedBy)

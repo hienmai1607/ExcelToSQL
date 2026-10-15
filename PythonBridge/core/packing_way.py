@@ -4,6 +4,17 @@ from decimal import Decimal, InvalidOperation, localcontext
 INT_MAX = 2147483647
 
 
+def pallet_base_height(row):
+    import json
+    assembly=row.get('PalletPricingJSON')
+    try:
+        assembly=json.loads(assembly) if isinstance(assembly,str) else assembly
+        if assembly and assembly.get('PalletSize')==row.get('ResponsePalletSize'):
+            return Decimal(str(assembly['Dimensions']['height']))
+    except (ValueError,KeyError,TypeError):pass
+    return Decimal(150)
+
+
 def pallet_layers(row):
     """Retain historical counts until geometry is supplied; never guess layer height."""
     height = row.get("HeightMM")
@@ -15,7 +26,7 @@ def pallet_layers(row):
             return None
         with localcontext() as ctx:
             ctx.prec = 50
-            count = int(max(Decimal(0), maximum - 150) // height)
+            count = int(max(Decimal(0), maximum - pallet_base_height(row)) // height)
         return count if count <= INT_MAX else None
     except (InvalidOperation, ValueError, TypeError):
         return None
@@ -62,11 +73,11 @@ def packing_way(row):
     primary = 1 if layers == 1 else units("UnitsPerCarton")
     secondary = (1 if layers == 2 else units("UnitsPerTertiary")) if layers >= 2 else None
     tertiary = 1 if layers == 3 else None
-    if row.get("IsMixParent"):
+    if row.get("IsMixParent") and row.get("ProductMixSnapshot"):
         from mix_efficiency import mix_totals
         row={**row,"ApplicableNetWeightGrams":mix_totals(row.get("ProductMixSnapshot"),row.get("MixResponseChildren"))["weight"]}
     try:
-        weight = Decimal(str(row.get("ApplicableNetWeightGrams") if row.get("ApplicableNetWeightGrams") is not None or row.get("IsMixParent") else row.get("WeightGrams")))
+        weight = Decimal(str(row.get("ApplicableNetWeightGrams") if row.get("ApplicableNetWeightGrams") is not None or (row.get("IsMixParent") and row.get("ProductMixSnapshot")) else row.get("WeightGrams")))
         if not weight.is_finite() or weight < 0:
             weight = None
     except (InvalidOperation, ValueError, TypeError):
@@ -93,9 +104,18 @@ def packing_way(row):
         if row.get("SelectedContainerType") and row.get("PalletsPerContainer") in (0, "0"):
             pallets = 0
         container_cartons = pallets * cartons * pallet_layer_count * (2 if row.get("ResponsePalletStacking")=="Double" else 1) if pallet_load and pallets is not None and cartons is not None and pallet_layer_count is not None else (floor_cartons or units("CartonsPerContainer")) if floor_load else None
+        from response_load_plan import read_plan
+        saved=read_plan(row)
+        if saved:
+            planned=saved["Result"]
+            container_cartons=int(planned["cartons"])
+            pallet_layer_count=int(planned["pallet_layers"])
+            pallet_units=last_units*int(planned["cartons_per_pallet"]) if last_units is not None else None
+            pallet_weight=last_weight*int(planned["cartons_per_pallet"]) if last_weight is not None else None
+            floor_cartons=container_cartons if floor_load else None
         container_weight = last_weight * container_cartons if last_weight is not None and container_cartons is not None else None
         floor_weight = last_weight * floor_cartons if floor_load and last_weight is not None and floor_cartons is not None else None
-        return dict(ApplicableNetWeightGrams=format(weight,"f") if weight is not None else None,NoOfPrimaryUnit=primary, NoOfSecondaryUnit=secondary, NoOfTertiaryUnit=tertiary,
+        values=dict(ApplicableNetWeightGrams=format(weight,"f") if weight is not None else None,NoOfPrimaryUnit=primary, NoOfSecondaryUnit=secondary, NoOfTertiaryUnit=tertiary,
                     LayersPerContainer=container_layer_count if pallet_load else None,
                     LayersPerPallet=pallet_layer_count,
                     UnitsPerPallet=str(pallet_units) if pallet_units is not None else None,
@@ -107,3 +127,6 @@ def packing_way(row):
                     CalculatedCartonsPerContainer=str(container_cartons) if container_cartons is not None else None,
                     NetWeightPerContainerKG=format(container_weight / 1000, "f") if container_weight is not None else None,
                     NetWeightPerContainerFloorKG=format(floor_weight / 1000, "f") if floor_weight is not None else None)
+        from packaging_weight import gross_weights
+        values.update(gross_weights(row,values))
+        return values

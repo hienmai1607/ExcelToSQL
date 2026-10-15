@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from master_models import MasterSort, ColumnWidth
 from packaging_api import execute
 from packing_way import packing_way
+from packaging_weight import layer_sql
 from packaging_efficiency import response_derived
 from web_item_fields import WEB_ITEM_FIELDS
 from shipment_columns import SHIPMENT_COLUMNS, shipment_columns
@@ -139,7 +140,12 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.SelectedContainerType END SelectedContainerType,
             COALESCE(NULLIF(response.ContainerRequest,N''),parent_container.ContainerRequest) ResponseContainerFamily,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ContainerLoadProfiles END ContainerLoadProfiles,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN
+             (SELECT p.ID,JSON_QUERY(p.Inputs) Inputs,JSON_QUERY(JSON_MODIFY(JSON_MODIFY(p.Result,'$.pallet_layer',NULL),'$.container_layer',NULL)) Result,COALESCE(JSON_VALUE(p.Result,'$.ContainerCode'),c.Code) Code FROM dbo.ContainerLoadPlan p JOIN dbo.ContainerTypeMaster c ON c.ID=p.ContainerID WHERE p.ID=response.LoadPlanID AND p.ItemID=response.ID FOR JSON PATH,WITHOUT_ARRAY_WRAPPER) END LoadPlanJSON,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponsePalletSize END ResponsePalletSize,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN (SELECT p.ID,p.ContainerID,JSON_QUERY(p.Inputs) Inputs,JSON_QUERY(JSON_MODIFY(JSON_MODIFY(p.Result,'$.pallet_layer',NULL),'$.container_layer',NULL)) Result,COALESCE(JSON_VALUE(p.Result,'$.ContainerCode'),c.Code) Code FROM dbo.ResponseContainerLoadPlan m JOIN dbo.ContainerLoadPlan p ON p.ID=m.PlanID AND p.ItemID=m.ItemID AND p.ContainerID=m.ContainerID JOIN dbo.ContainerTypeMaster c ON c.ID=m.ContainerID WHERE m.ItemID=response.ID FOR JSON PATH) END ContainerPlansJSON,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN {layer_sql('response')} END LayerTareJSON,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN (SELECT JSON_MODIFY(s.SnapshotJSON,'$.ID',s.ID) FROM dbo.PalletPricingSnapshot s WHERE s.ID=response.PalletPricingID AND s.ItemID=response.ID) END PalletPricingJSON,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponsePalletStacking END ResponsePalletStacking,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponseMaxPalletHeightMM END ResponseMaxPalletHeightMM,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.HeightMM END HeightMM,
@@ -151,7 +157,12 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             response.ProductMixSnapshot,response.ShipmentContainerSizeFT,
             CAST(CASE WHEN i.ParentItemID IS NULL AND mix.ParentItemID IS NOT NULL THEN 1 ELSE 0 END AS BIT) IsMixParent,
             CASE WHEN i.ParentItemID IS NULL AND (@CanReadDraft=1 OR x.PackagingResponseStage='Approved') THEN
-              (SELECT child.ID ItemID,child_oi.ProductID,
+              (SELECT child.ID ItemID,child_oi.ProductID,child_oi.MixUnitQuantity UnitQuantity,child.WeightGrams,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.ResponseLayerCount END ResponseLayerCount,
+                child.RequestedLayerCount,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerCarton END UnitsPerCarton,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerTertiary END UnitsPerTertiary,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN {layer_sql('child')} END LayerTareJSON,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN COALESCE(child.ApplicableNetWeightGrams,child.WeightGrams) END ApplicableNetWeightGrams,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN CONVERT(VARCHAR(40),child.NutDensity) END NutDensity
                FROM dbo.PackagingConfigurationRequestItem child JOIN dbo.OpportunityItem child_oi ON child_oi.ID=child.OpportunityItemID
@@ -200,7 +211,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         LEFT JOIN dbo.PkgPricingMaster primary_pricing ON primary_pricing.RequestItemID=response.ID AND primary_pricing.PackagingOrder='Primary' AND primary_pricing.IsCurrent=1
         LEFT JOIN dbo.PkgPricingMaster secondary_pricing ON secondary_pricing.RequestItemID=response.ID AND secondary_pricing.PackagingOrder='Secondary' AND secondary_pricing.IsCurrent=1
         LEFT JOIN dbo.PkgPricingMaster tertiary_pricing ON tertiary_pricing.RequestItemID=response.ID AND tertiary_pricing.PackagingOrder='Tertiary' AND tertiary_pricing.IsCurrent=1
-        OUTER APPLY(SELECT TOP(1) p.PalletAreaMM2 FROM dbo.v_PalletMaster p JOIN dbo.UoM u ON u.ID=p.UoMID
+        OUTER APPLY(SELECT TOP(1) p.PalletAreaMM2 FROM dbo.v_PalletSizeChoice p JOIN dbo.UoM u ON u.ID=p.UoMID
           WHERE p.PalletSize=response.ResponsePalletSize AND p.Status='Active' AND u.Status='Active' ORDER BY p.ID) efficiency_pallet
         LEFT JOIN dbo.PackagingConfigurationRequestItem active_request
             ON active_request.OpportunityItemID=i.ID AND active_request.IsOpen=1

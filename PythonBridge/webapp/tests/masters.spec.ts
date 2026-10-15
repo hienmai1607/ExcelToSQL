@@ -16,10 +16,14 @@ test('parentless Final component is available for Material assignment',async({pa
  await expect(type.locator('option[value="74"]')).toHaveCount(0);
  await type.selectOption('73');
  await form.getByLabel('Material name',{exact:true}).fill('Ready pouch material');
+ await form.getByLabel('Tare weight',{exact:true}).fill('0.011500001');
+ await form.getByLabel('Tare basis',{exact:true}).selectOption('kg/EA');
  await form.getByLabel('Base UoM',{exact:true}).selectOption('EA');
  await form.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  expect(state.writes[0].rows[0].PackagingTypeID).toBe(73);
+ expect(state.writes[0].rows[0].TareWeight).toBe('0.011500001');
+ expect(state.writes[0].rows[0].TareWeightBasis).toBe('kg/EA');
 });
 test('supplier dimensions are entered per one Price UoM and saved with the child formula version',async({page})=>{
  const state=await setup(page);

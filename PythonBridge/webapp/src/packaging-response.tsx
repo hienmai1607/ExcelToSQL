@@ -1,3 +1,5 @@
+import {canRespondPackaging} from './packaging-access';
+import {useSession} from './session';
 import {useEffect,useState,useRef} from 'react';
 import {call,type Row} from './api';
 import {Modal,ErrorNote,InfoTip,Notification} from './ui';
@@ -11,6 +13,7 @@ import {pricingResponseValues,type PricingCalculation} from './pkg-pricing';
 import {containerProfileError} from './container-loading';import {isMixParent} from './packaging-orders';
 
 export function PackagingResponse({row,onClose,onSaved}:{row:Row;onClose:()=>void;onSaved:()=>void}){
+ const editable=canRespondPackaging(useSession(),row);
  const [values,setValues]=useState(()=>responseValues(row));
  const [pricing,setPricing]=useState<Record<string,PricingCalculation>>({});
 
@@ -23,6 +26,7 @@ export function PackagingResponse({row,onClose,onSaved}:{row:Row;onClose:()=>voi
 
  useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirty||busy){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn)},[dirty,busy]);
  async function review(){
+  if(!editable)return;
   const profileError=containerProfileError(values,row.ConfigurationRequest,!!row.ParentItemID);if(profileError){setError(profileError);return}
   for(const f of responseFields){if(f.readOnly||!responseFieldActive(f.key,values,row.ConfigurationRequest,!!row.ParentItemID,isMixParent(row)))continue;const v=values[f.key];const typeError=responseTypeError(f.key,v,row[f.key],responseTypes.types,values.ResponseLayerCount,row.ResponseLayerCount??row.RequestedLayerCount,!!row.ParentItemID,isMixParent(row));if(typeError){setError(typeError);return}if(v&&f.numeric&&((numericEntryError(f.key,v))||(f.integer&&(!/^\d+$/.test(v)||Number(v)<=0)))){setError('Check '+f.label+'.');return}}
 
@@ -45,9 +49,9 @@ export function PackagingResponse({row,onClose,onSaved}:{row:Row;onClose:()=>voi
 
   <form className="record-dialog-form" onSubmit={e=>{e.preventDefault();review()}}>
    <div className="record-dialog-content"><ErrorNote value={error||responseTypes.error}/>
-   <fieldset disabled={busy||uncertain}><ResponseSections values={values} requestedLayers={row.RequestedLayerCount} netWeight={row.WeightGrams} configuration={row.ConfigurationRequest} product={row} onChange={change} types={responseTypes.types} pallets={responseTypes.pallets} loading={responseTypes.loading} itemID={Number(row.ItemID)} pricing={pricing} onPricingApply={(input,result)=>{setPricing(xs=>({...xs,[input.PackagingOrder]:input}));setValues(xs=>({...xs,...pricingResponseValues(input,result)}))}}/></fieldset>
+   <fieldset disabled={!editable||busy||uncertain}><ResponseSections values={values} requestedLayers={row.RequestedLayerCount} netWeight={row.WeightGrams} configuration={row.ConfigurationRequest} product={row} onChange={change} types={responseTypes.types} pallets={responseTypes.pallets} loading={responseTypes.loading} itemID={Number(row.ItemID)} pricing={pricing} onPricingApply={(input,result)=>{setPricing(xs=>({...xs,[input.PackagingOrder]:input}));setValues(xs=>({...xs,...pricingResponseValues(input,result)}))}}/></fieldset>
 
-   </div><div className="actions record-action-bar"><button className="primary" disabled={busy||uncertain||!dirty}>Review & save</button></div>
+   </div><div className="actions record-action-bar"><button className="primary" disabled={!editable||busy||uncertain||!dirty}>Review & save</button></div>
   </form>
   {confirm&&<Modal label="Confirm response save" onClose={()=>{if(!busy)setConfirm(false)}}><h2>Save this response?</h2><div className="actions"><button disabled={busy} onClick={()=>setConfirm(false)}>Back</button><button className="primary" disabled={busy} onClick={save}>Confirm save</button></div></Modal>}
  </Modal>

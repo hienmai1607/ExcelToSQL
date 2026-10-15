@@ -22,7 +22,7 @@ function Layers({product,title,exchange,focus=false,allocated,label='Total packa
     {index>0&&<div className="summary-edge">{quantityDisplay(layer.quantityFromPrevious)} × {product.layers[index-1].order} units</div>}
     <article className="summary-node" aria-label={title+' '+layer.order+' packaging'}>
      <h4>{layer.order} packaging</h4>
-     <table className="summary-details" aria-label={layer.order+' packaging details'}><tbody><Detail label="Net weight (g)" value={shown(layer.weight)}/><Detail label="Packaging Type" value={layer.type}/>
+     <table className="summary-details" aria-label={layer.order+' packaging details'}><tbody><Detail label="Net weight (g)" value={shown(layer.weight)}/><Detail label="Gross weight (g)" value={quantityDisplay(layer.gross,3)}/><Detail label="Packaging Type" value={layer.type}/>
       <Detail label={dimensions.label} value={dimensions.value}/><Detail label="MOQ" value={shown(layer.moq)}/>
       <Detail label="Packaging cost / unit" value={price(layer.own)}/>
       <Detail label="Cumulative packaging cost / unit" value={price(layer.cumulative)} help="This layer's own packaging cost plus all contained lower-layer packaging costs. Pallet cost is excluded."/>

@@ -1,5 +1,9 @@
 import type {ButtonHTMLAttributes} from 'react';
 const paths={
+ cube:'m3 7 9-5 9 5v10l-9 5-9-5z M3 7l9 5 9-5 M12 12v10',
+ zoomIn:'M10 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12 M14 14l7 7 M7 10h6 M10 7v6',
+ zoomOut:'M10 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12 M14 14l7 7 M7 10h6',
+ topView:'M3 5h18v14H3z M12 2v6 m-3-3 3 3 3-3',
  analysis:'M3 3v18h18 M7 16v-5 M12 16V7 M17 16v-8 M6 7l5-3 5 1 5-3',
  copy:'M9 9h12v12H9z M5 15H3V3h12v2',
  attachment:'m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3 M6 14l9-9',

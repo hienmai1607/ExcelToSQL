@@ -4,7 +4,7 @@ async function setup(page:Page,scopes=['Opportunity']){
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',user_id:10,scopes,is_admin:scopes.includes('Admin')}});
   if(path==='/api/opportunity/grid')return route.fulfill({json:{rows:[],total:0,page:1}});
-  if(path==='/api/opportunity/lookups')return route.fulfill({json:{packagingTypes:[{ID:11,PackagingOrder:'Primary',PackagingType:'Pouch',ParentTypeID:null,Status:'Active'},{ID:12,PackagingOrder:'Primary',PackagingType:'Bag',ParentTypeID:null,Status:'Active'}],pallets:[{ID:1,PalletSize:"1.1x1.1M"},{ID:2,PalletSize:"1200x1000MM"}],currencies:[{ID:1,CurrencyCode:'VND',CurrencyName:'Vietnamese Dong'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1},{ID:3,ProductCode:'Cashews',ProductName:'Cashew mix',CustomerID:1}]}});
+  if(path==='/api/opportunity/lookups')return route.fulfill({json:{packagingTypes:[{ID:11,PackagingOrder:'Primary',PackagingType:'Pouch',ParentTypeID:null,Status:'Active'},{ID:12,PackagingOrder:'Primary',PackagingType:'Bag',ParentTypeID:null,Status:'Active'}],pallets:[{ID:1,PalletSize:"1100x1100mm",LengthMM:1100,WidthMM:1100},{ID:2,PalletSize:"1200x1000mm",LengthMM:1200,WidthMM:1000}],currencies:[{ID:1,CurrencyCode:'VND',CurrencyName:'Vietnamese Dong'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD',CurrencyID:2}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1},{ID:3,ProductCode:'Cashews',ProductName:'Cashew mix',CustomerID:1}]}});
   if(path==='/api/workbench/preferences')return route.fulfill({json:{settings:{dark:false,nav_hidden:false,columns:['CustomerName'],filters:[],sort:[],page_size:25},version:0}});
   if(path==='/api/customer')return route.fulfill({json:{rows:[],total:0,page:1}});
   if(path==='/api/customer/lookups')return route.fulfill({json:{markets:[],currencies:[]}});
@@ -31,7 +31,7 @@ async function fill(page:Page){
 }
 test('Product Info replaces item description with read-only master net weight',async({page})=>{
  await setup(page);let payload:any;
- await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{pallets:[{ID:1,PalletSize:'1.1x1.1M'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1,WeightGrams:150.25},{ID:3,ProductCode:'Cashews',ProductName:'Cashew mix',CustomerID:1,WeightGrams:450}]}}));
+ await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{pallets:[{ID:1,PalletSize:'1100x1100mm'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1,WeightGrams:150.25},{ID:3,ProductCode:'Cashews',ProductName:'Cashew mix',CustomerID:1,WeightGrams:450}]}}));
  await page.route('**/api/opportunity/batch',r=>{payload=r.request().postDataJSON();return r.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-NEW'}],item_results:payload.item_rows.map((x:any)=>({RowNum:x.RowNum,Status:'OK'}))}})});
  const form=await fill(page),item=form.getByRole('region',{name:'Item 1',exact:true});
  await expect(item.getByLabel('Item description *')).toHaveCount(0);
@@ -43,19 +43,19 @@ test('Product Info replaces item description with read-only master net weight',a
  expect(payload.item_rows[0].ProductID).toBe(3);
  for(const key of ['ItemDescription','WeightGrams','ProductNetWeightGrams'])expect(payload.item_rows[0]).not.toHaveProperty(key);
 });
-test('pallet size is selected from Pallet Master and saved as the displayed size',async({page})=>{
+test('pallet size uses material Length x Width labels and saves the dimension snapshot',async({page})=>{
  await setup(page);let payload:any;
  await page.route('**/api/opportunity/batch',route=>{payload=route.request().postDataJSON();return route.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-NEW'}],item_results:payload.item_rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})});
  const form=await fill(page),item=form.getByRole('region',{name:'Item 1',exact:true});
  await item.getByText('Packaging requirements',{exact:true}).click();await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  await item.getByLabel('Loading request',{exact:true}).selectOption('Pallet load');
  const select=item.getByRole('combobox',{name:'Pallet size',exact:true});
- await expect(select.locator('option')).toHaveText(['Choose pallet size','1.1x1.1M','1200x1000MM']);
+ await expect(select.locator('option')).toHaveText(['Choose pallet size','1100 × 1100 mm','1200 × 1000 mm']);
  await expect(item.getByRole('textbox',{name:'Pallet size',exact:true})).toHaveCount(0);
- await select.selectOption('1.1x1.1M');await expect(select).toHaveValue('1.1x1.1M');
+ await select.selectOption('1100x1100mm');await expect(select).toHaveValue('1100x1100mm');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('created');
- expect(payload.item_rows[0].PalletSize).toBe('1.1x1.1M');
+ expect(payload.item_rows[0].PalletSize).toBe('1100x1100mm');
 });
 
 test('compact heading and header align in one desktop row and estimated award units update',async({page})=>{
@@ -102,13 +102,13 @@ test('opening item sections smoothly reveals their bottom, while closing does no
  expect(await page.evaluate(()=>(window as any).expansionScrolls.at(-1).options.behavior)).toBe('auto');
 });
 
-test('empty pallet master shows guidance and blocks saving the required size',async({page})=>{
+test('empty pallet dimensions show guidance and blocks saving the required size',async({page})=>{
  await setup(page);
  await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1}],pallets:[]}}));
  const form=await fill(page);await form.getByText('Packaging requirements',{exact:true}).click();await form.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  await form.getByLabel('Loading request',{exact:true}).selectOption('Pallet load');
  await expect(form.getByLabel('Pallet size',{exact:true}).locator('option')).toHaveCount(1);
- await expect(form.getByText('No active pallets. Admin or Packaging must add records in Pallet Master.')).toBeVisible();
+ await expect(form.getByText('No active pallet dimensions. Maintain Length and Width for a Pallet material in Packaging Pricing.')).toBeVisible();
  await form.getByRole('button',{name:'Review & save'}).click();
  await expect(page.getByRole('dialog',{name:'Confirm Opportunity save'})).toHaveCount(0);await expect(page.getByRole('alert')).toContainText('Pallet size is required.');
 });
@@ -131,7 +131,7 @@ test('creates one header with multiple items only after confirmation',async({pag
  await form.getByRole('button',{name:'Add item',exact:true}).click();
  const item=form.getByRole('region',{name:'Item 2',exact:true});
  await item.getByLabel('Product *').selectOption('3');
- await item.getByLabel('Annual units *').fill('0');await item.getByText('Packaging requirements',{exact:true}).click();await item.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await item.getByLabel('Container Type',{exact:true}).selectOption('20DC');
+ await item.getByLabel('Annual units *').fill('0');await item.getByText('Packaging requirements',{exact:true}).click();await item.getByLabel('Pallet size',{exact:true}).selectOption('1100x1100mm');await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await item.getByLabel('Container Type',{exact:true}).selectOption('20DC');
  await item.getByLabel('Estimated award %').fill('0');
  await item.getByLabel('Shelf price').fill('12.50');
  await form.getByRole('button',{name:'Review & save'}).click();

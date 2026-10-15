@@ -39,6 +39,94 @@ test('Pallet loading calculates cartons using Layers / pallet and no Layer / Con
  expect(writes[0].rows[0]).not.toHaveProperty('LayersPerContainer');
 });
 
+test('response formats volume and gross weights and exposes response pallet gross in 3D before calculation',async({page})=>{
+ const snapshot={ID:9,PalletSize:'1100x1100mm',Dimensions:{length:'1100',width:'1100',height:'155'},TareKG:'17',MissingTare:[],UnitPrice:'15.5',CurrencyCode:'USD',components:[]};
+ const {editor}=await setup(page,'Pallet load',{ResponseLayerCount:1,WeightGrams:'750',NutDensity:'0.61',HeightMM:150,ResponseMaxPalletHeightMM:1805,CartonsPerLayer:50,ResponsePalletSize:'1100x1100mm',LayerTareJSON:JSON.stringify({Primary:{KG:'10.13885'}}),PalletPricingJSON:JSON.stringify(snapshot)});
+ await expect(editor.getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('10,888.85');
+ await expect(editor.getByLabel('Used volume (ml)',{exact:true})).toHaveValue('1,229.508');
+ const gross=editor.getByLabel('Gross weight / Pallet (kg)',{exact:true});
+ expect(await gross.inputValue()).toMatch(/^\d{1,3}(,\d{3})*(\.\d{1,3})?$/);
+ const responseGross=await gross.inputValue();
+ await page.getByRole('button',{name:'3D container load',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
+ await expect(dialog.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue(responseGross);
+});
+
+test('container weights show Net then Gross without an incomplete placeholder',async({page})=>{
+ const {editor}=await setup(page,'Pallet load');
+ const region=editor.getByRole('region',{name:'Container Load response'});
+ const labels=await region.locator('label').allTextContents();
+ expect(labels.indexOf('Gross weight / Container (kg)')).toBe(labels.indexOf('Net weight / Container (kg)')+1);
+ await expect(region.getByLabel('Gross weight / Container (kg)',{exact:true})).not.toHaveAttribute('placeholder',/incomplete/);
+ await expect(region).not.toContainText('Tare or load plan incomplete');
+});
+
+test('pallet pricing adds matching pallet and accessories and calculates gross weight',async({page},info)=>{
+ const price=(ID:number,MaterialCode:string,order:string,weight:string)=>({ID,MaterialCode,MaterialName:MaterialCode,PackagingOrder:order,RowVersion:'AAAAAAAAAAE=',MaterialRowVersion:'AAAAAAAAAAI=',CurrencyCode:'USD',UnitPrice:ID===1?'10':'2',QuantityFrom:1,TareWeight:weight,TareWeightBasis:'kg/EA',Dimensions:order==='Pallet'?{length:'1100',width:'1100',height:'150'}:null});
+ const pallet=price(1,'PALLET','Pallet','20'),corner=price(2,'CORNER','Primary','.5'),other={...price(3,'WRONG-SIZE','Pallet','10'),Dimensions:{length:'1200',width:'800',height:'140'}};
+ let saved:any;
+ const {editor}=await setup(page,'Pallet load',{ResponsePalletSize:'1100x1100mm',ResponseLayerCount:2,WeightGrams:100,LayerTareJSON:JSON.stringify({Primary:{KG:'.1'},Secondary:{KG:'3'}})});
+ await page.route('**/api/pallet-pricing/**',route=>{
+  const request=route.request();if(request.method()==='GET')return route.fulfill({json:{rows:[pallet,corner,other]}});
+  saved=request.postDataJSON();const snapshot={ID:9,PalletSize:'1100x1100mm',Dimensions:pallet.Dimensions,TareKG:'22',MissingTare:[],UnitPrice:'18',CurrencyCode:'USD',components:[{...pallet,Quantity:'1'},{...corner,Quantity:'4'}]};
+  return route.fulfill({json:snapshot});
+ });
+ await editor.getByRole('button',{name:'Pallet Pricing Calculator',exact:true}).click();
+ const calculator=page.getByRole('dialog',{name:'Pallet Pricing Calculator',exact:true});
+ await expect(calculator.getByRole('checkbox',{name:'Select WRONG-SIZE',exact:true})).toHaveCount(0);
+ await calculator.getByRole('checkbox',{name:'Select PALLET',exact:true}).check();
+ await calculator.getByRole('checkbox',{name:'Select CORNER',exact:true}).check();
+ await calculator.getByLabel('Quantity CORNER',{exact:true}).fill('4');
+ await calculator.getByRole('button',{name:'Calculate pallet',exact:true}).click();
+ await expect(calculator.getByRole('status')).toContainText('22 kg');
+ await calculator.getByRole('button',{name:'Apply pallet pricing',exact:true}).click();
+ await expect(calculator).toHaveCount(0);
+ expect(saved.components.map((c:any)=>c.Quantity)).toEqual(['1','4']);
+ await expect(editor.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue('122');
+ const efficiency=editor.getByRole('region',{name:'Efficiency response'});
+ expect(await efficiency.locator('label').allTextContents()).toEqual(expect.arrayContaining(['Pallet height (mm)']));
+ const height=await efficiency.getByLabel('Pallet height (mm)',{exact:true}).boundingBox();
+ const percent=await efficiency.getByLabel('Pallet height efficiency %',{exact:true}).boundingBox();
+ expect(height!.x).toBeLessThan(percent!.x);
+ await editor.getByRole('region',{name:'Palletization response'}).screenshot({path:info.outputPath('pallet-fields.png')});
+ await editor.getByLabel('Cartons / layer',{exact:true}).fill('12');
+ await expect(editor.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue('142');
+});
+
+test('historical mix parent without composition snapshot keeps frozen net weight',async({page})=>{
+ const {editor}=await setup(page,'Pallet load',{IsMixParent:true,ProductMixSnapshot:null,MixResponseChildren:JSON.stringify([{ProductID:1,UnitQuantity:1,CartonGrossWeightKG:'1.19067'}]),WeightGrams:'1190.67',ResponseLayerCount:2,LayerTareJSON:JSON.stringify([{PackagingOrder:'Primary',Tare:{KG:'3'}},{PackagingOrder:'Secondary',Tare:{KG:'2'}}])});
+ await expect(editor.getByLabel('Primary net weight (g)',{exact:true})).toHaveValue('1,190.67');
+ await expect(editor.getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('4,190.67');
+ await expect(editor.getByLabel('Secondary gross weight (g)',{exact:true})).toHaveValue('43,906.7');
+});
+
+test('gross weights survive confirmed-layer changes and recalculate from counts',async({page})=>{
+ const tares=[{PackagingOrder:'Primary',Tare:{KG:'0.21',Missing:[]}},{PackagingOrder:'Secondary',Tare:{KG:'3',Missing:[]}},{PackagingOrder:'Tertiary',Tare:{KG:'2',Missing:[]}}];
+ const {editor}=await setup(page,'Pallet load',{WeightGrams:'396.89',LayerTareJSON:JSON.stringify(tares)});
+ await expect(editor.getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('606.89');
+ await expect(editor.getByLabel('Secondary gross weight (g)',{exact:true})).toHaveValue('9,068.9');
+ await expect(editor.getByLabel('Tertiary gross weight (g)',{exact:true})).toHaveValue('47,344.5');
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('2');
+ await expect(editor.getByLabel('Secondary gross weight (g)',{exact:true})).toHaveValue('9,068.9');
+ await editor.getByLabel('No of Primary Unit',{exact:true}).fill('12');
+ await expect(editor.getByLabel('Secondary gross weight (g)',{exact:true})).toHaveValue('10,282.68');
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('3');
+ await expect(editor.getByLabel('Tertiary gross weight (g)',{exact:true})).toHaveValue('53,413.4');
+});
+
+for(const child of [false,true])test('highlight only the final parent shipping height: child='+child,async({page})=>{
+ const captures=Object.fromEntries(['Primary','Secondary','Tertiary'].map(order=>[order,{LayerCount:3,PackagingTypeName:'Captured '+order,Dimensions:[{Name:'Length',Unit:'mm',Value:'340'},{Name:'Width',Unit:'mm',Value:'145'},{Name:'Height',Unit:'mm',Value:'200'}]}]));
+ const {editor}=await setup(page,'Pallet load',{FirstPMType:'Captured Primary',SecondPMType:'Captured Secondary',ThirdPMType:'Captured Tertiary',LayerDimensionCaptures:captures,...(child?{ParentItemID:10}:{})});
+ await expect(editor.locator('.captured-dimensions-value').filter({hasText:'200mm'})).toHaveCount(3);
+ await expect(editor.locator('.dimension-height')).toHaveCount(child?0:1);
+ if(!child){
+  await expect(editor.getByLabel('Tertiary dimension height',{exact:true})).toBeVisible();
+  await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('2');
+  await expect(editor.locator('.dimension-height')).toHaveCount(1);
+  await expect(editor.getByLabel('Secondary dimension height',{exact:true})).toBeVisible();
+ }
+});
+
 test('quantity and weight columns leave room for dimensions without crossing layer boundaries',async({page},info)=>{
  const captures=Object.fromEntries(['Primary','Secondary','Tertiary'].map(order=>[order,{LayerCount:3,PackagingTypeName:'Captured '+order,Dimensions:[{Name:'Length',Unit:'mm',Value:'340'},{Name:'Width',Unit:'mm',Value:'145'},{Name:'Height',Unit:'mm',Value:'200'}]}]));
  const {editor}=await setup(page,'Pallet load',{FirstPMType:'Captured Primary',SecondPMType:'Captured Secondary',ThirdPMType:'Captured Tertiary',LayerDimensionCaptures:captures});
@@ -46,17 +134,34 @@ test('quantity and weight columns leave room for dimensions without crossing lay
  for(const width of [1920,1280,390]){
   await page.setViewportSize({width,height:900});
   const layers=editor.locator('.packing-way-layer');
+  expect(await editor.locator('.packing-way-grid').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+  await expect(editor.getByPlaceholder('Tare incomplete',{exact:true})).toHaveCount(0);
   for(const layer of await layers.all()){
    await layer.scrollIntoViewIfNeeded();
    expect(await layer.evaluate(el=>{
     const bounds=el.getBoundingClientRect();
-    return Array.from(el.children).every(child=>{const r=child.getBoundingClientRect();return r.left>=bounds.left-1&&r.right<=bounds.right+1&&child.scrollWidth<=child.clientWidth+1});
-   })).toBe(true);
+    return Array.from(el.children).flatMap(child=>{const r=child.getBoundingClientRect();return r.left>=bounds.left-1&&r.right<=bounds.right+1&&child.scrollWidth<=child.clientWidth+1?[]:[{text:child.textContent,width:r.width,scroll:child.scrollWidth,viewport:window.innerWidth}];});
+   })).toEqual([]);
   }
+  if(width>=1280){
+   expect(await layers.evaluateAll(items=>new Set(items.map(el=>Math.round(el.getBoundingClientRect().top))).size)).toBe(1);
+   const calculators=editor.locator('.packaging-layer-sections>section');
+   for(const price of await calculators.locator('.packaging-entry-grid>label:last-child').all()){
+    expect(await price.evaluate(el=>{const range=document.createRange();range.selectNodeContents(el.firstChild!);return range.getClientRects().length;})).toBe(1);
+    expect(await price.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+   }
+   for(let i=0;i<3;i++){const a=await layers.nth(i).boundingBox(),b=await calculators.nth(i).boundingBox();expect(Math.abs(a!.x-b!.x)).toBeLessThanOrEqual(1);expect(Math.abs(a!.width-b!.width)).toBeLessThanOrEqual(1);}
+  }
+  if(width===1280)await editor.screenshot({path:info.outputPath('aligned-three-layers-1280.png')});
   if(width===1920){
    const columns=await layers.first().locator(':scope>label').evaluateAll(labels=>labels.map(label=>label.getBoundingClientRect().width));
    expect(columns[0]).toBeLessThanOrEqual(146);expect(columns[1]).toBeLessThanOrEqual(166);
-   expect(columns[2]).toBeGreaterThan(columns[1]);
+   expect(columns).toHaveLength(4);
+   expect(columns[3]).toBeGreaterThan(Math.max(...columns.slice(0,3)));
+   const row=layers.first();
+   expect(await row.locator(':scope>label').evaluateAll(labels=>new Set(labels.map(label=>Math.round(label.getBoundingClientRect().top))).size)).toBe(1);
+   const quantityWidth=await row.locator('.packing-layer-quantity input').evaluate(el=>el.getBoundingClientRect().width);
+   expect(quantityWidth).toBeGreaterThanOrEqual(70);expect(quantityWidth).toBeLessThanOrEqual(105);
    await editor.screenshot({path:info.outputPath('compact-packing-columns.png')});
   }
  }
@@ -150,7 +255,7 @@ test('Mix parent applicable weight is read-only and sums child applicable weight
 test('Container profiles retain their own manual entries across switches and reload',async({page})=>{
  const {editor,writes}=await setup(page,'Both',{ContainerRequest:'Dry'});
  const selector=editor.getByLabel('Container type',{exact:true});
- await expect(selector.locator('option')).toHaveText(['Choose container type','20DC','40DC','40HC']);
+ await expect(selector.locator('option')).toHaveText(['Choose container type','20DC','40DC','40HC','20RC','40RHC']);
  await editor.getByLabel('Carton / Container',{exact:true}).fill('100');
  await selector.selectOption('40HC');
  await editor.getByLabel('Carton / Container',{exact:true}).fill('200');

@@ -175,7 +175,9 @@ def add_tcb_columns(rows):
         types = container_types(root.get("ResponseContainerFamily",root.get("ContainerRequest")),root.get("ShipmentContainerSizeFT",shipping.get("ContainerSizeFT")))
         configured = [t for t in types if t in profiles or root.get("SelectedContainerType") == t]
         selected = root.get("SelectedContainerType")
-        kind = selected if selected in configured else configured[0] if len(configured)==1 else ""
+        from response_load_plan import read_plan
+        planned=read_plan(root)
+        kind = (planned.get("Code") or "Load plan") if planned else selected if selected in configured else configured[0] if len(configured)==1 else ""
         mode = root.get("PackingConfiguration") or root.get("ConfigurationRequest")
         resolved = mode in ("Pallet load","Floor load","Both")
         profile = profiles.get(kind,{})
@@ -187,7 +189,8 @@ def add_tcb_columns(rows):
         parent_pm = per(packaging(root,root),total) if root.get("IsMixParent") else F(0)
         def container(key): return per(optional(shipping,key),container_units) if resolved else None
         def pallet(key): return per(optional(shipping,key),pallet_units) if resolved else None
-        pallet_cost = None if not resolved else F(0) if mode=="Floor load" else per(num(inputs.get("PalletUSDPerEA"),True),pallet_units)
+        pallet_price=root.get("DefaultPalletUSDPerEA") if "DefaultPalletUSDPerEA" in root else obj(root.get("PalletPricingJSON")).get("UnitUSDPrice") if "PalletPricingJSON" in root else inputs.get("PalletUSDPerEA")
+        pallet_cost = None if not resolved else F(0) if mode=="Floor load" else per(num(pallet_price,True),pallet_units)
         currency = str(root.get("CustomerCurrencyCode") or "").upper()
         rate = F(1) if currency=="USD" else num(root.get("ExchangeRateVNDPerUSD" if currency=="VND" else "ExchangeRateCustomerCurrencyPerUSD")) if currency else None
         for row in products:

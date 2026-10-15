@@ -151,18 +151,16 @@ try:
     assert r.status_code==200,r.text
     version=r.json()['result']['RowVersion']
     r=client.post('/api/packaging/response/batch',json={'rows':[{'RowNum':1,'ID':item['ID'],'RowVersion':version}]})
-    assert r.status_code==200,r.text
-    assert r.json()['results'][0]['Status']=='OK'
+    assert r.status_code==403,r.text  # Admin cannot save another PIC's response.
     grid=client.get('/api/packaging/requests',params={'opportunity_number':'T-'+tag,'page_size':1})
     assert grid.status_code==200,grid.text
     assert grid.json()['rows'][0]['Cost'] is None
     invalid={'rows':[{'RowNum':1,'ID':item['ID'],'RowVersion':'bad'}]}
     assert client.post('/api/packaging/response/batch',json=invalid).status_code==422
-    # Admin acts across PIC ownership and may also be assigned/approve directly.
+    # Admin must have Packaging membership and own the saved PIC assignment.
     version=grid.json()['rows'][0]['ItemRowVersion']
-    r=client.post(f'/api/packaging/items/{item["ID"]}/transition',json={'TargetStage':'Working','ExpectedRowVersion':version})
-    assert r.status_code==200,r.text
-    r=client.post(f'/api/packaging/items/{item["ID"]}/assign',json={'PICUserID':uid,'ExpectedRowVersion':r.json()['result']['RowVersion']})
+    sql('INSERT dbo.UserAccess(UserID,Scope) VALUES(?,?)',uid,'Packaging')
+    r=client.post(f'/api/packaging/items/{item["ID"]}/assign',json={'PICUserID':uid,'ExpectedRowVersion':version})
     assert r.status_code==200,r.text
     r=client.post('/api/packaging/response/batch',json={'rows':[{'RowNum':1,'ID':item['ID'],'RowVersion':r.json()['result']['RowVersion'],'MaterialID':material['NewID'],'HeightMM':10,'WidthMM':20,'Cost':0,'CurrencyID':currency,'CostBasis':'piece'}]})
     assert r.status_code==200,r.text
@@ -182,7 +180,7 @@ try:
     if scalar('SELECT @@TRANCOUNT')>0:
         sql('ROLLBACK TRANSACTION')
     assert scalar('SELECT COUNT(*) FROM dbo.Users WHERE UserName=?',name)==0
-    print('PASS: Admin-only Packaging access, master writes, cross-PIC saves/submission, assignment, approval, stage locks, paging and manual create/retry; fixtures rolled back.')
+    print('PASS: Admin-only Packaging access, master writes, cross-PIC save rejection, owner saves/submission, assignment, approval, stage locks, paging and manual create/retry; fixtures rolled back.')
 finally:
     if scalar('SELECT @@TRANCOUNT')>0:
         sql('ROLLBACK TRANSACTION')

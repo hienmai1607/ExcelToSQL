@@ -48,6 +48,15 @@ test('Both has one child-only result with pallet plus floor cost',()=>{
  expect(scenario.columns[0].cells[10].value).not.toBeNull();
 });
 
+test('Analysis uses response palletization rather than stale manual cost',()=>{
+ const d=draft();d.row.PalletPricingJSON=JSON.stringify({UnitUSDPrice:'15.5'});
+ expect(values(buildTCBAnalysis([d])[0].columns[0])[3]).toBe('0.0155');
+ d.row.PalletPricingJSON=null;
+ expect(buildTCBAnalysis([d])[0].columns[0].cells[3].value).toBeNull();
+ d.row.PalletPricingJSON=JSON.stringify({UnitUSDPrice:'0'});
+ expect(values(buildTCBAnalysis([d])[0].columns[0])[3]).toBe('0');
+});
+
 test('days, USD-per-lb margin and customer clearance use exact revised units',()=>{
  const d=draft();d.row.ShipmentCostInfo={InterestPct:'12',InterestDays:30,MarginMode:'USDPerLb',MarginUSDPerLb:'.5',ImportClearanceCustomerPerPallet:'150',PaymentTermDays:999};
  const actual=values(buildTCBAnalysis([d])[0].columns[0]);

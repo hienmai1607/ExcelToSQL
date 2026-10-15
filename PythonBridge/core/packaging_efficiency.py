@@ -99,7 +99,7 @@ def response_efficiency(row, packing, geometry, pallet_area_mm2):
     volume = decimal_value(geometry.get("VolumeM3"))
     area = decimal_value(geometry.get("AreaM2"))
     density = decimal_value(row.get("NutDensity"))
-    mix = mix_totals(row.get("ProductMixSnapshot"), row.get("MixResponseChildren")) if row.get("IsMixParent") else None
+    mix = mix_totals(row.get("ProductMixSnapshot"), row.get("MixResponseChildren")) if row.get("IsMixParent") and row.get("ProductMixSnapshot") else None
     if mix is not None:
         last = mix["weight"]
     cartons = decimal_value(row.get("CartonsPerLayer"))
@@ -114,7 +114,8 @@ def response_efficiency(row, packing, geometry, pallet_area_mm2):
     with localcontext() as context:
         context.prec = 100
         if height is not None and count is not None:
-            values["PalletHeightMM"] = Decimal(150) + count * height
+            from packing_way import pallet_base_height
+            values["PalletHeightMM"] = pallet_base_height(row) + count * height
         if last is not None and volume is not None:
             values["CartonEfficiencyKGM3"] = last / 1000 / volume
             if mix is not None:
@@ -124,6 +125,15 @@ def response_efficiency(row, packing, geometry, pallet_area_mm2):
                 values["RelativeCartonEfficiencyPct"] = values["CartonEfficiencyKGM3"] / density / 1000 * 100
         if area is not None and cartons is not None and pallet_area is not None:
             values["PalletUtilizationPct"] = area * cartons / (pallet_area / 1000000) * 100
+        from response_load_plan import read_plan
+        saved=read_plan(row)
+        if saved:
+            values["PalletHeightMM"]=decimal_value(saved["Result"]["loaded_unit_height"])
+            maximum=decimal_value(saved["Inputs"].get("max_pallet_height"))
+            pallet=saved["Inputs"].get("pallet")
+            if pallet and area is not None:
+                pallet_area=Decimal(str(pallet["length"]))*Decimal(str(pallet["width"]))
+                values["PalletUtilizationPct"]=area*saved["Result"]["cartons_per_layer"]/(pallet_area/1000000)*100
         if values["PalletHeightMM"] is not None and maximum is not None:
             values["PalletHeightEfficiencyPct"] = values["PalletHeightMM"] / maximum * 100
     return {key: format(value, "f") if value is not None else None for key, value in values.items()}

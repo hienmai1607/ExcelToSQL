@@ -20,9 +20,21 @@ def loading_profiles(value):
 
 def container_results(row):
     from packing_way import packing_way
-    return {
-        kind: {key: value for key, value in packing_way({**row, **profile, "SelectedContainerType": kind}).items()
+    result = {
+        kind: {key: value for key, value in packing_way({**row, **profile, "LoadPlanJSON":None, "SelectedContainerType": kind}).items()
                if key in ("LayersPerContainer", "CalculatedCartonsPerContainer", "NetWeightPerContainerKG", "NetWeightPerContainerFloorKG")}
         for kind, profile in loading_profiles(row.get("ContainerLoadProfiles")).items()
         if kind in CONTAINER_TYPES and isinstance(profile, dict)
     }
+
+    from response_load_plan import read_plan
+    selected=read_plan(row)
+    if selected:
+        result[selected.get("Code") or "Load plan"]={key:value for key,value in packing_way(row).items() if key in ("CalculatedCartonsPerContainer","NetWeightPerContainerKG")}
+    try:plans=json.loads(row.get('ContainerPlansJSON') or '[]') if isinstance(row.get('ContainerPlansJSON'),str) else row.get('ContainerPlansJSON') or []
+    except ValueError:plans=[]
+    if isinstance(plans,list):
+        for plan in plans:
+            if plan.get('Code'):
+                result[plan['Code']]={key:value for key,value in packing_way({**row,'LoadPlanJSON':plan}).items() if key in ('CalculatedCartonsPerContainer','NetWeightPerContainerKG','GrossWeightPerContainerKG')}
+    return result

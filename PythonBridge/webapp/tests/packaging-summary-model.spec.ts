@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {productSummary,buildPackagingSummary,costDisplay,sumCosts,scaleCost,quantity,loadPackagingSummary,opportunityCurrency,type SummaryRow} from '../src/packaging-summary-model';
+import {productSummary,buildPackagingSummary,costDisplay,sumCosts,scaleCost,quantity,quantityDisplay,loadPackagingSummary,opportunityCurrency,type SummaryRow} from '../src/packaging-summary-model';
 
 const root:SummaryRow={ItemID:101,RequestID:9,OpportunityItemID:10,ProductID:20,ProductCode:'PRD-ROOT',
  ResponseLayerCount:3,FirstPMType:'Bag',SecondPMType:'Box',ThirdPMType:'Carton',
@@ -12,6 +12,15 @@ test('normal layer costs flow down exactly through both Packing Way quantities',
  expect(costDisplay(result.ownPerUnit)).toBe('140.00 VND');
  expect(costDisplay(scaleCost(result.ownPerUnit,result.units))).toBe(costDisplay(result.total));
  for(const count of [1,2,3])expect(costDisplay(productSummary({...root,ResponseLayerCount:count}).ownPerUnit)).toBe(['100.00 VND','125.00 VND','140.00 VND'][count-1]);
+});
+
+test('layer gross weights use PCR values and convert kg to grams without floating point loss',()=>{
+ const result=productSummary({...root,PrimaryGrossWeightKG:'0.160123456',SecondaryGrossWeightKG:'2.5',TertiaryGrossWeightKG:'15.75'});
+ expect(result.layers.map(layer=>quantityDisplay(layer.gross,3))).toEqual(['160.123','2,500','15,750']);
+ expect(productSummary({...root,PrimaryGrossWeightKG:null}).layers[0].gross).toBeNull();
+ expect(quantityDisplay(productSummary({...root,PrimaryGrossWeightKG:'0'}).layers[0].gross,3)).toBe('0');
+ const parent=buildPackagingSummary({...mix,PrimaryGrossWeightKG:'5.78885',SecondaryGrossWeightKG:'10.88885'},children);
+ expect(parent.root.layers.map(layer=>quantityDisplay(layer.gross,3))).toEqual(['5,788.85','10,888.85']);
 });
 
 const children:SummaryRow[]=[

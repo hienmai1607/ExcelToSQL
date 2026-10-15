@@ -47,6 +47,7 @@ class PricingSQL(unittest.TestCase):
     def setUp(self):
         foundation.PackagingFoundation.setUp(self)
         self.req = foundation.PackagingFoundation.request(self)
+        self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET PICUserID=? WHERE ID=?",self.actor,self.req)
         self.ctx = AccessContext(self.actor,self.username,frozenset({'Admin'}))
         self.cur.execute('SET QUOTED_IDENTIFIER ON')
         for _ in range(2):
@@ -88,6 +89,8 @@ class PricingSQL(unittest.TestCase):
         return self.cur.execute("INSERT dbo.PackagingType(PackagingOrder,PackagingType,PriceBasis,TareWeight,ParentTypeID,CreatedBy,Shipping) VALUES(?,?,?,0,?,?,?); SELECT CONVERT(INT,SCOPE_IDENTITY())",order,name+'-'+self.token,basis,parent,self.actor,parent is None and order!='Primary').fetchval()
 
     def material(self,type_id,name,price,moq,price_unit='EA'):
+        # Current master contract: test materials use explicit Final components.
+        self.cur.execute("UPDATE dbo.PackagingType SET FinalComponent=1 WHERE ID=? AND NOT EXISTS(SELECT 1 FROM dbo.PackagingType WHERE ParentTypeID=?)",type_id,type_id)
         material=self.cur.execute("INSERT dbo.PackagingMaterial(MaterialCode,MaterialName,UnitOfMeasure,PackagingTypeID,CreatedBy) VALUES(?,?,?, ?,?); SELECT CONVERT(INT,SCOPE_IDENTITY())",'PKG-'+name+'-'+self.token,name,'EA',type_id,self.actor).fetchval()
         price_id=self.cur.execute("""INSERT dbo.PackagingPrice(MaterialID,CurrencyID,PriceBasis,QuantityFrom,UnitPrice,EffectiveFrom,CreatedBy,ExchangeRateToUSD)
             VALUES(?,?,?,?,?,'2020-01-01',?,25000); SELECT CONVERT(INT,SCOPE_IDENTITY())""",material,self.vnd,price_unit,moq,price,self.actor).fetchval()

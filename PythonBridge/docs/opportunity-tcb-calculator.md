@@ -210,10 +210,10 @@ requires no migration beyond 95.
 
 TCB Calculator is now a fifth tab in the Opportunity item popup. It shows every
 item in expandable parent/child sections, with four fields per desktop row.
-Product composition/processing and pallet costs are editable on Draft items;
+Product composition/processing costs are editable on Draft items; palletization is copied read-only from the Packaging response.
 grades and selected master quotes are maintained in the adjacent tabs. Losses
 are displayed from the Product Loss and Packaging Loss tabs. Mix parents show
-only their packaging layers and pallet input, not Product composition.
+only their packaging layers and copied palletization cost, not Product composition.
 
 Review & save combines cost, grade, quote and loss changes and preserves
 partial-save recovery. Closing after a save refreshes the grid while keeping
@@ -265,7 +265,7 @@ Unrelated Opportunity items are not loaded or saved by that review.
 The popup is one continuous screen without tabs, grouped into expandable item
 sections. Each item includes Product costing and inline grades/raw pricing,
 Product Loss type/code/ratio/formula, and Packaging prices with editable loss
-ratios per applicable layer. Mix parents omit Product inputs; pallet cost remains
+ratios per applicable layer. Mix parents omit Product inputs; palletization remains
 top-level only. Copy losses selects Product or Packaging through a dropdown.
 
 Review & save, repeated saves, row-version protection, active-PCR grade locks,
@@ -393,3 +393,9 @@ net weight (g) / 453.59237. Payment term days does not affect Payment Term %.
 Clearance uses customer-currency-per-pallet / FX / smallest units per pallet.
 Legacy USD/container values are not reinterpreted. Apply migration 102 for the
 new editable shipment inputs. The grid, Analysis and Excel use the same rules.
+
+## Palletization from Packaging response
+
+TCB Review labels the field Palletization ($/EA). It is read-only and copies the response pallet-plus-accessories total in USD per pallet (EA), using the immutable pricing snapshot UnitUSDPrice rather than the legacy Pallet Master or an old manually entered TCB amount. Existing selected load-plan pricing remains a response-owned fallback when no pallet pricing snapshot is attached. Missing pricing or missing USD conversion stays unknown/blank; an explicit zero is retained. Child items have no separate palletization cost.
+
+TCB read, save, loss-only save and commercial calculations enforce this source on the server. Analysis uses the same response value rather than historical manual input. Old stored TCB records are not bulk rewritten; subsequent authorized saves capture the current copied value. The price/tare and saved-3D-plan notes beneath response Palletization are removed; the underlying pricing and load data remain intact. Restart the API and refresh the rebuilt frontend. No new SQL migration is required.
