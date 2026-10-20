@@ -1,0 +1,10 @@
+/* Shared hierarchy for business pages and editors. */
+:root{--title-size:22px;--section-size:16px;--subsection-size:14px;--minor-size:13px}
+.app main h1{font-size:26px;line-height:1.25}
+.app dialog.dialog[open] h2,.app .customer-drawer h2{font-size:var(--title-size);line-height:1.25}
+.app dialog.dialog[open] h3,.app .customer-drawer h3{font-size:var(--section-size);line-height:1.35}
+.app dialog.dialog[open] h4,.app .customer-drawer h4{font-size:var(--subsection-size);line-height:1.35}
+.app dialog.dialog[open] :is(.grade-tree-level-heading,.grade-material-section,.grade-pricing-section)>h3{font-size:var(--subsection-size)}
+.app .tcb-review-dialog .tcb-process-info>h3{font-size:var(--section-size)}
+.app dialog.dialog[open] h5,.app dialog.dialog[open] legend{font-size:var(--minor-size);line-height:1.4}
+.app .tcb-review-dialog .tcb-process-row strong{font-size:var(--minor-size);font-weight:600}

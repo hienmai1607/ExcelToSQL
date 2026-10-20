@@ -22,7 +22,7 @@ try {
  for($i=0;$i -lt $labels.Count;$i++){$controls.Cells.Item($i+3,1)=$labels[$i];$controls.Cells.Item($i+3,2)='0'}
  $controls.Columns.Item(1).ColumnWidth=38;$controls.Columns.Item(2).ColumnWidth=32
  $controls.Range('A13').Value2='Save uses your Windows identity. Development header mode is testing only.'
- $controls.Range('A14').Value2='C create, U update, D block. Audit fields and Pricing material name are display only.'
+ $controls.Range('A14').Value2='Action: C create, U update; blank unchanged. Use the separate Status column to block records. Audit fields and Pricing material name are display only.'
  $controls.Range('A15').Value2='Required columns remain visible. Dates use YYYY-MM-DD. Refresh confirms before discarding edits.'
  $buttons=@(@('Save','PackagingMasterSave'),@('Refresh','PackagingMasterRefresh'),@('Filter','PackagingMasterFilter'),@('Previous','PackagingMasterPrevious'),@('Next','PackagingMasterNext'),@('New record','PackagingMasterNew'))
  for($i=0;$i -lt $buttons.Count;$i++){
@@ -31,7 +31,7 @@ try {
  }
  $legend=@(
   @('Required *','Yellow: required inputs; these columns remain visible.',0xCCF2FF),
-  @('Editable','Optional input columns and Command.',0xF7EBDD),
+  @('Editable','Optional input columns and Action.',0xF7EBDD),
   @('Display only','Gray: material name in Pricing, audit fields, results and metadata.',0xE6E6E7)
  )
  for($i=0;$i -lt $legend.Count;$i++){
@@ -40,7 +40,7 @@ try {
   $controls.Cells.Item(22+$i,2).Value2=$legend[$i][1]
  }
  $config.Visible=2
- foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modPackagingMasterLocal.bas')){
+ foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modLocalDropdowns.bas','modPackagingMasterLocal.bas')){
   [void]$book.VBProject.VBComponents.Import((Join-Path $root $name))
  }
  [void]$book.VBProject.References.AddFromGuid('{420B2830-E718-11CF-893D-00A0C9054228}',1,0)

@@ -282,8 +282,8 @@ The first column contains cost components. Remaining columns show standalone or 
 
 Calculations use exact rational arithmetic with 453.59237 grams per pound;
 rounding to two decimals is display-only. Product USD/unit is Product USD/lb
-divided by that mass factor, multiplied by net grams and
-(1 - Product loss percentage / 100), as requested. Custom Product loss formulas
+divided by that mass factor, multiplied by net grams, then divided by
+(1 - Product loss percentage / 100). A 100% Product loss has no surviving yield and displays Incomplete. Custom Product loss formulas
 are tested by the existing server endpoint using current drafts, without saving.
 No expression is executed as JavaScript.
 
@@ -298,6 +298,13 @@ capacity is parent UnitsPerPallet multiplied by total child quantity. Container
 capacity is the response's final-layer carton count multiplied by the parent
 final-layer unit count and total child quantity. Floor load has zero pallet cost.
 Fobbing uses the capacity of the corresponding type and loading method.
+
+Sales Shipment Container Type and loading request determine the commercial
+scenario. A saved response planner selection never overrides them. Response
+capacities are read only for the matching Sales-selected container. If Sales
+has not chosen a specific container, Analysis asks for a Sales selection; if
+the matching capacity is missing, container-based costs remain Incomplete
+instead of borrowing another option's capacity.
 
 Packing USD/unit is parent Packing USD/lb divided by 453.59237 and multiplied
 by each child's net grams. Estimated awarded units are parent AnnualUnit

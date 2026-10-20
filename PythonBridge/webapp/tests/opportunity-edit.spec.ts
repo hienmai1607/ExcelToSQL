@@ -21,6 +21,35 @@ async function setup(page:Page,locked=false,packagingLocked=false){
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  return {writes,profile:()=>profile};
 }
+test('item net weight is editable, independent, and saved only on confirmation',async({page})=>{
+ const state=await setup(page);
+ await page.getByRole('button',{name:'Edit Opportunity OPP-1',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),item=form.getByRole('region',{name:'Item 1',exact:true});
+ const weight=item.getByLabel('Net weight (g)',{exact:true});
+ await expect(weight).toBeEditable();await expect(weight).toHaveValue('100');
+ await weight.fill('425.25');
+ await expect(form.getByRole('region',{name:'Item 2',exact:true}).getByLabel('Net weight (g)',{exact:true})).toHaveValue('');
+ expect(state.writes).toHaveLength(0);
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();
+ expect(state.writes).toHaveLength(0);
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].item_rows[0]).toMatchObject({ID:11,NetWeightGrams:'425.25'});
+ expect(state.writes[0].item_rows[0]).not.toHaveProperty('RefreshProductWeight');
+});
+
+test('net weight rejects blank, zero, negative and excess decimals before save',async({page})=>{
+ const state=await setup(page);
+ await page.getByRole('button',{name:'Edit Opportunity OPP-1',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),item=form.getByRole('region',{name:'Item 1',exact:true});
+ for(const value of ['', '0','-1','400.001']){
+  await item.getByLabel('Net weight (g)',{exact:true}).fill(value);
+  await form.getByRole('button',{name:'Review & save',exact:true}).click();
+  await expect(form.getByRole('alert')).toContainText('net weight must be positive');
+  await expect(page.getByRole('dialog',{name:'Confirm Opportunity save',exact:true})).toHaveCount(0);
+ }
+ expect(state.writes).toHaveLength(0);
+});
+
 test('Opportunity editor omits the legacy Loss processes label and launcher',async({page})=>{
  await setup(page);await page.getByRole('button',{name:'Edit Opportunity OPP-1',exact:true}).click();
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true});
@@ -90,7 +119,7 @@ test('layout filters hide clear and restore saved criteria without overview bann
  await layout.getByRole('button',{name:'Save layout to profile'}).click();await expect(layout.getByRole('status')).toContainText('saved');
  expect(state.profile().settings.opportunity.header.values).toEqual({bid_open_from:'2026-09-01'});
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await expect(page.getByLabel('Bid open from',{exact:true})).toHaveValue('2026-09-01');
+ await expect(page.getByLabel('Bid open from',{exact:true})).toHaveValue('09/01/2026');
  await expect(page.getByRole('textbox',{name:'Customer',exact:true})).toHaveCount(0);
  const clearedAll=page.waitForRequest(r=>r.url().includes('/api/opportunity/grid')&&!new URL(r.url()).searchParams.has('bid_open_from'));
  await page.getByRole('button',{name:'Clear'}).click();await clearedAll;
@@ -271,4 +300,31 @@ test('request box only appears in Packaging tab; Product Info is read-only',asyn
  await expect(box.getByLabel('Request notes')).toHaveValue('Keep this draft');
  await page.getByRole('button',{name:'All Fields',exact:true}).click();
  await expect(box).toHaveCount(0);
+});
+
+test('explicitly reselecting the same Product refreshes the draft net weight',async({page})=>{
+ const state=await setup(page);
+ await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,CustomerID:1,ProductCode:'Almonds',ProductName:'Roasted almonds',WeightGrams:400}]}}));
+ await page.getByRole('button',{name:'Edit Opportunity OPP-1',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),item=form.getByRole('region',{name:'Item 1',exact:true});
+ await expect(item.getByLabel('Net weight (g)',{exact:true})).toHaveValue('100');
+ await item.getByLabel('Product *',{exact:true}).selectOption('');
+ await item.getByLabel('Product *',{exact:true}).selectOption('2');
+ await expect(item.getByLabel('Net weight (g)',{exact:true})).toHaveValue('400');
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].item_rows[0].RefreshProductWeight).toBe(true);
+});
+
+test('refresh weight fetches current master without saving other draft fields',async({page})=>{
+ const state=await setup(page);let calls=0,masterWeight=395;
+ await page.route('**/api/opportunity/lookups',r=>{calls++;return r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,CustomerID:1,ProductCode:'Almonds',ProductName:'Roasted almonds',WeightGrams:masterWeight}]}})});
+ await page.getByRole('button',{name:'Edit Opportunity OPP-1',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),item=form.getByRole('region',{name:'Item 1',exact:true});
+ await item.getByLabel('Annual units *',{exact:true}).fill('555');
+ const before=calls;masterWeight=400;
+ await item.getByRole('button',{name:'Refresh Product weight for item 1',exact:true}).click();
+ await expect(item.getByLabel('Net weight (g)',{exact:true})).toHaveValue('400');
+ await expect(item.getByLabel('Annual units *',{exact:true})).toHaveValue('555');
+ expect(calls).toBe(before+1);expect(state.writes).toHaveLength(0);
 });

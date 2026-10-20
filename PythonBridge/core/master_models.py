@@ -6,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 Entity=Literal["materials","prices","raw-materials","raw-prices","raw-grades","products","vendors","uoms","pallets","packaging-types"]
 AUDIT={"CreatedAt":"Created at","CreatedByName":"Created by","UpdatedAt":"Updated at","UpdatedByName":"Updated by"}
 COLUMNS={
- "packaging-types":{"ParentType":"Parent Type","PackagingOrder":"Order","PackagingType":"Packaging Type","Shipping":"Shipping","FinalComponent":"Single","CopyDim":"Copy Dim.","Status":"Status",**AUDIT},
+ "packaging-types":{"ParentType":"Parent Types","PackagingOrder":"Order","PackagingType":"Packaging Type","Shipping":"Shipping","FinalComponent":"Single","CopyDim":"Copy Dim.","Status":"Status",**AUDIT},
  "pallets":{"PalletPriceUSDPerEA":"Pallet price ($/EA)","UnitOfMeasure":"UoM","Width":"Width","Length":"Length","PalletAreaMM2":"Pallet area (mm²)","PalletSize":"Pallet size",**PALLET_CAPACITY_LABELS,"ConversionStatus":"Conversion status","Status":"Status",**AUDIT},
- "uoms":{"UoMCode":"UoM code","UoMName":"UoM name","Status":"Status",**AUDIT},
+ "uoms":{"UoMCode":"UoM code","UoMName":"UoM name","Category":"Category","BaseFactor":"Factor to category base unit","Status":"Status",**AUDIT},
  "vendors":{"VendorName":"Vendor name","Address":"Address","CurrencyCode":"Currency","Status":"Status",**AUDIT},
  "products":{"IsMix":"Product Mix","CustomerName":"Customer","Category":"Category","ProductCode":"Product code","ProductName":"Product name","WeightGrams":"Weight (g)","WeightOz":"Weight (oz)","ShelfLifeDays":"Shelf life (days)","Status":"Status",**AUDIT},
  "materials":{"MaterialCode":"Material code","MaterialName":"Material name","Description":"Description","UnitOfMeasure":"Base UoM","Status":"Status",**AUDIT},
@@ -16,7 +16,7 @@ COLUMNS={
 }
 FILTERS={"uoms":{"search","status","created_by"},"vendors":{"search","status","created_by"},"products":{"search","status","created_by"},"materials":{"search","status","created_by"},"prices":{"search","status","material_id","currency_id","as_of","created_by"}}
 PRODUCT_REQUIRED_COLUMNS=("CustomerName","ProductName","Category","WeightGrams")
-MASTER_REQUIRED_COLUMNS={"uoms":("UoMCode",),"vendors":("VendorName",),
+MASTER_REQUIRED_COLUMNS={"uoms":("UoMCode","Category","BaseFactor"),"vendors":("VendorName",),
  "products":PRODUCT_REQUIRED_COLUMNS,
  "materials":("MaterialName","UnitOfMeasure"),
  "prices":("MaterialCode","CurrencyCode","BaseUoM","QuantityFrom","UnitPrice","EffectiveFrom")}
@@ -26,19 +26,24 @@ for raw, original in (("raw-materials","materials"),("raw-prices","prices")):
  COLUMNS[raw]=dict(COLUMNS[original])
  FILTERS[raw]=set(FILTERS[original])
  MASTER_REQUIRED_COLUMNS[raw]=MASTER_REQUIRED_COLUMNS[original]
-COLUMNS["prices"].update(SUPPLIER_FIELDS, SupplierAreaPerPriceUnit="Supplier conversion / Price UoM")
+COLUMNS["materials"].update(MaterialDimensionID="Material dimension ID",MaterialD1="Material D1",MaterialD2="Material D2",MaterialD3="Material D3",MaterialDimensionsNeedsReview="Dimensions need review")
 
+COLUMNS["raw-materials"].pop("Description",None)
+COLUMNS["raw-materials"]["Origin"]="Origin"
 COLUMNS["raw-materials"]["GradeName"]="Grade"
 COLUMNS["materials"]["PackagingType"]="Packaging Type"
 COLUMNS["materials"].pop("Description",None)
 COLUMNS["materials"].update(TareWeight="Tare weight",TareWeightBasis="Tare basis")
-COLUMNS["raw-grades"]={"ParentGradeName":"Parent grade","GradeName":"Grade name","Status":"Status",**AUDIT}
+COLUMNS["raw-grades"]={"ParentGradeName":"Parent grade","GradeName":"Grade name","FinalGrade":"Final grade","Status":"Status",**AUDIT}
 FILTERS["raw-grades"]={"search","status","created_by"}
-MASTER_REQUIRED_COLUMNS["raw-grades"]=("GradeName",)
+MASTER_REQUIRED_COLUMNS["raw-grades"]=("GradeName","FinalGrade")
 FILTERS["pallets"]={"search","status","created_by"}
 MASTER_REQUIRED_COLUMNS["pallets"]=("UnitOfMeasure","Width","Length")
 FILTERS["packaging-types"]={"search","status","created_by"}
-MASTER_REQUIRED_COLUMNS["packaging-types"]=("PackagingOrder","PackagingType","FinalComponent","CopyDim","Shipping")
+MASTER_REQUIRED_COLUMNS["packaging-types"]=("PackagingType","FinalComponent","Shipping")
+from packaging_orders import TYPE_FLAGS
+COLUMNS["packaging-types"]={k:v for k,v in COLUMNS["packaging-types"].items() if k not in ("PackagingOrder","CopyDim")}
+COLUMNS["packaging-types"].update({key:("Palletization" if key=="Palletization" else order) for key,order in TYPE_FLAGS.items()})
 
 class MasterSort(BaseModel):
  model_config=ConfigDict(extra="forbid")
@@ -54,15 +59,16 @@ class MasterLayout(BaseModel):
  sort:list[MasterSort]=Field(default_factory=list,max_length=8)
  page_size:int=Field(25,ge=1,le=500)
 def check_layout(entity,layout):
- if entity=="materials":
+ if entity in ("materials","raw-materials"):
   layout.columns=[c for c in layout.columns if c!="Description"]
   layout.sort=[s for s in layout.sort if s.column!="Description"]
   layout.column_widths={k:v for k,v in layout.column_widths.items() if k!="Description"}
  # Upgrade saved profiles and existing download layouts when fields are retired.
  if entity=="packaging-types":
-  layout.columns=[c for c in layout.columns if c not in ("TareWeight","PriceBasis")]
-  layout.sort=[s for s in layout.sort if s.column not in ("TareWeight","PriceBasis")]
-  layout.column_widths={k:v for k,v in layout.column_widths.items() if k not in ("TareWeight","PriceBasis")}
+  layout.columns=list(dict.fromkeys([*layout.columns,*TYPE_FLAGS]))
+  layout.columns=[c for c in layout.columns if c not in ("TareWeight","PriceBasis","CopyDim","PackagingOrder")]
+  layout.sort=[s for s in layout.sort if s.column not in ("TareWeight","PriceBasis","CopyDim","PackagingOrder")]
+  layout.column_widths={k:v for k,v in layout.column_widths.items() if k not in ("TareWeight","PriceBasis","CopyDim","PackagingOrder")}
  if entity=="products":
   layout.columns=[c for c in layout.columns if c not in ("Grade","MixRatioPct")]
   layout.sort=[s for s in layout.sort if s.column not in ("Grade","MixRatioPct")]
@@ -75,6 +81,11 @@ def check_layout(entity,layout):
   layout.columns=list(dict.fromkeys("BaseUoM" if c=="PriceBasis" else c for c in layout.columns))
   for rule in layout.sort:
    if rule.column=="PriceBasis":rule.column="BaseUoM"
+ if entity=="prices":
+  retired=set(SUPPLIER_FIELDS)|{"SupplierAreaPerPriceUnit"}
+  layout.columns=[c for c in layout.columns if c not in retired]
+  layout.sort=[r for r in layout.sort if r.column not in retired]
+  layout.column_widths={k:v for k,v in layout.column_widths.items() if k not in retired}
  allowed=COLUMNS[entity]
  if any(k not in allowed and k!="_Actions" for k in layout.column_widths):raise ValueError("Invalid column width key.")
  for keys in (layout.columns,[s.column for s in layout.sort]):

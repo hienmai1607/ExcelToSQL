@@ -8,6 +8,15 @@ from typing import Literal
 router = APIRouter(prefix="/api/raw-material", tags=["Raw Material"])
 
 class RawMaterialRow(MaterialRow):
+    Origin:str|None=Field(None,max_length=200)
+    @computed_field
+    @property
+    def OriginSet(self)->bool:
+        return "Origin" in self.model_fields_set
+    @computed_field
+    @property
+    def DescriptionSet(self)->bool:
+        return "Description" in self.model_fields_set
     GradeID:int|None=Field(None,ge=1)
     @computed_field
     @property
@@ -19,7 +28,7 @@ class RawMaterialBatch(Input):
 
 @router.post("/material/batch")
 def material_save(payload: RawMaterialBatch, ctx: AccessContext = Depends(get_access_context)):
-    return batch(payload,ctx,"RawMaterialBatchTypeV2","usp_RawMaterial_BatchV2",MATERIAL+[("GradeID","INT"),("GradeSet","BIT")],scope="RawMaterial")
+    return batch(payload,ctx,"RawMaterialBatchTypeV3","usp_RawMaterial_BatchV3",MATERIAL+[("GradeID","INT"),("GradeSet","BIT"),("Origin","NVARCHAR(200)"),("OriginSet","BIT"),("DescriptionSet","BIT")],scope="RawMaterial")
 
 @router.post("/price/batch")
 def price_save(payload: PriceBatch, ctx: AccessContext = Depends(get_access_context)):
@@ -33,6 +42,7 @@ def price_save(payload: PriceBatch, ctx: AccessContext = Depends(get_access_cont
                  PRICE+[("VendorID","INT"),("ExchangeRateToUSD","DECIMAL(18,10)")],scope="RawMaterial")
 
 class RawGradeRow(MasterRow):
+    FinalGrade:bool|None=None
     ParentGradeID:int|None=Field(None,ge=1)
     @computed_field
     @property
@@ -48,4 +58,4 @@ class RawGradeBatch(Input):
 def grade_save(payload:RawGradeBatch,ctx:AccessContext=Depends(get_access_context)):
     fields=[("RowNum","INT"),("Command","CHAR(1)"),("ID","INT"),
             ("GradeName","NVARCHAR(100)"),("Status","VARCHAR(10)"),("RowVersionB64","VARCHAR(18)")]
-    return batch(payload,ctx,"RawGradeBatchTypeV4","usp_RawGrade_BatchV4",fields+[("ParentGradeID","INT"),("ParentGradeSet","BIT")],scope="RawMaterial")
+    return batch(payload,ctx,"RawGradeBatchTypeV5","usp_RawGrade_BatchV5",fields+[("ParentGradeID","INT"),("ParentGradeSet","BIT"),("FinalGrade","BIT")],scope="RawMaterial")

@@ -29,13 +29,23 @@ export function numberDisplay(key:string,value:unknown):string|null{
  if(key==='Width'||key==='Length')return decimalDisplay(value,4);
  if(key==='PalletAreaMM2')return decimalDisplay(value,8);
  if(key==='AnnualUnit'||key==='MixUnitQuantity')return decimalDisplay(value,4);
+ if(key==='BaseFactor')return decimalDisplay(value,12);
  if(key==='Factor'||key==='ConversionFactor')return decimalDisplay(value,9);
  if(money.has(key))return decimalDisplay(value,2,true);
  if(numeric.has(key))return decimalDisplay(value,3);
  return value===null||value===undefined||value===''?null:String(value);
 }
 
-export function isNumericField(key:string){return ['SupplierDimensionID','SupplierD1','SupplierD2','SupplierD3','SupplierAreaPerPriceUnit'].includes(key)||palletCapacityKeys.includes(key)||efficiencyNumbers.has(key)||['NutDensity','UsedVolumeML','TareWeight','Width','Length','PalletAreaMM2','PrimaryPricePerUnit','SecondaryPricePerUnit','TertiaryPricePerUnit','RequestedLayerCount','ResponseLayerCount','NumberOfPrimary','NumberOfSecondary','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','ThirdPMMOQ','CalculatedCartonsPerContainer','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','NetWeightPerContainerKG','NetWeightPerContainerFloorKG'].includes(key)||money.has(key)||numeric.has(key)}
+
+/** Raw-price picker text only. Option IDs, quote precision and save values stay raw. */
+export function rawPriceOption(row:Record<string,unknown>):string{
+ const from=decimalDisplay(row.QuantityFrom,4)??'—';
+ const to=row.QuantityTo==null?'∞':decimalDisplay(row.QuantityTo,4)??'—';
+ const price=numberDisplay('UnitUSDPrice',row.USDPerLb);
+ return String(row.MaterialCode??'')+' · '+String(row.VendorName||'No vendor')+' · '+from+'–'+to+' '+String(row.PriceBasis??'')+' · '+(price===null?'— (conversion missing)':price+' USD/lb');
+}
+
+export function isNumericField(key:string){return ['BaseFactor','SupplierDimensionID','SupplierD1','SupplierD2','SupplierD3','SupplierAreaPerPriceUnit'].includes(key)||palletCapacityKeys.includes(key)||efficiencyNumbers.has(key)||['NutDensity','UsedVolumeML','TareWeight','Width','Length','PalletAreaMM2','PrimaryPricePerUnit','SecondaryPricePerUnit','TertiaryPricePerUnit','RequestedLayerCount','ResponseLayerCount','NumberOfPrimary','NumberOfSecondary','NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit','ThirdPMMOQ','CalculatedCartonsPerContainer','PrimaryNetWeightGrams','SecondaryNetWeightGrams','TertiaryNetWeightGrams','NetWeightPerPalletKG','NetWeightPerContainerKG','NetWeightPerContainerFloorKG'].includes(key)||money.has(key)||numeric.has(key)}
 export function opportunityDisplay(row:Record<string,unknown>,key:string):string|null{
  if(key.startsWith('TCB')&&key.endsWith('PerUnit')){const amount=decimalDisplay(row[key],6);return amount?amount+' '+(key.includes('Customer')?String(row.CustomerCurrencyCode??''):'USD'):null;}
  const value=numberDisplay(key,row[key]);

@@ -33,7 +33,8 @@ class ShipmentCostInfo(BaseModel):
     InterestMonths: int | None = Field(None, ge=0, le=2147483647, strict=True)
     MarginPct: Percent | None = None
     FloorLoadUSDPerMT: USD | None = None
-    ImportClearanceCustomerPerPallet: USD | None = None
+    ImportClearanceCustomerPerContainer: USD | None = None
+    ImportClearanceCustomerPerPallet: USD | None = None # Historical basis only.
     InterestDays: int | None = Field(None,ge=0,le=2147483647,strict=True)
     PaymentTermDays: int | None = Field(None,ge=0,le=2147483647,strict=True)
     MarginMode: Literal["Percent","USDPerLb"] | None = None
@@ -49,14 +50,12 @@ class ShipmentCostInfo(BaseModel):
 
 
 def validate_new_shipment(models):
-    """New root items require a pallet and exact container; children inherit."""
+    """New root items require an exact container; pallet is optional and children inherit."""
     from fastapi import HTTPException
     from container_loading import CONTAINER_TYPES
     for row in models:
         if row.command != "C":
             continue
-        if not row.PalletSize or not row.PalletSize.strip():
-            raise HTTPException(422, f"Item {row.row_num}: Pallet size is required.")
         if row.ContainerRequest not in CONTAINER_TYPES:
             raise HTTPException(422, f"Item {row.row_num}: Container Type is required (20DC, 20RC, 40DC, 40HC or 40RHC).")
 

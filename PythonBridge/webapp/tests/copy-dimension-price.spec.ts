@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-test('Copy Dim. material price requires all defined measurements before saving',async({page})=>{
+test('Copy Dim. pricing does not maintain independent measurements',async({page})=>{
  const writes:any[]=[];
  await page.route('**/api/**',route=>{
   const req=route.request(),path=new URL(req.url()).pathname;
@@ -21,14 +21,11 @@ test('Copy Dim. material price requires all defined measurements before saving',
  await form.getByLabel('Price UoM',{exact:true}).selectOption('EA');
  await form.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('10');
  await form.getByLabel('Effective from',{exact:true}).fill('2026-01-01');
- await expect(form.getByLabel('Material dimension definition',{exact:true})).toHaveValue('9');
- await form.getByRole('button',{name:'Review & save',exact:true}).click();
- await expect(page.getByRole('dialog',{name:'Confirm master save'})).toHaveCount(0);
- await expect(form.getByText('Required for Copy Dim.',{exact:true})).toHaveCount(2);
- await form.getByLabel('Material D1',{exact:true}).fill('250');
- await form.getByLabel('Material D2',{exact:true}).fill('150');
+ await expect(form.getByLabel('Material dimension definition',{exact:true})).toHaveCount(0);
+ await expect(form.getByLabel('Supplier dimension definition',{exact:true})).toHaveCount(0);
  await form.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect.poll(()=>writes.length).toBe(1);
- expect(writes[0].rows[0]).toMatchObject({MaterialDimensionID:9,MaterialDimensionRowVersion:'AAAAAAAAAAE=',MaterialD1:'250',MaterialD2:'150'});
+ expect(writes[0].rows[0]).not.toHaveProperty('MaterialDimensionID');
+ expect(writes[0].rows[0]).not.toHaveProperty('SupplierDimensionID');
 });

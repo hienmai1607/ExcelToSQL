@@ -5,7 +5,7 @@ import {Modal,ErrorNote,Badge} from './ui';
 import {IconButton} from './icons';
 type Entry={key:number;name:string;market:string;currency:string;errors:Record<string,string>;message:string;saved:boolean};
 const blank=(key:number):Entry=>({key,name:'',market:'',currency:'',errors:{},message:'',saved:false});
-export function CustomerCreate({lookups,onClose,onSaved}:{lookups:{markets:Row[];currencies:Row[]};onClose:()=>void;onSaved:(count:number)=>void}){
+export function CustomerCreate({lookups,onClose,onSaved}:{lookups:{markets:Row[];currencies:Row[]};onClose:()=>void;onSaved:(count:number,records?:Row[])=>void}){
  const [entries,setEntries]=useState<Entry[]>([blank(1)]),[confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[uncertain,setUncertain]=useState(false);
  const sequence=useRef(1),lock=useRef(false),first=useRef<HTMLInputElement>(null);
  const pending=entries.filter(x=>!x.saved),dirty=pending.some(x=>x.name||x.market||x.currency);
@@ -34,7 +34,7 @@ export function CustomerCreate({lookups,onClose,onSaved}:{lookups:{markets:Row[]
    }
    const successes=results.filter(r=>r.Status==='OK').length;
    setEntries(list=>list.map(x=>{if(x.saved)return x;const r=results.find(r=>Number(r.RowNum)===x.key)!;return {...x,saved:r.Status==='OK',message:r.Status==='OK'?'Created':String(r.Message||'Could not save this customer.')};}));
-   if(successes)onSaved(successes);
+   if(successes)onSaved(successes,results.filter(r=>r.Status==='OK'&&r.NewID!=null).map(r=>{const entry=submitted.find(x=>x.key===Number(r.RowNum))!;return {ID:Number(r.NewID),CustomerName:entry.name.trim(),MarketID:Number(entry.market),CurrencyID:Number(entry.currency)}}));
    if(successes===submitted.length)onClose();else setError('Some customers were not saved. Correct the marked sections and save again. Created records will not be resubmitted.');
   }catch(e){if(e instanceof ApiError&&(e.status===0||e.status>=500)){setUncertain(true);setError('Save outcome unknown. Close and refresh the list before trying again.')}else setError(e instanceof Error?e.message:'Save failed.')}
   finally{setConfirm(false);setBusy(false);lock.current=false}

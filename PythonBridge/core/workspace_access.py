@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 LEVELS = {"none": 0, "display": 1, "edit": 2}
 PAGES = {
- "opportunities":"Opportunities","customers":"Customers","products":"Products",
+ "grade-densities":"Grade Density Master","opportunities":"Opportunities","customers":"Customers","products":"Products",
  "requests":"Packaging Requests","materials":"Packaging Material","prices":"Packaging Pricing",
  "packaging-types":"Packaging Types","packaging-dimensions":"Packaging Dimensions","pallets":"Pallet Master","containers":"Container Type Master",
  "raw-materials":"Raw Material","raw-prices":"Raw Pricing","raw-grades":"Raw Grade Master",
@@ -14,8 +14,8 @@ DEFAULTS = {
  "Customer":{"customers":"edit","ports":"display"},
  "Product":{"products":"edit","categories":"display","loss-processes":"display"},
  "Opportunity":{"opportunities":"edit","requests":"display","ports":"display","loss-processes":"display"},
- "Packaging":{k:"edit" for k in ("requests","materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},
- "PackagingManager":{**{k:"display" for k in ("materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},"requests":"edit"},
+ "Packaging":{k:"edit" for k in ("grade-densities","requests","materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},
+ "PackagingManager":{**{k:"display" for k in ("grade-densities","materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},"requests":"edit"},
  "RawMaterial":{k:"edit" for k in ("raw-materials","raw-prices","raw-grades","conversions")}}
 def merge_permissions(direct_scopes, role_permissions):
  result={key:"none" for key in PAGES}
@@ -44,12 +44,14 @@ def route_pages(path):
  parts=path.strip("/").split("/")
  if len(parts)<2:return ()
  # Lookup data needed by another permitted editor is not independent page access.
+ if path in ("/api/ai/status","/api/ai/preview","/api/ai/chat/preview","/api/ai/conversations") or path.startswith("/api/ai/conversations/"):return tuple(PAGES)
  if path=="/api/customer/lookups":return ("customers","opportunities","products","ports")
  if path=="/api/opportunity/lookups":return ("opportunities",)
  if path.startswith("/api/workbench/masters/lookups"):return tuple(PAGES)
  if path=="/api/packaging/manual":return ("opportunities",)
  if "/attachments" in path:return ("opportunities","requests")
  if path.startswith("/api/packaging/lookups"):return ("requests","opportunities","materials","prices","packaging-types","packaging-dimensions","pallets")
+ if path.startswith("/api/workbench/products/grade-copy/"):return ("products","opportunities")
  if "/raw-grade-lookups" in path or path.endswith("/raw-pricing"):return ("products","opportunities","raw-grades")
  if path.startswith("/api/workbench/master-excel/") or path.startswith("/api/workbench/masters/"):
   return (parts[3],) if len(parts)>3 and parts[3] in PAGES else ()
@@ -57,13 +59,17 @@ def route_pages(path):
  if path.startswith("/api/workbench/packaging-excel"):return ("requests",)
  if path.startswith("/api/workbench/product-excel"):return ("products",)
  if path.startswith("/api/workbench/requests") or path.startswith("/api/workbench/pics"):return ("requests","opportunities")
+ if path=="/api/pallet-pricing/pallets":return ("requests","opportunities")
  if path.startswith("/api/pallet-pricing/items/"):return ("requests",)
  if path.startswith("/api/load-planning/items/"):return ("requests","opportunities")
  if path=="/api/load-planning/pallet-prices":return ("requests","opportunities","prices")
  if path=="/api/load-planning/containers":return ("containers","requests","opportunities") if len(parts)==3 else ()
+ if path.startswith("/api/business-records/"):
+  key=parts[2] if len(parts)>2 else ""
+  return ({"opportunity-items":"opportunities","request-items":"requests"}.get(key,key),) if key in PAGES or key in ("opportunity-items","request-items") else ()
  resource=parts[1]
  if resource=="raw-material" and len(parts)>2:return ({"material":"raw-materials","price":"raw-prices","grade":"raw-grades"}.get(parts[2],"raw-materials"),)
- simple={"customer":"customers","product":"products","opportunity":"opportunities","raw-material":"raw-materials",
+ simple={"grade-densities":"grade-densities","customer":"customers","product":"products","opportunity":"opportunities","raw-material":"raw-materials",
  "raw-materials":"raw-materials","raw-prices":"raw-prices","raw-grades":"raw-grades","unit-conversions":"conversions",
  "pallets":"pallets","packaging-types":"packaging-types","packaging-dimensions":"packaging-dimensions",
  "categories":"categories","loss-processes":"loss-processes","ports":"ports"}
@@ -85,7 +91,9 @@ def enforce_route(ctx,path,method):
  if path=="/api/workbench/session" or path.startswith("/api/workbench/preferences"):return
  pages=route_pages(path)
  if not pages:raise HTTPException(403,"No page access is assigned for this API.")
- read=method in ("GET","HEAD","OPTIONS") or path.endswith(("/export","/page","/download","/preview","/preview-formula","/preview-volume","/readonly"))
+ read=method in ("GET","HEAD","OPTIONS") or path.endswith(("/export","/page","/download","/preview","/preview-formula","/preview-volume","/readonly","/eligibility"))
+ # Private chat history is not business editing; endpoint ownership checks apply.
+ if path=="/api/ai/conversations" or path.startswith("/api/ai/conversations/"):read=True
  needed=1 if read else 2
  if not any(LEVELS.get(ctx.permissions.get(page,"none"),0)>=needed for page in pages):
   raise HTTPException(403,"Display-only or missing page access; editing is not permitted." if not read else "No access to this page.")

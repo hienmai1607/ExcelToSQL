@@ -29,7 +29,7 @@ export function palletLayers(values:Record<string,string>):string{
  const raw=values.HeightMM;
  if(!raw)return /^(0|[1-9]\d{0,9})$/.test(values.LayersPerPallet||'')&&BigInt(values.LayersPerPallet)<=2147483647n?values.LayersPerPallet:'';
  const height=weightValue(raw),maximum=values.ResponseMaxPalletHeightMM;
- if(!/^\d{1,10}(\.\d{0,2})?$/.test(raw)||!height||height.amount<=0n||!/^\d{1,9}$/.test(maximum||'')||BigInt(maximum)<=0n)return '';
+ if(!/^\d{1,10}(\.\d{0,20})?$/.test(raw)||!height||height.amount<=0n||!/^\d{1,9}$/.test(maximum||'')||BigInt(maximum)<=0n)return '';
  const base=weightValue(String(palletBaseHeight(values)))!,scale=10n**BigInt(base.scale);
  const available=BigInt(maximum)*scale>base.amount?BigInt(maximum)*scale-base.amount:0n;
  const count=available*10n**BigInt(height.scale)/(height.amount*scale);

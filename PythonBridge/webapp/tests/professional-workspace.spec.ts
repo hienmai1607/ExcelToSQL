@@ -50,6 +50,14 @@ async function openEditor(page:Page){
  return page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
 }
 
+test('business editor titles and heading levels use the shared type scale',async({page})=>{
+ await setup(page);
+ const editor=await openEditor(page);
+ const sizes=await editor.locator('h2,h3,h4').evaluateAll(els=>els.map(el=>({tag:el.tagName,size:getComputedStyle(el).fontSize})));
+ expect(sizes.length).toBeGreaterThan(3);
+ for(const heading of sizes)expect(heading.size).toBe(({H2:'22px',H3:'16px',H4:'14px'} as Record<string,string>)[heading.tag]);
+});
+
 test('1920 workspace groups navigation and pins the record action bar while body scrolls',async({page},info)=>{
  await setup(page);
  for(const group of ['Sales workspace','Packaging','Raw materials','Shared masters'])await expect(page.locator('.nav-group-title').getByText(group,{exact:true})).toBeVisible();
@@ -72,7 +80,7 @@ test('1920 workspace groups navigation and pins the record action bar while body
 test('density is in Product Info and each Packing Way weight sits below its matching count',async({page})=>{
  await setup(page);const editor=await openEditor(page);
  const product=editor.getByRole('region',{name:'Product Info response'}),packing=editor.getByRole('region',{name:'Packing Way response'});
- await expect(product.getByLabel('Used volume (ml)',{exact:true})).toHaveValue('245.901639');
+ await expect(product.getByLabel('Used volume (ml)',{exact:true})).toHaveValue('245.902');
  const values=[['Primary','10','150'],['Secondary','5','1,500'],['Tertiary','1','7,500']];
  for(const [layer,count,weight] of values){
   const countInput=packing.getByLabel('No of '+layer+' Unit',{exact:true}),weightInput=packing.getByLabel(layer+' net weight (g)',{exact:true});

@@ -15,7 +15,7 @@ DEPENDENCY_FIELDS=(
     'ConfigurationRequest','WeightGrams','ApplicableNetWeightGrams','ResponseLayerCount',
     'RequestedLayerCount','FirstPMType','SecondPMType','ThirdPMType','UnitsPerCarton',
     'UnitsPerTertiary','LengthMM','WidthMM','HeightMM','CartonsPerLayer',
-    'ResponsePalletSize','ResponsePalletStacking','ResponseMaxPalletHeightMM','PalletPricingID',
+    'ResponsePalletMaterialID','ResponsePalletSize','ResponsePalletStacking','ResponseMaxPalletHeightMM','PalletPricingID',
 )
 
 

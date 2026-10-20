@@ -8,7 +8,7 @@ def row(id=1):
  return dict(OpportunityID=1,ItemID=id,ProductID=id,ProductCode="P"+str(id),IsMixParent=False,WeightGrams="453.59237",
   AnnualUnit="1000",EstPctAwarded="50",ResponseLayerCount=2,UnitsPerCarton=10,UnitsPerPallet=1000,
   PrimaryPricePerUnit=".1",PrimaryPriceCurrencyCode="USD",SecondaryPricePerUnit="1",SecondaryPriceCurrencyCode="USD",
-  CustomerCurrencyCode="AUD",ExchangeRateCustomerCurrencyPerUSD="1.5",ContainerRequest="Dry",
+  CustomerCurrencyCode="AUD",ExchangeRateCustomerCurrencyPerUSD="1.5",ContainerRequest="20DC",
   ConfigurationRequest="Pallet load",SelectedContainerType="20DC",ContainerLoadProfiles={"20DC":{"CartonsPerContainerFloor":200}},
   ContainerLoadResults={"20DC":{"CalculatedCartonsPerContainer":100}},
   ShipmentCostInfo=dict(PackingUSDPerLb=".5",InitialDesignUSD="100",OtherFixedCostsUSD="50",FobbingUSDPerContainer="200",InterestPct="12",InterestMonths="10",MarginPct="10"),
@@ -27,11 +27,20 @@ class Contracts(unittest.TestCase):
   add_tcb_columns([r])
   self.assertNotIn("_TCBCostInfo",r)
   values=[r[k] for k in TCB_LABELS]
-  self.assertEqual(values[:12],["1.8","0.2","0","0.01","0.5","0.2","0.1","0.2","0.301","0.3311","3.6421","5.46315"])
-  self.assertEqual(values[12:21],["1","0.46421","0.1","0.2","0.3","0.2853155","0.4","0.5","0.6"])
-  self.assertEqual(values[25],"4.6421")
-  self.assertAlmostEqual(float(values[26]),7.4916255/.9,places=10)
-  self.assertAlmostEqual(float(values[27]),7.4916255/.9*1.5,places=10)
+  self.assertEqual(values[:12],["2.222222222222","0.2","0","0.01","0.5","0.2","0.1","0.2","0.343222222222","0.377544444444","4.152988888889","6.229483333333"])
+  for actual,expected in zip(values[12:21],[1,.515298888888889,.1,.2,.3,.313414388888889,.4,.5,.6]):
+   self.assertAlmostEqual(float(actual),expected,places=10)
+  self.assertEqual(values[25],"5.152988888889")
+  self.assertAlmostEqual(float(values[26]),8.081702166666667/.9,places=10)
+  self.assertAlmostEqual(float(values[27]),8.081702166666667/.9*1.5,places=10)
+ def test_clearance_customer_currency_is_per_container_not_pallet(self):
+  r=row();r.update(UnitsPerPallet=100)
+  r["ShipmentCostInfo"].update(ImportClearanceCustomerPerContainer="150",ImportClearanceCustomerPerPallet="900",ImportClearanceUSDPerContainer="700")
+  add_tcb_columns([r])
+  self.assertEqual(r["TCBClearancePerUnit"],"0.1")
+  r=row();r["ShipmentCostInfo"].update(ImportClearanceCustomerPerContainer="0",ImportClearanceCustomerPerPallet="900")
+  add_tcb_columns([r]);self.assertEqual(r["TCBClearancePerUnit"],"0")
+
  def test_mix_sharing_and_packaging_loss(self):
   root,a,b=row(10),row(11),row(12)
   root.update(IsMixParent=True,ProductMixSnapshot={"items":[{"ProductID":11,"UnitQuantity":2},{"ProductID":12,"UnitQuantity":1}]})
@@ -82,7 +91,7 @@ class Contracts(unittest.TestCase):
   with patch.object(views,"execute",return_value=[[r],[{"Total":1}]]) as execute:
    result=views.sorted_grid("Sales",1,25,"[]")
   self.assertIn("i.TCBCostInfo AS _TCBCostInfo",execute.call_args.args[0])
-  self.assertEqual(result["rows"][0]["TCBProductPerUnit"],"1.8")
+  self.assertEqual(result["rows"][0]["TCBProductPerUnit"],"2.222222222222")
   self.assertIsNone(result["rows"][0]["TCBSelfPackagingPerUnit"])
   self.assertNotIn("_TCBCostInfo",result["rows"][0])
  def test_workbook_contains_numeric_values_group_headers_and_calculated_category(self):
@@ -104,5 +113,20 @@ class Contracts(unittest.TestCase):
    self.assertEqual(text(rows[0][index]),"TCB Review")
    self.assertEqual(text(rows[1][index]),"FOB Costing")
    self.assertEqual(text(rows[3][index]),"Auto calculate")
-   self.assertEqual(text(rows[4][index]),"3.6421")
+   self.assertEqual(text(rows[4][index]),"4.152988888889")
+class SalesDecisionContracts(unittest.TestCase):
+ def test_product_loss_uses_inverse_yield_and_zero_yield_is_unknown(self):
+  r=row();r["WeightGrams"]="400";r["_TCBCostInfo"].update(ProductUSDPerLb="4.40674",Inputs={"LossProductPct":"2.54"})
+  add_tcb_columns([r]);self.assertAlmostEqual(float(r["TCBProductPerUnit"]),3.987358379891596,places=10)
+  r=row();r["_TCBCostInfo"]["Inputs"]["LossProductPct"]="100";add_tcb_columns([r])
+  self.assertIsNone(r["TCBProductPerUnit"]);self.assertIsNone(r["TCBFOBPerUnit"])
+ def test_sales_container_wins_and_uses_matching_reference_capacity(self):
+  r=row();r.update(ContainerRequest="40DC",ResponseContainerFamily="20DC",UnitsPerCarton=6,LoadPlanJSON={"ID":196,"Code":"20DC","Inputs":{},"Result":{}})
+  r["ContainerLoadResults"]={"20DC":{"CalculatedCartonsPerContainer":2000},"40DC":{"CalculatedCartonsPerContainer":4000}}
+  r["ShipmentCostInfo"].update(ContainerSizeFT="40FT",FobbingUSDPerContainer=700)
+  add_tcb_columns([r]);self.assertAlmostEqual(float(r["TCBFobbingPerUnit"]),700/24000,places=10)
+ def test_no_implicit_response_selection_or_cross_container_capacity(self):
+  for choice in ("Dry","40DC"):
+   r=row();r.update(ContainerRequest=choice,LoadPlanJSON={"ID":196,"Code":"20DC","Inputs":{},"Result":{}})
+   add_tcb_columns([r]);self.assertIsNone(r["TCBFobbingPerUnit"])
 if __name__=="__main__":unittest.main()

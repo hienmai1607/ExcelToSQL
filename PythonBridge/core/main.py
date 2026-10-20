@@ -14,7 +14,7 @@ from opportunity_changes_api import router as opportunity_changes_router
 from packaging_changes_api import router as packaging_changes_router
 from product_excel_api import router as product_excel_router
 from product_grades_api import router as product_grades_router
-from product_mix_api import router as product_mix_router
+from product_mix_api import router as product_mix_router, opportunity_mix_setup_choices
 from opportunity_excel_api import router as opportunity_excel_router
 from packaging_excel_api import router as packaging_excel_router
 from packaging_master_excel_api import router as packaging_master_excel_router
@@ -29,6 +29,7 @@ from packaging_dimension_api import router as packaging_dimension_router
 from pkg_pricing_api import router as pkg_pricing_router
 from packaging_type_api import router as packaging_type_router
 from tcb_api import router as tcb_router
+from tcb_versions_api import router as tcb_versions_router
 from loss_process_api import router as loss_process_router
 from customer_sort import parse_sort
 from ports_api import router as ports_router, opportunity_shipment_lookups; from category_api import router as category_router
@@ -59,6 +60,13 @@ from schemas import (
 )
 
 app = FastAPI(title="Opportunity/Product Bridge API")
+from local_ai_api import router as local_ai_router
+import local_ai_chat  # Register private conversation routes before including the router.
+app.include_router(local_ai_router)
+from business_deletion_api import router as business_deletion_router
+app.include_router(business_deletion_router)
+from grade_density_api import router as grade_density_router
+app.include_router(grade_density_router)
 app.include_router(administrator_router)
 app.include_router(opportunity_changes_router)
 app.include_router(packaging_changes_router)
@@ -85,6 +93,7 @@ app.include_router(preferences_router)
 app.include_router(attachments_router)
 app.include_router(ports_router); app.include_router(category_router)
 app.include_router(tcb_router)
+app.include_router(tcb_versions_router)
 app.include_router(loss_process_router)
 _web_dist = Path(__file__).resolve().parents[1] / "webapp" / "dist"
 if _web_dist.is_dir():
@@ -137,6 +146,8 @@ async def request_metrics(request: Request, call_next):
     duration_ms = (time.perf_counter() - started) * 1000
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Bridge-Contract"] = BRIDGE_CONTRACT_VERSION
+    if request.url.path.startswith("/api/ai/"):
+        response.headers["Cache-Control"] = "no-store, private"
     logger.info(
         "request_complete id=%s method=%s path=%s status=%s duration_ms=%.1f",
         request_id, request.method, request.url.path, response.status_code, duration_ms,
@@ -258,7 +269,15 @@ def product_batch(
     _require_scope(is_admin, scopes, "Product")
     results = []
     # Product master retains independent row outcomes.
+    from uom_categories import product_weight
     for model, values in zip(payload.rows, tvp_rows):
+        if model.command!="D" and not model.is_mix and model.weight_value not in (None,0):
+            try:
+                weight,unit=product_weight(model.weight_value,model.weight_unit)
+                values=(*values[:5],weight,unit,*values[7:])
+            except ValueError as exc:
+                results.append(dict(RowNum=model.row_num,Status="ERROR",Message=str(exc),NewID=None,NewRowVersion=None))
+                continue
         result = enriched_batch("dbo.usp_Product_Batch", [[values]], [username,int(is_admin),model.customer_id,model.is_mix], [[model]], ["Product"])[0]
         results.extend(result)
     if any(r.get("Status") == "OK" for r in results):
@@ -299,9 +318,12 @@ def opportunity_batch(
             safe_text(r.opportunity_number),
             r.product_id,
             safe_text(r.item_description),
-            r.annual_unit,
-            safe_pct_awarded(r.est_pct_awarded),
-            safe_shelf_price(r.shelf_price),
+            # Decimal objects let ODBC infer precision from the first TVP row.
+            # Numeric text keeps later larger values and NULL sentinels exact;
+            # the typed SQL TVP still performs DECIMAL conversion/validation.
+            str(r.annual_unit) if r.annual_unit is not None else None,
+            str(safe_pct_awarded(r.est_pct_awarded)),
+            str(safe_shelf_price(r.shelf_price)),
             "Draft",     # workflow stage is application-controlled; Excel is draft-only
             b64_to_bytes(r.row_version),
         )
@@ -596,7 +618,9 @@ def opportunity_lookups_read(
     from packaging_orders import decode_orders
     shipment_customers, ports = opportunity_shipment_lookups(username)
     markets_by_customer = {row['ID']: row for row in shipment_customers}
-    choices = cached("opportunity_master_lookups", ttl_seconds=60, loader=load_lookups)
+    # This editor also creates/activates masters inline. Per-worker TTL caches
+    # cannot guarantee read-after-write visibility when the next GET hits another worker.
+    choices = {**load_lookups(), "unready_products": opportunity_mix_setup_choices()}
     choices = {**choices, "customers": [{**row, **markets_by_customer.get(row['ID'], {})} for row in choices['customers']], "ports": ports}
     # Pallet, type and port choices stay fresh when masters change.
     return {**choices,

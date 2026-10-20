@@ -28,7 +28,7 @@ class OpportunityView(BaseModel):
     sort: list[MasterSort] = Field(default_factory=list, max_length=644)
     filters: list[str] | None = Field(None, max_length=5)
     values: dict[str, str] = Field(default_factory=dict, max_length=5)
-    field_version: int = Field(1, ge=1, le=12)
+    field_version: int = Field(1, ge=1, le=13)
     prefix_columns: list[str] | None = Field(None, max_length=64)
 
 def validate_view(view, allowed):
@@ -143,6 +143,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN
              (SELECT p.ID,JSON_QUERY(p.Inputs) Inputs,JSON_QUERY(JSON_MODIFY(JSON_MODIFY(p.Result,'$.pallet_layer',NULL),'$.container_layer',NULL)) Result,COALESCE(JSON_VALUE(p.Result,'$.ContainerCode'),c.Code) Code FROM dbo.ContainerLoadPlan p JOIN dbo.ContainerTypeMaster c ON c.ID=p.ContainerID WHERE p.ID=response.LoadPlanID AND p.ItemID=response.ID FOR JSON PATH,WITHOUT_ARRAY_WRAPPER) END LoadPlanJSON,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponsePalletSize END ResponsePalletSize,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponsePalletMaterialID END ResponsePalletMaterialID,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN (SELECT p.ID,p.ContainerID,JSON_QUERY(p.Inputs) Inputs,JSON_QUERY(JSON_MODIFY(JSON_MODIFY(p.Result,'$.pallet_layer',NULL),'$.container_layer',NULL)) Result,COALESCE(JSON_VALUE(p.Result,'$.ContainerCode'),c.Code) Code FROM dbo.ResponseContainerLoadPlan m JOIN dbo.ContainerLoadPlan p ON p.ID=m.PlanID AND p.ItemID=m.ItemID AND p.ContainerID=m.ContainerID JOIN dbo.ContainerTypeMaster c ON c.ID=m.ContainerID WHERE m.ItemID=response.ID FOR JSON PATH) END ContainerPlansJSON,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN {layer_sql('response')} END LayerTareJSON,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN (SELECT JSON_MODIFY(s.SnapshotJSON,'$.ID',s.ID) FROM dbo.PalletPricingSnapshot s WHERE s.ID=response.PalletPricingID AND s.ItemID=response.ID) END PalletPricingJSON,

@@ -1,20 +1,24 @@
 import type {Draft} from './opportunity-losses';
-import {costs,productFields} from './tcb-model';
+import {materialRecipe,productFields,recipeCost,costGroups} from './tcb-model';
 import {quantity} from './packaging-summary-model';
 
 export type TCBIssue={field:string;message:string};
 export function tcbInputIssues(d:Draft):TCBIssue[]{
- const i=d.costingInputs,issues:TCBIssue[]=[];
- for(const price of d.selections)if(!price.PriceID&&'DirectUSDPerLb' in price&&(price.DirectUSDPerLb==null||!/^\d{1,13}(\.\d{1,6})?$/.test(price.DirectUSDPerLb)))issues.push({field:'Price:'+price.Path,message:'Enter a non-negative direct USD/lb price (up to 6 decimals).'});
- for(const [key,value] of Object.entries(i).filter(([key])=>(key==='PalletUSDPerEA'&&!d.row.ParentItemID)||(!d.mix&&productFields.some(([k])=>k===key)))){
-  if(value!==null&&value!==''&&!quantity(value,true))issues.push({field:key,message:'Enter a non-negative numeric value.'});
-  else if((key.endsWith('Ratio')||key==='OilPct')&&Number(value)>100)issues.push({field:key,message:'Ratios must be between 0 and 100%.'});
- }
- if(!d.mix){
-  if(!costs({...i,Prices:d.selections},d.quoteGrades,d.quotes).balanced&&!issues.some(x=>['RMRatio','SeasoningRatio','OilPct'].includes(x.field)))issues.push({field:'RMRatio',message:'RM + Seasoning/salt + Oil ratios must total 100%.'});
-  if(Number(i.SeasoningRatio)>0&&quantity(i.SeasoningUSDPerLb,true)===null)issues.push({field:'SeasoningUSDPerLb',message:'Enter Seasoning/salt cost when its ratio is above zero.'});
-  if(Number(i.OilPct)>0&&quantity(i.OilUSDPerLb,true)===null)issues.push({field:'OilUSDPerLb',message:'Enter Oil cost when its percentage is above zero.'});
-  if(quantity(i.ProcessingUSDPerLb,true)===null&&!issues.some(x=>x.field==='ProcessingUSDPerLb'))issues.push({field:'ProcessingUSDPerLb',message:'Enter Processing cost (zero is allowed).'});
+ const issues:TCBIssue[]=[];
+ for(const price of d.selections)if(!price.PriceID&&'DirectUSDPerLb' in price&&(price.DirectUSDPerLb==null||!/^(?:\d{1,13}(?:\.\d{1,6})?|\.\d{1,6})$/.test(price.DirectUSDPerLb)))issues.push({field:'Price:'+price.Path,message:'Enter a non-negative direct USD/lb price (up to 6 decimals).'});
+ if(!d.mix)for(const leaf of costGroups({...d.costingInputs,Prices:d.selections},d.quoteGrades,d.quotes).filter(g=>g.process)){
+  const i=materialRecipe(d.costingInputs,leaf.Path),prefix='Recipe:'+leaf.Path+':';
+  for(const [key] of productFields){
+   const value=i[key];
+   if(value!==null&&value!==''&&!quantity(value,true))issues.push({field:prefix+key,message:'Enter a non-negative numeric value.'});
+   else if((key.endsWith('Ratio')||key==='OilPct')&&Number(value)>100)issues.push({field:prefix+key,message:'Ratios must be between 0 and 100%.'});
+   else if(value!==null&&value!==''&&!/^(?:\d{1,13}(?:\.\d{1,6})?|\.\d{1,6})$/.test(String(value)))issues.push({field:prefix+key,message:'Use up to 6 decimal places.'});
+   else if((key.endsWith('Ratio')||key==='OilPct')&&value!=null&&!/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(String(value)))issues.push({field:prefix+key,message:'Ratios support up to 2 decimal places.'});
+  }
+  if(!recipeCost(i,quantity('0',true)).balanced&&!issues.some(x=>x.field.startsWith(prefix)&&['RMRatio','SeasoningRatio','OilPct'].some(k=>x.field===prefix+k)))issues.push({field:prefix+'RMRatio',message:'RM + Seasoning/salt + Oil ratios must total 100%.'});
+  if(Number(i.SeasoningRatio)>0&&quantity(i.SeasoningUSDPerLb,true)===null)issues.push({field:prefix+'SeasoningUSDPerLb',message:'Enter Seasoning/salt cost when its ratio is above zero.'});
+  if(Number(i.OilPct)>0&&quantity(i.OilUSDPerLb,true)===null)issues.push({field:prefix+'OilUSDPerLb',message:'Enter Oil cost when its percentage is above zero.'});
+  if(quantity(i.ProcessingUSDPerLb,true)===null&&!issues.some(x=>x.field===prefix+'ProcessingUSDPerLb'))issues.push({field:prefix+'ProcessingUSDPerLb',message:'Enter Processing cost (zero is allowed).'});
  }
  return issues;
 }

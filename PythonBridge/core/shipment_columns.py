@@ -17,7 +17,8 @@ SHIPMENT_GROUPS = [
    "FreightUSDPerContainer": "Freight ($/Container)",
    "DutyPct": "Duty %",
    "ImportClearanceUSDPerContainer": "Legacy import clearance ($/cont)",
-   "ImportClearanceCustomerPerPallet": "Import clearance (customer currency/pallet)",
+   "ImportClearanceCustomerPerContainer": "Import clearance (customer currency/container)",
+   "ImportClearanceCustomerPerPallet": "Legacy clearance (customer currency/pallet)",
    "PortToWHUSDPerContainer": "Port - WH ($/cont)",
    "WHCostUSDPerPallet": "WH Cost ($/pallet)",
    "OverageShortageDamagePct": "Overage, Shortage & Damage %"

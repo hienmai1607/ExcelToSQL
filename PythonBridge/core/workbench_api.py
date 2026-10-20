@@ -39,7 +39,7 @@ def requests(
     results = execute("""
         DECLARE @Actor INT;
         EXEC dbo.usp_Packaging_Authorize ?, 'Read', @Actor OUTPUT;
-        SELECT h.ID AS RequestID,h.RequestNumber,h.OpportunityNumber,
+        SELECT h.ID AS RequestID,h.RowVersion HeaderRowVersion,h.RequestNumber,h.OpportunityNumber,
           h.CustomerName,h.ResponseDue,h.RequestedAt,u.UserName AS RequestedByName,
           totals.ItemCount,totals.Unassigned,
           CASE WHEN totals.OpenCount>0 THEN 'Open'

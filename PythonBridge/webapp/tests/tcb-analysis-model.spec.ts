@@ -5,10 +5,11 @@ import {defaultInputs,manualCostInputs} from '../src/tcb-model';
 import {quantityDisplay} from '../src/packaging-summary-model';
 
 function draft(id=1,extra:Partial<Draft>={}):Draft{
- const row={ItemID:id,ProductID:id,ProductCode:'P'+id,ProductName:'Product '+id,ItemNumber:String(id),WeightGrams:'453.59237',AnnualUnit:'1000',EstPctAwarded:'50',ResponseLayerCount:2,UnitsPerCarton:'10',UnitsPerPallet:'1000',PrimaryPricePerUnit:'.1',PrimaryPriceCurrencyCode:'USD',SecondaryPricePerUnit:'1',SecondaryPriceCurrencyCode:'USD',CustomerCurrencyCode:'AUD',ExchangeRateCustomerCurrencyPerUSD:'1.5',ContainerRequest:'Dry',ConfigurationRequest:'Pallet load',SelectedContainerType:'20DC',ContainerLoadProfiles:{'20DC':{PalletsPerContainer:10,CartonsPerContainerFloor:200}},ContainerLoadResults:{'20DC':{CalculatedCartonsPerContainer:100}},ShipmentCostInfo:{PackingUSDPerLb:'.5',InitialDesignUSD:'100',OtherFixedCostsUSD:'50',FobbingUSDPerContainer:'200',InterestPct:'12',InterestMonths:'10',MarginPct:'10'}};
+ const row={ItemID:id,ProductID:id,ProductCode:'P'+id,ProductName:'Product '+id,ItemNumber:String(id),WeightGrams:'453.59237',AnnualUnit:'1000',EstPctAwarded:'50',ResponseLayerCount:2,UnitsPerCarton:'10',UnitsPerPallet:'1000',PrimaryPricePerUnit:'.1',PrimaryPriceCurrencyCode:'USD',SecondaryPricePerUnit:'1',SecondaryPriceCurrencyCode:'USD',CustomerCurrencyCode:'AUD',ExchangeRateCustomerCurrencyPerUSD:'1.5',ContainerRequest:'20DC',ConfigurationRequest:'Pallet load',SelectedContainerType:'20DC',ContainerLoadProfiles:{'20DC':{PalletsPerContainer:10,CartonsPerContainerFloor:200}},ContainerLoadResults:{'20DC':{CalculatedCartonsPerContainer:100}},ShipmentCostInfo:{PackingUSDPerLb:'.5',InitialDesignUSD:'100',OtherFixedCostsUSD:'50',FobbingUSDPerContainer:'200',InterestPct:'12',InterestMonths:'10',MarginPct:'10'}};
  const costingInputs={...defaultInputs(),PalletUSDPerEA:'10'};
  const d:Draft={row,version:'rv',mix:false,readonly:false,layers:2,masters:[],steps:[{ProcessType:'Processing',Sequence:1,LossPct:'10'}],formula:'',grades:[],baselineGrades:'[]',selections:[{Path:'0/1',DirectUSDPerLb:'2'}],baselinePrices:'[]',quoteGrades:[{Path:'0/1',Proportion:'1'}],quotes:[],costingInputs,baselineCosts:JSON.stringify(manualCostInputs(costingInputs)),pricingGradeKey:'[]',gradeLocked:false,baseline:'',...extra};
- d.baseline=JSON.stringify({formula:d.formula,steps:d.steps});return d;
+ d.baseline=JSON.stringify({formula:d.formula,steps:d.steps});
+return d;
 }
 const values=(column:ReturnType<typeof buildTCBAnalysis>[number]['columns'][number])=>column.cells.map(c=>quantityDisplay(c.value,8).replaceAll(',',''));
 
@@ -23,9 +24,9 @@ test('child Analysis uses exact unit conversions and sequential interest and mar
  const drafts=pair(),scenarios=buildTCBAnalysis(drafts);
  expect(analysisRows).toHaveLength(28);expect(scenarios).toHaveLength(1);
  expect(scenarios[0].columns.map(c=>c.id)).toEqual([11]);
- expect(values(scenarios[0].columns[0]).slice(0,12)).toEqual(['1.8','0.2','0','0.01','0.5','0.2','0.1','0.2','0.301','0.3311','3.6421','5.46315']);
+ expect(values(scenarios[0].columns[0]).slice(0,12)).toEqual(['2.22222222','0.2','0','0.01','0.5','0.2','0.1','0.2','0.34322222','0.37754444','4.15298889','6.22948333']);
  drafts[0].row.ConfigurationRequest='Floor load';drafts[0].row.ContainerLoadResults={"20DC":{CalculatedCartonsPerContainer:200}};
- expect(values(buildTCBAnalysis(drafts)[0].columns[0]).slice(3,12)).toEqual(['0','0.5','0.2','0.1','0.1','0.29','0.319','3.509','5.2635']);
+ expect(values(buildTCBAnalysis(drafts)[0].columns[0]).slice(3,12)).toEqual(['0','0.5','0.2','0.1','0.1','0.33222222','0.36544444','4.01988889','6.02983333']);
 });
 test('unequal Mix quantities allocate shared costs equally without a parent column',()=>{
  const root=draft(10,{mix:true,steps:[]}),a=draft(11),b=draft(12);
@@ -57,10 +58,18 @@ test('Analysis uses response palletization rather than stale manual cost',()=>{
  expect(values(buildTCBAnalysis([d])[0].columns[0])[3]).toBe('0');
 });
 
+test('customer clearance is per container and zero overrides historical pallet values',()=>{
+ const d=draft();d.row.UnitsPerPallet='100';
+ d.row.ShipmentCostInfo={ImportClearanceCustomerPerContainer:'150',ImportClearanceCustomerPerPallet:'900',ImportClearanceUSDPerContainer:'700'};
+ expect(values(buildTCBAnalysis([d])[0].columns[0])[14]).toBe('0.1');
+ d.row.ShipmentCostInfo={ImportClearanceCustomerPerContainer:'0',ImportClearanceCustomerPerPallet:'900'};
+ expect(values(buildTCBAnalysis([d])[0].columns[0])[14]).toBe('0');
+});
+
 test('days, USD-per-lb margin and customer clearance use exact revised units',()=>{
  const d=draft();d.row.ShipmentCostInfo={InterestPct:'12',InterestDays:30,MarginMode:'USDPerLb',MarginUSDPerLb:'.5',ImportClearanceCustomerPerPallet:'150',PaymentTermDays:999};
  const actual=values(buildTCBAnalysis([d])[0].columns[0]);
- expect(actual[8]).toBe('0.0201');expect(actual[9]).toBe('0.5');expect(actual[14]).toBe('0.1');
+ expect(actual[8]).toBe('0.02432222');expect(actual[9]).toBe('0.5');expect(actual[14]).toBe('0.1');
  d.row.ShipmentCostInfo={...d.row.ShipmentCostInfo as object,PaymentTermDays:0};
  expect(values(buildTCBAnalysis([d])[0].columns[0])).toEqual(actual);
 });
@@ -68,7 +77,7 @@ test('days, USD-per-lb margin and customer clearance use exact revised units',()
 test('standalone products use their own costs and Mix parents without children remain excluded',()=>{
  const scenarios=buildTCBAnalysis([draft()]);
  expect(scenarios).toHaveLength(1);expect(scenarios[0].columns.map(c=>c.id)).toEqual([1]);
- expect(values(scenarios[0].columns[0]).slice(0,12)).toEqual(['1.8','0.2','0','0.01','0.5','0.2','0.1','0.2','0.301','0.3311','3.6421','5.46315']);
+ expect(values(scenarios[0].columns[0]).slice(0,12)).toEqual(['2.22222222','0.2','0','0.01','0.5','0.2','0.1','0.2','0.34322222','0.37754444','4.15298889','6.22948333']);
  expect(buildTCBAnalysis([draft(10,{mix:true})])).toEqual([]);
 });
 test('missing input or zero denominator never fabricates a complete FOB',()=>{
@@ -122,8 +131,8 @@ test('destination costs and shared fee gross-up produce CFR and DDP without doub
   OverageShortageDamagePct:'5',WHToCoManWHUSDPerPallet:'400',CoManOverheadUSDPerPallet:'500',
   FreightToCustomerUSDPerPallet:'600',SpoilageAllowancePct:'2',PaymentTermPct:'3',CoManFeePct:'4',BrokerFeePct:'1'};
  const col=buildTCBAnalysis([d])[0].columns[0],actual=values(col).map(Number);
- const base=7.4916255,gross=base/.9;
- const expected=[1,.46421,.1,.2,.3,.2853155,.4,.5,.6,gross*.02,gross*.03,gross*.04,gross*.01,4.6421,gross,gross*1.5];
+ const base=8.081702166666667,gross=base/.9;
+ const expected=[1,.515298888888889,.1,.2,.3,.313414388888889,.4,.5,.6,gross*.02,gross*.03,gross*.04,gross*.01,5.152988888888889,gross,gross*1.5];
  expected.forEach((value,i)=>expect(actual[i+12]).toBeCloseTo(value,7));
  d.row.ConfigurationRequest='Floor load';d.row.ContainerLoadResults={"20DC":{CalculatedCartonsPerContainer:200}};
  expect(values(buildTCBAnalysis([d])[0].columns[0])[12]).toBe('0.5');
@@ -151,13 +160,13 @@ test('Mix logistics allocate equally per smallest child unit and invalid fees ca
 test('custom loss formulas require current server result and use unrounded percentages',()=>{
  const d=draft(11,{formula:'L1'});d.steps[0].LossPct='20';const drafts=pair(d);
  expect(buildTCBAnalysis(drafts)[0].columns[0].cells[0].value).toBeNull();
- expect(values(buildTCBAnalysis(drafts,{11:'20'})[0].columns[0])[0]).toBe('1.6');
+ expect(values(buildTCBAnalysis(drafts,{11:'20'})[0].columns[0])[0]).toBe('2.5');
 });
 test('VND and USD conversion use Opportunity rates and missing FX is incomplete',()=>{
  const drafts=pair(),d=drafts[0];d.row.CustomerCurrencyCode='VND';d.row.ExchangeRateVNDPerUSD='25000';
- expect(values(buildTCBAnalysis(drafts)[0].columns[0])[11]).toBe('91052.5');
+ expect(values(buildTCBAnalysis(drafts)[0].columns[0])[11]).toBe('103824.72222222');
  d.row.ExchangeRateVNDPerUSD=null;expect(buildTCBAnalysis(drafts)[0].columns[0].cells[11].value).toBeNull();
- d.row.CustomerCurrencyCode='USD';expect(values(buildTCBAnalysis(drafts)[0].columns[0])[11]).toBe('3.6421');
+ d.row.CustomerCurrencyCode='USD';expect(values(buildTCBAnalysis(drafts)[0].columns[0])[11]).toBe('4.15298889');
 });
 test('tertiary normalization uses the selected container only, not separate tables',()=>{
  const d=draft(11);d.row.ResponseLayerCount=3;d.layers=3;d.row.UnitsPerTertiary=5;d.row.TertiaryPricePerUnit=5;d.row.TertiaryPriceCurrencyCode='USD';
@@ -167,7 +176,7 @@ test('tertiary normalization uses the selected container only, not separate tabl
  let scenarios=buildTCBAnalysis(drafts);
  expect(scenarios).toHaveLength(1);expect(values(scenarios[0].columns[0])[1]).toBe('0.3');
  expect(values(scenarios[0].columns[0])[7]).toBe('0.04');
- root.row.SelectedContainerType='40DC';scenarios=buildTCBAnalysis(drafts);
+ root.row.ContainerRequest='40DC';scenarios=buildTCBAnalysis(drafts);
  expect(scenarios).toHaveLength(1);expect(values(scenarios[0].columns[0])[7]).toBe('0.01333333');
 });
 test('partial captured Mix compositions do not allocate parent costs across visible children only',()=>{
@@ -175,4 +184,31 @@ test('partial captured Mix compositions do not allocate parent costs across visi
  root.row.ProductMixSnapshot={items:[{ProductID:11,UnitQuantity:2},{ProductID:12,UnitQuantity:1}]};
  const [child]=buildTCBAnalysis([root,a])[0].columns;
  expect(child.cells[2].value).toBeNull();expect(child.cells[10].value).toBeNull();
+});
+
+test('product loss uses inverse yield and rejects a zero surviving yield',()=>{
+ const d=draft();d.row.WeightGrams='400';d.selections=[{Path:'0/1',DirectUSDPerLb:'4.40674'}];d.steps[0].LossPct='2.54';
+ expect(values(buildTCBAnalysis([d])[0].columns[0])[0]).toBe('3.98735838');
+ d.steps[0].LossPct='100';
+ expect(buildTCBAnalysis([d])[0].columns[0].cells[0].value).toBeNull();
+ expect(buildTCBAnalysis([d])[0].columns[0].cells[10].value).toBeNull();
+ d.steps[0].LossPct='0';
+ expect(values(buildTCBAnalysis([d])[0].columns[0])[0]).toBe('3.88607948');
+});
+test('Sales container wins over response selection, saved plan and response family',()=>{
+ const d=draft();d.row.ContainerRequest='40DC';d.row.ResponseContainerFamily='20DC';
+ d.row.ShipmentCostInfo={FobbingUSDPerContainer:'700',ContainerSizeFT:'40FT'};
+ d.row.UnitsPerCarton='6';d.row.ContainerLoadResults={'20DC':{CalculatedCartonsPerContainer:2000},'40DC':{CalculatedCartonsPerContainer:4000}};
+ d.row.LoadPlanJSON={ID:196,Code:'20DC',Inputs:{},Result:{}};d.row.PackingConfiguration='Floor load';
+ const scenario=buildTCBAnalysis([d])[0];
+ expect(scenario.label).toBe('40DC');expect(values(scenario.columns[0])[7]).toBe('0.02916667');
+ expect(values(scenario.columns[0])[3]).toBe('0.01');
+ d.row.ContainerRequest='20DC';expect(values(buildTCBAnalysis([d])[0].columns[0])[7]).toBe('0.05833333');
+});
+test('missing Sales choice or missing matching capacity never borrows another response option',()=>{
+ const d=draft();d.row.ContainerRequest='Dry';d.row.LoadPlanJSON={ID:196,Code:'20DC',Inputs:{},Result:{}};
+ expect(buildTCBAnalysis([d])[0].columns[0].cells[7].value).toBeNull();
+ d.row.ContainerRequest='40DC';
+ expect(buildTCBAnalysis([d])[0].label).toBe('40DC');
+ expect(buildTCBAnalysis([d])[0].columns[0].cells[7].value).toBeNull();
 });

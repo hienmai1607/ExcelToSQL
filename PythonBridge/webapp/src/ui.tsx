@@ -1,4 +1,5 @@
-import {Children,useEffect,useRef,useState,useId,type ReactNode,type HTMLAttributes} from 'react';
+import {useContext,Children,useEffect,useRef,useState,useId,type ReactNode,type HTMLAttributes} from 'react';
+import {ViewTrailContext,ViewTrail,viewLabel} from './view-trail';
 import {createPortal} from 'react-dom';
 import {text} from './api';
 import {Icon,IconButton} from './icons';
@@ -65,8 +66,9 @@ export function Pager({page,size,total,hasMore=false,busy,onPage,onSize,unit='re
 }
 
 export function Modal({children,label,onClose,className='dialog',hidden=false}:{children:ReactNode;label:string;onClose:()=>void;className?:string;hidden?:boolean}){
+ const path=[...useContext(ViewTrailContext),viewLabel(label)];
  const ref=useRef<HTMLDialogElement>(null);
  useEffect(()=>{const node=ref.current!;if(!hidden)node.showModal();else node.close();return()=>node.close()},[hidden]);
  // Escape disabled form fieldsets, but retain workspace styles and session locking.
- return createPortal(<dialog ref={ref} className={className} aria-label={label} onCancel={e=>{e.preventDefault();e.stopPropagation();onClose()}}>{children}</dialog>,document.querySelector('.app')||document.body)
+ return createPortal(<ViewTrailContext.Provider value={path}><dialog ref={ref} className={className} aria-label={label} onCancel={e=>{e.preventDefault();e.stopPropagation();onClose()}}>{children}{!hidden&&<ViewTrail path={path}/>}</dialog></ViewTrailContext.Provider>,document.querySelector('.app')||document.body)
 }

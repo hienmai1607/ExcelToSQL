@@ -1,6 +1,5 @@
 """One-level Product Mix versions; SQL owns validation and weight calculation."""
 import json
-from decimal import Decimal
 from typing import Literal
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -8,11 +7,7 @@ from auth import AccessContext, get_access_context
 from packaging_api import execute, require, rv
 from cache import invalidate
 
-class MixItem(BaseModel):
- model_config=ConfigDict(extra="forbid")
- ProductID:int=Field(ge=1)
- UnitQuantity:Decimal=Field(gt=0,max_digits=12,decimal_places=4,allow_inf_nan=False)
- RowVersion:str
+from product_mix_models import MixItem
 class MixSave(BaseModel):
  model_config=ConfigDict(extra="forbid")
  VersionID:int|None=Field(None,ge=1)
@@ -25,6 +20,16 @@ class MixSave(BaseModel):
   if bool(self.VersionID)!=bool(self.RowVersion):raise ValueError("Version ID and RowVersion must be supplied together.")
   if len({i.ProductID for i in self.items})!=len(self.items):raise ValueError("Duplicate child Product.")
   return self
+def opportunity_mix_setup_choices():
+ """Explain excluded active mixes; the caller must require Opportunity access."""
+ return execute("""
+  SELECT p.ID,p.CustomerID,p.ProductCode,p.ProductName
+  FROM dbo.Product p JOIN dbo.Customer c ON c.ID=p.CustomerID
+  WHERE p.Status='Active' AND c.Status='Active' AND p.IsMix=1
+   AND NOT EXISTS(SELECT 1 FROM dbo.ProductMixVersion v WHERE v.ProductID=p.ID AND v.Status='Active')
+  ORDER BY p.ProductCode
+ """,[])[0]
+
 router=APIRouter(prefix="/api/workbench/products",tags=["Product Mix"])
 @router.get("/{product_id}/mix")
 def read(product_id:int=Path(ge=1),ctx:AccessContext=Depends(get_access_context)):

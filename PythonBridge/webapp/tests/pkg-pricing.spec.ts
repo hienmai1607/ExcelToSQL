@@ -16,10 +16,10 @@ test('mix child pricing does not require Shipping D3 even on its last packaging 
  expect(previews[0]).toMatchObject({PackagingOrder:'Secondary',LayerCount:2,D3:null});
 });
 
-test('Copy Dim. locks final inputs and permits only one material',async({page})=>{
+for(const shipping of [false,true])test('Copy Dim. locks own material dimensions for '+(shipping?'Shipping':'non-Shipping')+' Single',async({page})=>{
  const {editor,dialog,optionsData,previews}=await setup(page);
  await dialog.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
- optionsData.parentType.CopyDim=true;
+ Object.assign(optionsData.parentType,{CopyDim:true,FinalComponent:true,Shipping:shipping});
  for(const p of optionsData.materials){p.CopyDim=true;p.CopiedDimensions={DimensionID:1,DimensionRowVersion:'AAAAAAAAAAE=',D1:'250',D2:'150',D3:null}}
  await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
  const calculator=page.getByRole('dialog',{name:'Primary Pricing Calculator',exact:true});
@@ -55,7 +55,7 @@ test('child consumption formula is selected separately from parent occupied spac
  await state.editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
  await state.dialog.getByRole('button',{name:'Add PKG-Label price 1'}).click();
  await expect(state.dialog.getByText('Convert from parent fx: (D2*2+25)*D1/1000000',{exact:true})).toBeVisible();
- await expect(state.dialog.getByText('Convert from supplier fx: D1*D2/1000000',{exact:true})).toBeVisible();
+ await expect(state.dialog.getByText('Material yield fx: D1*D2/1000000',{exact:true})).toBeVisible();
  await expect(state.dialog.getByLabel('Component 1 conversion definition',{exact:true})).toHaveCount(0);
  await expect(state.dialog.getByLabel('Supplier D1',{exact:true})).toHaveCount(0);
 });
@@ -304,7 +304,7 @@ test('applied parent dimensions appear immediately in Packing Way and remain sna
  await expect(dialog.getByRole('status')).toContainText('Final MOQ');
  await dialog.getByRole('button',{name:'Apply to response',exact:true}).click();
  const captured=editor.getByRole('region',{name:'Packing Way response',exact:true}).getByLabel('Primary captured dimensions',{exact:true});
- await expect(captured.locator('span').first()).toHaveText('Height × Width');
+ await expect(captured.locator('span').first()).toHaveAttribute('title','Height × Width');
  await expect(captured.locator('.captured-dimensions-value')).toHaveText('100mm × 200mm');
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
@@ -320,10 +320,10 @@ test('material lines show effective date ranges and count items have no area sec
  await expect(dialog.getByRole('row').filter({hasText:'PKG-Jar'})).toContainText('0 kg/EA');
  await expect(dialog.getByRole('row').filter({hasText:'PKG-NoPrice'}).getByRole('cell').nth(3)).toHaveText('—');
  await expect(dialog.getByRole('columnheader',{name:'Effective date',exact:true})).toBeVisible();
- await expect(dialog.getByRole('row').filter({hasText:'PKG-Label'})).toContainText('2026-01-01 → 2026-12-31');
- await expect(dialog.getByRole('row').filter({hasText:'PKG-Jar'})).toContainText('2026-01-01 → Open-ended');
+ await expect(dialog.getByRole('row').filter({hasText:'PKG-Label'})).toContainText('01/01/2026 → 12/31/2026');
+ await expect(dialog.getByRole('row').filter({hasText:'PKG-Jar'})).toContainText('01/01/2026 → Open-ended');
  await dialog.getByRole('button',{name:'Add PKG-Label price 1'}).click();
- await expect(dialog.getByLabel('Pricing component 1')).toContainText('Effective date: 2026-01-01 → 2026-12-31');
+ await expect(dialog.getByLabel('Pricing component 1')).toContainText('Effective date: 01/01/2026 → 12/31/2026');
  await expect(dialog.getByLabel('Component 1 square-meter details')).toHaveCount(0);expect(geometryPreviews).toHaveLength(0);
 });
 
@@ -635,4 +635,19 @@ test('editing parent measurements invalidates pricing and reopening restores the
  await expect(dialog.getByLabel('Parent D1')).toHaveValue('200');
  await expect(dialog.getByLabel('Parent D2')).toHaveValue('110');
  await expect(dialog.getByLabel('Component 1 Height')).toHaveCount(0);
+});
+
+test('calculator navigation never covers footer actions on desktop or mobile',async({page})=>{
+ const {dialog}=await setup(page);
+ for(const viewport of [{width:1920,height:1080},{width:984,height:740},{width:390,height:844}]){
+  await page.setViewportSize(viewport);
+  const nav=dialog.getByRole('navigation',{name:'Open views',exact:true});
+  for(const name of ['Calculate pricing','Apply to response','Close']){
+   const control=dialog.getByRole('button',{name,exact:true});
+   const a=await control.boundingBox(),b=await nav.boundingBox();
+   expect(a!.x+a!.width<=b!.x||b!.x+b!.width<=a!.x||a!.y+a!.height<=b!.y||b!.y+b!.height<=a!.y).toBe(true);
+   await expect(control).toBeInViewport();
+  }
+  await page.screenshot({path:'test-results/pricing-footer-'+viewport.width+'.png'});
+ }
 });

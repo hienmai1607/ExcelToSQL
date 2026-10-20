@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from master_models import MasterSort
 
 LABELS = {
+ "grade-densities":{"Combination":"Nuts / grades / ratio","NutDensity":"Nut density (g/ml)","UpdatedAt":"Updated / Created","UpdatedByName":"User"},
  "categories": {"CategoryName":"Category name","Status":"Status"}, "loss-processes": {"ProcessType":"Process Type","Status":"Status"},
  "ports": {"PortName":"Port name","CustomerName":"Customer","MarketCode":"Market code","MarketName":"Market","Status":"Status"}
 }
@@ -48,6 +49,6 @@ def export_view(entity,body):
  from preferences_api import snapshot_xlsx
  if len(body.columns)!=len(set(body.columns)) or any(c not in LABELS[entity] for c in body.columns):
   raise HTTPException(422,"Invalid export columns.")
- return Response(snapshot_xlsx(body,LABELS[entity],{"loss-processes":"Loss processes","ports":"Ports of Entry","categories":"Category Master"}[entity]),
+ return Response(snapshot_xlsx(body,LABELS[entity],{"grade-densities":"Grade Density Master","loss-processes":"Loss processes","ports":"Ports of Entry","categories":"Category Master"}[entity]),
   media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   headers={"Content-Disposition":f'attachment; filename="{entity}.xlsx"',"Cache-Control":"no-store"})

@@ -22,7 +22,7 @@ try {
  for($i=0;$i -lt $labels.Count;$i++){$controls.Cells.Item($i+3,1)=$labels[$i];$controls.Cells.Item($i+3,2)='0'}
  $controls.Columns.Item(1).ColumnWidth=38;$controls.Columns.Item(2).ColumnWidth=32
  $controls.Range('A12').Value2='Save uses your Windows identity. Development header mode is testing only.'
- $controls.Range('A13').Value2='Header / Item Command: C create, U update, D delete, N unchanged. Draft only; processing items allow shipment/cost edits except Configuration and Loading.'
+ $controls.Range('A13').Value2='Header / Item Action: C create, U update; blank unchanged. Delete and workflow actions remain in the app. Draft only; processing items allow shipment/cost edits except Configuration and Loading.'
  $controls.Range('A14').Value2='Page size counts headers; all their items stay together. Required columns remain visible.'
  $buttons=@(@('Save','OpportunitySave'),@('Refresh','OpportunityRefresh'),@('Filter','OpportunityFilter'),@('Previous','OpportunityPrevious'),@('Next','OpportunityNext'),@('New Opportunity','OpportunityNew'))
  for($i=0;$i -lt $buttons.Count;$i++){
@@ -58,7 +58,7 @@ Private Sub Workbook_Deactivate()
 End Sub
 '@)
  $config.Visible=2
- foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modOpportunityLocal.bas')){
+ foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modLocalDropdowns.bas','modOpportunityLocal.bas')){
   [void]$book.VBProject.VBComponents.Import((Join-Path $root $name))
  }
  [void]$book.VBProject.References.AddFromGuid('{420B2830-E718-11CF-893D-00A0C9054228}',1,0)

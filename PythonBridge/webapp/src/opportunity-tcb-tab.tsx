@@ -1,37 +1,29 @@
 import {type ReactNode} from 'react';
 import {decimalDisplay} from './number-format';
 import {FieldLabel} from './ui';
+import {IconButton} from './icons';
+import {gradeError} from './product-grades';
 import {costs,money,packagingUSD,palletizationValue} from './tcb-model';
-import {ItemGradeEditor,ItemRawPricing,type CommercialProps} from './opportunity-commercial-tabs';
+import {ItemGradeEditor,ItemProcessInfo,type CommercialProps} from './opportunity-commercial-tabs';
 import type {Draft} from './opportunity-losses';
 import './tcb-calculator.css';
+import './tcb-review-layout.css';
 
-import {tcbInputIssues} from './tcb-validation';
 import {lossFieldIssues,processOptions} from './loss-processes';
-export function OpportunityTCBTab({drafts,renderProductLoss,...props}:Omit<CommercialProps,'d'>&{drafts:Draft[];renderProductLoss:(d:Draft)=>ReactNode}){
+export function OpportunityTCBTab({drafts,renderProductLoss,renderVersions,...props}:Omit<CommercialProps,'d'>&{drafts:Draft[];renderProductLoss:(d:Draft)=>ReactNode;renderVersions?:(d:Draft)=>ReactNode}){
  const {busy,review,update}=props;
  return <div aria-label="TCB Review items">{drafts.map(d=>{
-  const id=Number(d.row.ItemID),disabled=d.readonly||busy||review,i=d.costingInputs,issues=disabled?[]:tcbInputIssues(d),lossIssues=disabled?[]:lossFieldIssues(d.steps,processOptions(d.mix,d.layers));
+  const id=Number(d.row.ItemID),disabled=d.readonly||busy||review,i=d.costingInputs,lossIssues=disabled?[]:lossFieldIssues(d.steps,processOptions(d.mix,d.layers));
   const calc=costs({...i,Prices:d.selections},d.quoteGrades,d.quotes);
   const gradesReady=d.pricingGradeKey===JSON.stringify(d.grades);
-  function input(key:string,label:string){const error=issues.find(x=>x.field===key)?.message;const errorId='tcb-error-'+id+'-'+key;return <label key={key} data-tcb-field={key}><FieldLabel>{label}</FieldLabel><input aria-label={label} aria-invalid={!!error} aria-describedby={error?errorId:undefined} type="number" min="0" max={key.endsWith('Ratio')||key==='OilPct'?100:undefined} step={key.endsWith('Ratio')||key==='OilPct'?'0.01':'0.000001'} value={String(i[key]??'')} disabled={disabled} onChange={e=>update(id,x=>({...x,costingInputs:{...x.costingInputs,[key]:e.target.value===''?null:e.target.value}}))}/>{error&&<small id={errorId} className="tcb-field-error">{error}</small>}</label>}
-  return <details open id={'tcb-item-'+id} key={id} className={d.row.ParentItemID?'loss-child':''}><summary>{String(d.row.ItemNumber??id)+' · '+d.row.ProductCode+' · '+d.row.ProductName}{d.readonly?' · Read only':''}</summary>
-   {!d.mix&&<section aria-label="Product"><h3>Product</h3>
-    <details className="tcb-grade-editor" data-tcb-field="Grades"><summary>{d.gradeLocked?'View grades (captured by Packaging Request)':'Edit grades'}</summary><ItemGradeEditor {...props} d={d}/></details>
-    <ItemRawPricing {...props} d={d}/>
-    <div className="tcb-product-scroll" role="region" aria-label={'Product costs item '+id} tabIndex={0}>
-     <table className="tcb-product-table" aria-label={'Product costs item '+id}>
-      <thead><tr><th scope="col">Raw material</th><th scope="col">Seasoning/salt</th><th scope="col">Oil</th></tr></thead>
-      <tbody><tr>
-       <td><div className="tcb-product-cost-ratio"><label><FieldLabel help="Sum of final grade proportion × selected master or direct price in USD/lb.">RM Cost ($/lbs)</FieldLabel><output>{money(gradesReady?calc.rm:null)}</output></label>{input('RMRatio','RM Ratio (%)')}</div></td>
-       <td><div className="tcb-product-cost-ratio">{input('SeasoningUSDPerLb','Seasoning/salt ($/lbs)')}{input('SeasoningRatio','Seasoning/salt Ratio (%)')}</div></td>
-       <td><div className="tcb-product-cost-ratio">{input('OilUSDPerLb','Oil ($/lbs)')}{input('OilPct','Oil %')}</div></td>
-      </tr></tbody>
-     </table>
-    </div>
+  return <details open id={'tcb-item-'+id} key={id} className={'tcb-item'+(d.row.ParentItemID?' loss-child':'')}><summary className="tcb-item-title">{String(d.row.ItemNumber??id)+' · '+d.row.ProductCode+' · '+d.row.ProductName}{d.readonly?' · Read only':''}</summary>
+   {renderVersions?.(d)}
+   {!d.mix&&<section aria-label="Product"><header className="tcb-product-heading"><h3>Product</h3>{!gradesReady&&<IconButton icon="refresh" label="Load pricing for current grades" disabled={busy||review||!!gradeError(d.grades)} onClick={()=>props.loadPrices(d)}/>}</header>
+    <section className="tcb-grade-editor" aria-label="Grades & pricing" data-tcb-field="Grades"><ItemGradeEditor {...props} d={d}/></section>
+    <ItemProcessInfo {...props} d={d}/>
     <div className="tcb-grid tcb-product-totals">
-     {input('ProcessingUSDPerLb','Processing ($/lbs)')}
-     <label><FieldLabel help="Weighted RM, seasoning/salt and oil costs plus Processing. Losses are separate inputs.">Product ($/lbs)</FieldLabel><output>{money(gradesReady?calc.product:null)}</output></label>
+     <label><FieldLabel help="Sum of final grade proportion × each selected raw material price in USD/lb.">RM Cost ($/lbs)</FieldLabel><output>{money(gradesReady?calc.rm:null)}</output></label>
+     <label><FieldLabel help="Sum of each Process group's product ratio × its shared recipe cost, plus the weighted raw costs of unprocessed grades.">Product ($/lbs)</FieldLabel><output>{money(gradesReady?calc.product:null)}</output></label>
     </div>
    </section>}
    {!d.mix&&renderProductLoss(d)}

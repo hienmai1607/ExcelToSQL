@@ -1,5 +1,6 @@
 """Web-only dimension definitions and a non-persisting formula test calculator."""
 from decimal import Decimal
+import json
 from typing import Literal
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import Field, field_validator, model_validator
@@ -119,8 +120,11 @@ def read_access(ctx):
 @router.get("/lookups")
 def lookups(ctx: AccessContext = Depends(get_access_context)):
     read_access(ctx)
-    sets = execute(AUTH + """SELECT ID,UoMCode,UoMName,Status FROM dbo.UoM ORDER BY UoMCode;
-    SELECT p.ID,p.PackagingOrder,p.PackagingType,p.ParentTypeID,p.RootTypeID,p.PriceBasis,p.RootShipping AS Shipping,p.Status FROM dbo.v_PackagingTypeDimensionContext p
+    sets = execute(AUTH + """SELECT ID,UoMCode,UoMName,Category,Status FROM dbo.UoM ORDER BY UoMCode;
+    SELECT p.ID,p.PackagingOrder,p.PackagingType,p.ParentTypeID,p.RootTypeID,p.PriceBasis,p.RootShipping AS Shipping,p.Status,
+     (SELECT N'['+STRING_AGG(CONVERT(NVARCHAR(MAX),r.ID),N',')+N']' FROM dbo.PackagingType r
+      WHERE r.ParentTypeID IS NULL AND dbo.fn_PackagingTypeUnder(p.ID,r.ID)=1) RootTypeIDsJSON
+     FROM dbo.v_PackagingTypeDimensionContext p
     WHERE p.Status='Active'
      OR EXISTS(SELECT 1 FROM dbo.PackagingDimension d WHERE d.PackagingTypeID=p.ID)
     ORDER BY p.PackagingOrder,p.PackagingType,p.ID;
@@ -130,6 +134,8 @@ def lookups(ctx: AccessContext = Depends(get_access_context)):
      d.OccupiedFormulaNeedsReview,d.FormulaNeedsReview,d.RowVersion,d.Status,p.PackagingType
     FROM dbo.PackagingDimension d JOIN dbo.PackagingType p ON p.ID=d.PackagingTypeID
     WHERE p.ParentTypeID IS NULL ORDER BY d.ID;""", [ctx.username])
+    for row in sets[1]:
+        row["RootTypeIDs"] = json.loads(row.pop("RootTypeIDsJSON") or "[]")
     return {"uoms": sets[0], "packagingTypes": sets[1], "parentDimensions": sets[2]}
 
 
@@ -163,15 +169,15 @@ def read(page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100),
 @router.post("/preview")
 def preview(payload: DimensionTest, ctx: AccessContext = Depends(get_access_context)):
     read_access(ctx)
-    sets = execute(AUTH + """SELECT ID,Status FROM dbo.UoM WHERE ID IN(?,?,?);
+    sets = execute(AUTH + """SELECT ID,Status,Category FROM dbo.UoM WHERE ID IN(?,?,?);
                     SELECT PriceBasis,ParentTypeID,RootShipping AS Shipping,Status FROM dbo.v_PackagingTypeDimensionContext WHERE ID=?;""",
                     [ctx.username, payload.D1UoMID, payload.D2UoMID, payload.D3UoMID, payload.PackagingTypeID])
     if not sets[1] or sets[1][0]["Status"] != "Active":
         return {"SquareMeters": None, "CalculationStatus": "Test Calculation requires an active Packaging Type."}
     units = sets[0]
-    active = {u["ID"] for u in units if u["Status"] == "Active"}
+    active = {u["ID"] for u in units if u["Status"] == "Active" and u["Category"] == "Length/Distance"}
     if any(getattr(payload, name) and getattr(payload, name + "UoMID") not in active for name in DIMENSIONS):
-        return {"SquareMeters": None, "CalculationStatus": "Choose active units before testing the formula."}
+        return {"SquareMeters": None, "CalculationStatus": "Choose active Length/Distance units before testing the formula."}
     try:
         values = {name: getattr(payload, "Test" + name) for name in formula_variables(payload.SquareMeterFormula)}
         return {"SquareMeters": str(area_formula(payload.SquareMeterFormula, values)), "CalculationStatus": "Ready"}
@@ -198,7 +204,7 @@ def save(payload: DimensionSave, ctx: AccessContext = Depends(get_access_context
 @router.post("/preview-formula")
 def preview_formula(payload: FormulaRoleTest, ctx: AccessContext = Depends(get_access_context)):
     read_access(ctx)
-    sets = execute(AUTH + """SELECT ID,UoMCode,Status FROM dbo.UoM WHERE ID IN(?,?,?,?);
+    sets = execute(AUTH + """SELECT ID,UoMCode,Status,Category FROM dbo.UoM WHERE ID IN(?,?,?,?);
       SELECT ParentTypeID,RootTypeID,RootShipping AS Shipping,PriceBasis,Status FROM dbo.v_PackagingTypeDimensionContext WHERE ID=?;""",
       [ctx.username,payload.D1UoMID,payload.D2UoMID,payload.D3UoMID,payload.ConversionOutputUoMID,payload.PackagingTypeID])
     if not sets[1] or sets[1][0]["Status"] != "Active":
@@ -215,22 +221,23 @@ def preview_formula(payload: FormulaRoleTest, ctx: AccessContext = Depends(get_a
     formula = getattr(payload, payload.FormulaRole)
     variables = formula_variables(formula, allow_constant=not occupied)
     if payload.FormulaRole == "ConvertFromParentFormula":
-        definitions = execute(AUTH + """SELECT p.*,u1.Status AS D1UnitStatus,u2.Status AS D2UnitStatus,u3.Status AS D3UnitStatus
+        definitions = execute(AUTH + """SELECT p.*,u1.Status AS D1UnitStatus,u2.Status AS D2UnitStatus,u3.Status AS D3UnitStatus,
+           u1.Category AS D1UnitCategory,u2.Category AS D2UnitCategory,u3.Category AS D3UnitCategory
           FROM dbo.PackagingDimension p JOIN dbo.UoM u1 ON u1.ID=p.D1UoMID
           LEFT JOIN dbo.UoM u2 ON u2.ID=p.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=p.D3UoMID
-          WHERE p.ID=? AND p.PackagingTypeID=? AND p.ParentDimensionID IS NULL AND p.Status='Active';""",
-          [ctx.username,payload.ParentDimensionID,kind["RootTypeID"]])[0]
+          WHERE p.ID=? AND dbo.fn_PackagingTypeUnder(?,p.PackagingTypeID)=1 AND p.ParentDimensionID IS NULL AND p.Status='Active';""",
+          [ctx.username,payload.ParentDimensionID,payload.PackagingTypeID])[0]
         if not definitions:
             raise HTTPException(422, "Choose an active parent dimension definition for Convert from parent.")
         parent = definitions[0]
         if parent["RowVersion"] != payload.ParentDimensionRowVersion:
             raise HTTPException(409, "Parent dimensions changed. Refresh before testing.")
-        if any(not parent.get(name+"Name") or parent.get(name+"UnitStatus") != "Active" for name in variables):
+        if any(not parent.get(name+"Name") or parent.get(name+"UnitStatus") != "Active" or parent.get(name+"UnitCategory") != "Length/Distance" for name in variables):
             raise HTTPException(422, "Convert from parent requires defined parent dimensions with active units.")
     else:
-        active = {u["ID"] for u in sets[0] if u["Status"] == "Active"}
+        active = {u["ID"] for u in sets[0] if u["Status"] == "Active" and u["Category"] == "Length/Distance"}
         if any(getattr(payload, name) and getattr(payload, name+"UoMID") not in active for name in DIMENSIONS):
-            raise HTTPException(422, "Choose active dimension units.")
+            raise HTTPException(422, "Choose active Length/Distance dimension units.")
     values = {name: getattr(payload, "Test"+name) for name in variables}
     unit = "m³" if payload.FormulaRole == "OccupiedM3Formula" else "m²" if occupied or kind["PriceBasis"] == "Square meter" else "base units"
     try:
@@ -244,12 +251,12 @@ def preview_formula(payload: FormulaRoleTest, ctx: AccessContext = Depends(get_a
 @router.post("/preview-volume")
 def preview_volume(payload: VolumeTest, ctx: AccessContext = Depends(get_access_context)):
     read_access(ctx)
-    sets = execute(AUTH + """SELECT ID,Status FROM dbo.UoM WHERE ID IN(?,?,?);
+    sets = execute(AUTH + """SELECT ID,Status,Category FROM dbo.UoM WHERE ID IN(?,?,?);
                     SELECT RootShipping AS Shipping,Status FROM dbo.v_PackagingTypeDimensionContext WHERE ID=?;""",
                     [ctx.username,payload.D1UoMID,payload.D2UoMID,payload.D3UoMID,payload.PackagingTypeID])
     if not sets[1] or not sets[1][0]['Shipping'] or sets[1][0]['Status']!='Active':
         return {'CubicMeters':None,'CalculationStatus':'Volume formula requires an active Shipping Packaging Type.'}
-    active={u['ID'] for u in sets[0] if u['Status']=='Active'}
+    active={u['ID'] for u in sets[0] if u['Status']=='Active' and u['Category']=='Length/Distance'}
     if any(not getattr(payload,name) or getattr(payload,name+'UoMID') not in active for name in DIMENSIONS):
         return {'CubicMeters':None,'CalculationStatus':'Shipping types require D1, D2 and D3 names and active units.'}
     try:

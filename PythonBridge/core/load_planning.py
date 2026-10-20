@@ -1,10 +1,11 @@
 """Deterministic, bounded rectangular loading plans in millimetres.
 
-Mixed orientation strips in both axes; a feasible plan, not a proof of optimality.
+Mixed blocks and bounded search; footprint optimality is reported separately.
 Returned coordinates are the sole source of counts and 3D placement.
 """
 from decimal import Decimal
 from typing import Literal
+from rectangle_packing import layout, ALGORITHM
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class Dimensions(BaseModel):
@@ -47,47 +48,21 @@ def scaled(value):
     return int(Decimal(value)*1000)
 
 def footprint(length, width, box_length, box_width, rotate=True):
-    L,W,l,w = map(scaled,(length,width,box_length,box_width))
-    if min(L,W,l,w) <= 0:
-        raise ValueError("Dimensions must be positive.")
-    if max(L//min(l,w), W//min(l,w)) > 2000:
-        raise ValueError("Dimensions create too many rows; use larger load units.")
-    best=[]
-    for transpose in (False,True):
-        x,y=(W,L) if transpose else (L,W)
-        a,b=(w,l) if transpose else (l,w)
-        options=[(a,b)]
-        if rotate and a!=b: options.append((b,a))
-        candidates=[]
-        for depth,count_length in options:
-            # Strips run along y; depth is their width on x.
-            candidates.append((depth,count_length))
-        first=candidates[0]
-        second=candidates[-1]
-        for n in range(x//first[0]+1):
-            m=(x-n*first[0])//second[0] if len(candidates)>1 else 0
-            count=n*(y//first[1])+m*(y//second[1])
-            if count<=len(best): continue
-            if count>20000: raise ValueError("More than 20,000 units per layer; use larger load units.")
-            placed=[]; offset=0
-            for number,(dx,dy) in ((n,first),(m,second)):
-                for _ in range(number):
-                    for j in range(y//dy):
-                        px,py,pl,pw=(j*dy,offset,dy,dx) if transpose else (offset,j*dy,dx,dy)
-                        placed.append(dict(x=px/1000,y=py/1000,length=pl/1000,width=pw/1000))
-                    offset+=dx
-            best=placed
-    return best
+    return layout(length,width,box_length,box_width,rotate).positions()
 
 def plan(p: PlanInput):
     warnings=[]
     usable={a:getattr(p.container,a)-getattr(p,"clearance_"+a) for a in ("length","width","height")}
     pallet_layer=[]; pallet_layers=0; cartons_per_pallet=0; tiers=1
+    pallet_fit=None
     if p.mode=="pallet":
-        pallet_layer=footprint(p.pallet.length,p.pallet.width,p.carton.length,p.carton.width,p.rotate)
+        pallet_fit=layout(p.pallet.length,p.pallet.width,p.carton.length,p.carton.width,p.rotate)
+        pallet_layer=pallet_fit.positions()
         if p.cartons_per_layer is not None:
             if p.cartons_per_layer>len(pallet_layer):
-                raise ValueError("Response cartons per layer exceed the geometric pallet capacity. Reduce cartons per layer or choose a larger pallet.")
+                if p.cartons_per_layer>pallet_fit.upper_bound:
+                    raise ValueError(f"Response cartons per layer exceed the proven maximum of {pallet_fit.upper_bound} for this pallet. Reduce cartons per layer or choose a larger pallet.")
+                raise ValueError(f"Response requests {p.cartons_per_layer} cartons per layer; the bounded search found {len(pallet_layer)} (upper bound {pallet_fit.upper_bound}). This request is not proven infeasible; review the arrangement.")
             pallet_layer=pallet_layer[:p.cartons_per_layer]
         max_height=min(p.max_pallet_height,usable["height"])
         pallet_layers=max(0,int((max_height-p.pallet.height)//p.carton.height))
@@ -110,7 +85,11 @@ def plan(p: PlanInput):
         unit_length,unit_width=p.carton.length,p.carton.width
         loaded_height=p.carton.height;unit_weight=p.carton_kg
         tiers=int(usable["height"]//loaded_height)
-    positions=footprint(usable["length"],usable["width"],unit_length,unit_width,p.rotate)
+    container_fit=layout(usable["length"],usable["width"],unit_length,unit_width,p.rotate)
+    positions=container_fit.positions()
+    for label,fit in (("Pallet",pallet_fit),("Container floor",container_fit)):
+        if fit is not None and not fit.optimal:
+            warnings.append(f"{label} layout: best found {len(fit.rectangles)}, upper bound {fit.upper_bound}; maximum not proven.")
     if loaded_height>usable["height"] or (p.mode=="pallet" and not cartons_per_pallet): positions=[]
     if p.door_height is not None and loaded_height>p.door_height:
         positions=[];warnings.append("Loaded unit is higher than the door opening.")
@@ -126,7 +105,13 @@ def plan(p: PlanInput):
     if p.mode=="pallet" and p.pallet_payload_kg is None:warnings.append("Pallet load rating has not been verified.")
     volume=Decimal(count)*unit_length*unit_width*loaded_height
     available=p.container.length*p.container.width*p.container.height
-    return dict(algorithm="mixed-strips-v1",optimal=False,
+    return dict(algorithm=ALGORITHM,optimal=False,
+        pallet_layer_capacity=len(pallet_fit.rectangles) if pallet_fit else 0,
+        pallet_layer_upper_bound=pallet_fit.upper_bound if pallet_fit else 0,
+        pallet_layout_optimal=pallet_fit.optimal if pallet_fit else False,
+        container_layer_capacity=len(container_fit.rectangles),
+        container_layer_upper_bound=container_fit.upper_bound,
+        container_layout_optimal=container_fit.optimal,
         pallet_layer=pallet_layer,cartons_per_layer=len(pallet_layer),pallet_layers=pallet_layers,cartons_per_pallet=cartons_per_pallet,
         container_layer=positions,container_tiers=tiers,floor_positions=len(positions),
         geometric_units=geometric,loaded_units=count,

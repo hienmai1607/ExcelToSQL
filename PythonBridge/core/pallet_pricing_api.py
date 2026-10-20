@@ -25,25 +25,40 @@ class Selection(BaseModel):
     PalletSize:str=Field(max_length=100)
     components:list[Component]=Field(min_length=1,max_length=30)
     ItemRowVersion:str|None=None
+    PalletMaterialID:int|None=Field(None,ge=1)
+
+
+@router.get('/pallets')
+def pallet_choices(ctx:AccessContext=Depends(get_access_context)):
+    from packaging_api import require
+    require(ctx,'Packaging','PackagingManager','Opportunity')
+    with api_cursor() as cur:
+        choices={}
+        for row in pallet_prices_from_cursor(cur):
+            dimensions=row['Dimensions']
+            choices[row['MaterialID']]=dict(ID=row['MaterialID'],MaterialCode=row['MaterialCode'],MaterialName=row['MaterialName'],
+                PalletSize=format(Decimal(dimensions['length']).normalize(),'f')+'x'+format(Decimal(dimensions['width']).normalize(),'f')+'mm',Dimensions=dimensions)
+        return {'rows':list(choices.values())}
 
 def catalog(cur):
     bases=pallet_prices_from_cursor(cur)
     base_ids={p['ID'] for p in bases}
-    rows=select(cur,"""SELECT p.ID,p.RowVersion,m.RowVersion MaterialRowVersion,m.MaterialCode,m.MaterialName,
+    rows=select(cur,"""SELECT p.ID,p.RowVersion,m.RowVersion MaterialRowVersion,m.ID MaterialID,m.MaterialCode,m.MaterialName,t.PackagingType,
         m.TareWeight,m.TareWeightBasis,p.UnitPrice,p.UnitUSDPrice,p.PriceBasis,c.CurrencyCode,
         p.QuantityFrom,p.QuantityTo,p.EffectiveFrom,p.EffectiveTo,v.VendorName,t.PackagingOrder
         FROM dbo.PackagingPrice p WITH(HOLDLOCK) JOIN dbo.PackagingMaterial m WITH(HOLDLOCK) ON m.ID=p.MaterialID AND m.Status='Active'
         JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID AND t.Status='Active'
         JOIN dbo.Currency c ON c.ID=p.CurrencyID
         LEFT JOIN dbo.Vendor v ON v.ID=p.VendorID
-        WHERE p.Status='Active' AND UPPER(p.PriceBasis)='EA'
+        WHERE t.PackagingOrder='Pallet' AND p.Status='Active' AND UPPER(p.PriceBasis)='EA'
         AND (v.ID IS NULL OR v.Status='Active')
         AND p.EffectiveFrom<=CONVERT(DATE,SYSUTCDATETIME())
         AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=CONVERT(DATE,SYSUTCDATETIME()))
         ORDER BY m.MaterialCode,p.ID""")[0]
     result=[]
     for row in rows:
-        if row['PackagingOrder']=='Pallet' and row['ID'] not in base_ids:continue
+        row['IsPallet']=row['PackagingType'].strip().casefold()=='pallet'
+        if row['IsPallet'] and row['ID'] not in base_ids:continue
         row['RowVersion']=encode(row['RowVersion'])
         row['MaterialRowVersion']=encode(row['MaterialRowVersion'])
         base=next((b for b in bases if b['ID']==row['ID']),None)
@@ -60,7 +75,9 @@ def calculate(cur,body):
         if not p or p['RowVersion']!=component.RowVersion or p['MaterialRowVersion']!=component.MaterialRowVersion:
             raise HTTPException(409,'Material or pricing changed. Refresh the pallet calculator.')
         area=component.AreaM2
-        if p['PackagingOrder']=='Pallet':
+        if p.get('IsPallet'):
+            if body.PalletMaterialID is not None and p['MaterialID']!=body.PalletMaterialID:
+                raise HTTPException(422,'Choose pricing for the selected pallet material.')
             if base or component.Quantity!=1:raise HTTPException(422,'Choose exactly one pallet with quantity 1.')
             base=p
             dims=p['Dimensions']
@@ -80,7 +97,7 @@ def calculate(cur,body):
         else:usd+=Decimal(str(p['UnitUSDPrice']))*component.Quantity
         components.append({**p,'Quantity':str(component.Quantity),'AreaM2':str(area) if area is not None else None,'TareKG':str(kg) if kg is not None else None,'Cost':str(cost)})
     if base is None:raise HTTPException(422,'Choose one matching pallet material.')
-    return dict(PalletSize=body.PalletSize,Dimensions=base['Dimensions'],components=components,TareKG=None if missing else str(tare),
+    return dict(PalletSize=body.PalletSize,PalletMaterialID=base['MaterialID'],Dimensions=base['Dimensions'],components=components,TareKG=None if missing else str(tare),
         MissingTare=missing,UnitPrice=str(total),CurrencyCode=currency,UnitUSDPrice=str(usd) if usd_known else None)
 
 @router.get('/items/{item_id}')
@@ -112,19 +129,26 @@ def save(item_id:int,body:Selection,ctx:AccessContext=Depends(get_access_context
             raise
 
 def apply_selection(cur,row):
+    if 'ResponsePalletMaterialID' in row.model_fields_set:
+        identity=row.ResponsePalletMaterialID
+        previous=cur.execute('SELECT ResponsePalletMaterialID FROM dbo.PackagingConfigurationRequestItem WHERE ID=?',row.ID).fetchval()
+        if identity!=previous and identity is not None and not cur.execute("""SELECT m.ID FROM dbo.PackagingMaterial m JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID
+            WHERE m.ID=? AND m.Status='Active' AND t.Status='Active' AND t.PackagingType='Pallet' AND t.PackagingOrder='Pallet'""",identity).fetchone():
+            raise HTTPException(422,'Choose an active material with Packaging Type Pallet.')
+        cur.execute('UPDATE dbo.PackagingConfigurationRequestItem SET ResponsePalletMaterialID=? WHERE ID=? AND (ResponsePalletMaterialID<>? OR (ResponsePalletMaterialID IS NULL AND ? IS NOT NULL) OR (ResponsePalletMaterialID IS NOT NULL AND ? IS NULL))',identity,row.ID,identity,identity,identity)
     if 'PalletPricingID' not in row.model_fields_set:
-        if 'ResponsePalletSize' in row.model_fields_set:
-            cur.execute("UPDATE i SET PalletPricingID=NULL FROM dbo.PackagingConfigurationRequestItem i JOIN dbo.PalletPricingSnapshot s ON s.ID=i.PalletPricingID WHERE i.ID=? AND (i.ResponsePalletSize IS NULL OR JSON_VALUE(s.SnapshotJSON,'$.PalletSize')<>i.ResponsePalletSize)",row.ID)
+        if {'ResponsePalletSize','ResponsePalletMaterialID'} & row.model_fields_set:
+            cur.execute("UPDATE i SET PalletPricingID=NULL FROM dbo.PackagingConfigurationRequestItem i JOIN dbo.PalletPricingSnapshot s ON s.ID=i.PalletPricingID WHERE i.ID=? AND (i.ResponsePalletSize IS NULL OR JSON_VALUE(s.SnapshotJSON,'$.PalletSize')<>i.ResponsePalletSize OR (i.ResponsePalletMaterialID IS NOT NULL AND ISNULL(TRY_CONVERT(INT,JSON_VALUE(s.SnapshotJSON,'$.PalletMaterialID')),0)<>i.ResponsePalletMaterialID))",row.ID)
             return bytes(cur.execute('SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?',row.ID).fetchval())
         return
     if row.PalletPricingID is not None:
-        record=cur.execute("""SELECT s.SnapshotJSON,i.ResponsePalletSize,oi.ParentItemID
+        record=cur.execute("""SELECT s.SnapshotJSON,i.ResponsePalletSize,oi.ParentItemID,i.ResponsePalletMaterialID
             FROM dbo.PalletPricingSnapshot s JOIN dbo.PackagingConfigurationRequestItem i ON i.ID=s.ItemID
             JOIN dbo.OpportunityItem oi ON oi.ID=i.OpportunityItemID WHERE s.ID=? AND s.ItemID=?""",row.PalletPricingID,row.ID).fetchone()
-        if not record or record[2] is not None or json.loads(record[0])['PalletSize']!=record[1]:
+        if not record or record[2] is not None or json.loads(record[0])['PalletSize']!=record[1] or record[3] is not None and json.loads(record[0]).get('PalletMaterialID')!=record[3]:
             raise HTTPException(422,'Choose pallet pricing for this parent response and matching pallet size.')
     cur.execute('UPDATE dbo.PackagingConfigurationRequestItem SET PalletPricingID=? WHERE ID=? AND (PalletPricingID<>? OR (PalletPricingID IS NULL AND ? IS NOT NULL) OR (PalletPricingID IS NOT NULL AND ? IS NULL))',row.PalletPricingID,row.ID,row.PalletPricingID,row.PalletPricingID,row.PalletPricingID)
     return bytes(cur.execute('SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?',row.ID).fetchval())
 
 def snapshot_sql(alias):
-    return f"(SELECT JSON_MODIFY(s.SnapshotJSON,'$.ID',s.ID) FROM dbo.PalletPricingSnapshot s WHERE s.ID={alias}.PalletPricingID AND s.ItemID={alias}.ID AND JSON_VALUE(s.SnapshotJSON,'$.PalletSize')={alias}.ResponsePalletSize)"
+    return f"(SELECT JSON_MODIFY(s.SnapshotJSON,'$.ID',s.ID) FROM dbo.PalletPricingSnapshot s WHERE s.ID={alias}.PalletPricingID AND s.ItemID={alias}.ID AND JSON_VALUE(s.SnapshotJSON,'$.PalletSize')={alias}.ResponsePalletSize AND ({alias}.ResponsePalletMaterialID IS NULL OR TRY_CONVERT(INT,JSON_VALUE(s.SnapshotJSON,'$.PalletMaterialID'))={alias}.ResponsePalletMaterialID))"

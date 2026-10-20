@@ -83,23 +83,36 @@ def catalog(cur, type_id, order, locked=False, mix_parent=False):
     # Shared serializable source locks keep snapshots stable without serializing
     # independent pricing saves behind exclusive/update locks on the masters.
     hint = " WITH(HOLDLOCK)" if locked else ""
-    types = decode_orders(select(cur, f"SELECT ID,ParentTypeID,PackagingType,PackagingOrder,PackagingOrdersJSON,PriceBasis,Shipping,FinalComponent,CopyDim,Status,RowVersion FROM dbo.v_PackagingTypeWeb{hint}")[0])
+    types = decode_orders(select(cur, f"SELECT ID,ParentTypeID,ParentTypeIDsJSON,PackagingType,PackagingOrder,PackagingOrdersJSON,PriceBasis,Shipping,FinalComponent,CopyDim,Status,RowVersion FROM dbo.v_PackagingTypeWeb{hint}")[0])
+    for entry in types:
+        entry["CopyDim"]=bool(entry.get("CopyDim") and entry.get("FinalComponent"))
     by_id = {t["ID"]: t for t in types}
     root = by_id.get(type_id)
-    if not root or root["ParentTypeID"] is not None or root["Status"] != "Active" or not (any(o in ("Secondary","Tertiary") for o in root["PackagingOrders"]) if mix_parent else order in root["PackagingOrders"]):
-        raise HTTPException(422, "Choose an active Secondary/Tertiary Type for the mix parent." if mix_parent else "Choose an active " + order + " Type.")
-    paths = {}
-    for t in types:
-        path, seen, node = [], set(), t
-        while node and node["ID"] not in seen and len(path) < 100:
-            seen.add(node["ID"])
-            path.append(node)
-            if node["ID"] == type_id:
-                if (len(path) > 1 or root.get('FinalComponent')) and t.get('FinalComponent') and all(n["Status"] == "Active" for n in path):
-                    paths[t["ID"]] = path
-                break
-            node = by_id.get(node["ParentTypeID"])
+    if not root or root["ParentTypeID"] is not None or root["Status"] != "Active" or not ((order+" Mix" if mix_parent else order) in root["PackagingOrders"]):
+        raise HTTPException(422, "Choose an active "+order+" Mix Type for the mix parent." if mix_parent else "Choose an active " + order + " Type.")
+    # Walk from the selected root through every link, once per type.
+    # A shared component is one option, not a duplicate price for each route.
+    paths, visited, pending = {}, set(), [(root, [root])]
+    while pending:
+        node, root_path = pending.pop(0)
+        if node["ID"] in visited or node["Status"] != "Active":
+            continue
+        visited.add(node["ID"])
+        if node.get("FinalComponent"):
+            paths[node["ID"]] = list(reversed(root_path))
+        pending.extend((child, root_path + [child]) for child in types
+                       if node["ID"] in child["ParentTypeIDs"] and child["ID"] not in visited)
+    for component_id in paths:
+        lineage, seen, ancestors = [], set(), [by_id[component_id]]
+        while ancestors:
+            node = ancestors.pop(0)
+            if node["ID"] in seen or node["ID"] not in visited:
+                continue
+            seen.add(node["ID"]);lineage.append(node)
+            ancestors.extend(by_id[parent] for parent in node["ParentTypeIDs"] if parent in by_id)
+        paths[component_id] = [node for node in lineage if node["ID"] != type_id] + [root]
     ids = list(paths)
+    dimension_types = sorted({node["ID"] for path in paths.values() for node in path} | {type_id})
     units = select(cur, f"SELECT ID,UoMCode,UoMName,Status,RowVersion FROM dbo.UoM{hint}")[0]
     dimensions = select(cur, f"""SELECT d.ID,d.PackagingTypeID,d.D1Name,d.D2Name,d.D3Name,d.D1UoMID,d.D2UoMID,d.D3UoMID,
         d.SquareMeterFormula,d.VolumeFormula,d.OccupiedM2Formula,d.OccupiedM3Formula,
@@ -108,11 +121,14 @@ def catalog(cur, type_id, order, locked=False, mix_parent=False):
         u1.UoMCode AS D1Unit,u2.UoMCode AS D2Unit,u3.UoMCode AS D3Unit
         FROM dbo.PackagingDimension d{hint} JOIN dbo.PackagingType t ON t.ID=d.PackagingTypeID
         JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID LEFT JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID
-        WHERE d.Status='Active' AND d.PackagingTypeID IN(SELECT value FROM OPENJSON(?)) ORDER BY d.ID""", document(ids + [type_id]))[0]
+        WHERE d.Status='Active' AND (d.PackagingTypeID IN(SELECT value FROM OPENJSON(?))
+         OR d.ID IN(SELECT ParentDimensionID FROM dbo.PackagingDimension child{hint}
+          WHERE child.PackagingTypeID IN(SELECT value FROM OPENJSON(?)))) ORDER BY d.ID""", document(dimension_types),document(dimension_types))[0]
     prices = select(cur, f"""SELECT m.ID AS MaterialID,m.MaterialCode,m.MaterialName,m.UnitOfMeasure,m.PackagingTypeID,m.RowVersion AS MaterialRowVersion,m.TareWeight,m.TareWeightBasis,
-        t.PackagingType,t.CopyDim,t.PriceBasis AS CalculationBasis,p.ID AS PriceID,p.RowVersion AS PriceRowVersion,p.CurrencyID,c.CurrencyCode,c.RowVersion AS CurrencyRowVersion,
+        t.PackagingType,CONVERT(BIT,CASE WHEN t.FinalComponent=1 THEN t.CopyDim ELSE 0 END) CopyDim,t.PriceBasis AS CalculationBasis,p.ID AS PriceID,p.RowVersion AS PriceRowVersion,p.CurrencyID,c.CurrencyCode,c.RowVersion AS CurrencyRowVersion,
         p.VendorID,v.VendorName,p.PriceBasis AS PriceUoM,p.UnitPrice,p.QuantityFrom AS VendorMOQ,p.QuantityTo,p.ExchangeRateToUSD,p.EffectiveFrom,p.EffectiveTo,
-        p.SupplierDimensionID,p.SupplierDimensionRowVersion,p.SupplierD1,p.SupplierD2,p.SupplierD3,p.SupplierAreaPerPriceUnit,p.MaterialDimensionID,p.MaterialDimensionRowVersion,p.MaterialD1,p.MaterialD2,p.MaterialD3
+        m.MaterialDimensionID AS SupplierDimensionID,m.MaterialDimensionRowVersion AS SupplierDimensionRowVersion,m.MaterialD1 AS SupplierD1,m.MaterialD2 AS SupplierD2,m.MaterialD3 AS SupplierD3,
+        m.MaterialDimensionID,m.MaterialDimensionRowVersion,m.MaterialD1,m.MaterialD2,m.MaterialD3,'Material' AS DimensionsSource
         FROM dbo.PackagingMaterial m{hint} JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID
         LEFT JOIN dbo.PackagingPrice p{hint} ON p.MaterialID=m.ID AND p.Status='Active'
          AND p.EffectiveFrom<=CONVERT(DATE,SYSUTCDATETIME()) AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=CONVERT(DATE,SYSUTCDATETIME()))
@@ -325,20 +341,22 @@ def component_geometry(cur, component, price, paths, unit_map, dimension_map, ar
         if source['ID'] != target['ID'] and not (basis == 'Square meter' and is_area_unit(source) and is_area_unit(target)):
             if basis == 'Square meter' or price.get('SupplierDimensionID') is not None:
                 supplier = dimension_map.get(price.get('SupplierDimensionID'))
-                if not supplier or supplier['PackagingTypeID'] != price['PackagingTypeID'] or supplier.get('ParentDimensionID') is None:
-                    raise HTTPException(422, price['MaterialName']+': maintain supplier dimensions for one Price UoM in Packaging Material Pricing.')
+                if not supplier or supplier['PackagingTypeID'] != price['PackagingTypeID'] or supplier.get('ParentDimensionID') is None and price.get('DimensionsSource')!='Material':
+                    raise HTTPException(422, price['MaterialName']+': maintain physical dimensions in Packaging Material.')
                 if supplier['RowVersion'] != price.get('SupplierDimensionRowVersion'):
-                    raise HTTPException(409, 'Supplier formula changed. Refresh and save Packaging Material Pricing.')
-                supplier_parent = dimension_map.get(supplier['ParentDimensionID'])
+                    raise HTTPException(409, 'Material dimension definition changed. Refresh and save Packaging Material.')
+                supplier_parent = dimension_map.get(supplier.get('ParentDimensionID') or supplier['ID'])
                 if not supplier_parent:
                     raise HTTPException(422, 'Supplier parent dimension is unavailable.')
                 effective = dict(supplier)
+                if price.get('DimensionsSource')=='Material':
+                    effective['ConvertFromSupplierFormula']=supplier.get('ConvertFromSupplierFormula') or supplier.get('OccupiedM2Formula') or supplier.get('SquareMeterFormula')
                 if "ConvertFromSupplierFormula" not in supplier:
                     effective['ParentFormulaNeedsReview'] = supplier_parent.get('FormulaNeedsReview')
                     effective['EffectiveSquareMeterFormula'] = supplier.get('SquareMeterFormula') or supplier_parent.get('SquareMeterFormula')
                 for key in ('D1','D2','D3'):
                     if supplier[key+'Name'] and supplier[key+'UoMID'] not in unit_map:
-                        raise HTTPException(422, 'Supplier dimensions use a blocked UoM.')
+                        raise HTTPException(422, 'Material dimensions use a blocked UoM.')
                 measurements = {k: price.get('Supplier'+k) for k in ('D1','D2','D3')}
                 try:
                     factor = supplier_area(effective, measurements)
@@ -349,11 +367,16 @@ def component_geometry(cur, component, price, paths, unit_map, dimension_map, ar
                         effective["FormulaOutputConversion"]=output_conversion
                 except ValueError as exc:
                     raise HTTPException(422, str(exc)) from exc
-                if factor != price.get('SupplierAreaPerPriceUnit'):
+                if price.get('DimensionsSource')=='Material' and source['UoMCode'].casefold()!=price['UnitOfMeasure'].casefold():
+                    units_per_price=output_conversion_lookup(cur,source['UoMCode'],price['UnitOfMeasure'],price,locked)
+                    if not units_per_price or units_per_price.get('Factor') is None:
+                        raise HTTPException(422,'Maintain a Price UoM to material Base UoM conversion.')
+                    factor*=Decimal(str(units_per_price['Factor']))
+                if price.get('DimensionsSource')!='Material' and factor != price.get('SupplierAreaPerPriceUnit'):
                     raise HTTPException(409, 'Supplier conversion changed. Refresh and save Packaging Material Pricing.')
-                conversion = dict(Source='Packaging Material Pricing', PriceID=price['PriceID'], Factor=factor,
+                conversion = dict(Source='Packaging Material' if price.get('DimensionsSource')=='Material' else 'Packaging Material Pricing', PriceID=price['PriceID'], Factor=factor,
                     Dimension=effective, Measurements=measurements)
-                conversion_status = 'Supplier dimensions from Packaging Material Pricing (one Price UoM).'
+                conversion_status = 'Material dimensions with Price UoM conversion.'
             else:
                 conversions = select(cur, 'SELECT TOP(1) ID,Factor,RowVersion FROM dbo.UnitConversion'+(' WITH(HOLDLOCK)' if locked else '')+'''
                 WHERE FromUoMID=? AND ToUoMID=? AND Status='Active' AND RawMaterialID IS NULL
@@ -500,7 +523,7 @@ def history(item_id: ItemID, ctx: AccessContext = Depends(get_access_context)):
     with api_cursor() as cur:
         authorize(cur,ctx.username,item_id)
         headers=select(cur,"""SELECT TOP(20) p.ID,p.PackagingOrder,p.PackagingTypeName,p.FinalMOQ,p.UnitPrice,p.CurrencyCode,p.UnitUSDPrice,p.AsOfDate,p.IsCurrent,p.CreatedAt,u.UserName AS CreatedByName,
-            p.OpportunityItemID,p.OpportunityID,p.ProductID,p.ProductGradeVersionID,p.ProductMixVersionID,p.SourcePricingMasterID,p.ContextSnapshotJSON
+            p.OpportunityItemID,p.OpportunityID,p.ProductID,p.ProductGradeVersionID,p.ProductMixVersionID,p.SourcePricingMasterID,p.ContextSnapshotJSON,p.SnapshotJSON
             FROM dbo.PkgPricingMaster p JOIN dbo.Users u ON u.ID=p.CreatedBy WHERE p.RequestItemID=? ORDER BY p.ID DESC""",item_id)[0]
         components=select(cur,'SELECT PricingMasterID,SnapshotJSON FROM dbo.PkgPricingComponent WHERE PricingMasterID IN(SELECT value FROM OPENJSON(?)) ORDER BY PricingMasterID,LineNumber',document([h['ID'] for h in headers]))[0]
     return json.loads(document({'snapshots':[dict(header=h,components=[json.loads(c['SnapshotJSON']) for c in components if c['PricingMasterID']==h['ID']]) for h in headers]}))

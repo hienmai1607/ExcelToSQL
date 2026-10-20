@@ -1,3 +1,4 @@
+import {LossFormulaVariables} from './loss-formula-variables';
 import {Fragment,useEffect,useState} from 'react';
 import {call,type Row} from './api';
 import {Modal,ErrorNote,InfoTip,FieldLabel} from './ui';
@@ -6,7 +7,7 @@ import {objectValue,quantity,quantityDisplay} from './packaging-summary-model';
 import {defaultInputs,costs,money,packagingUSD,palletizationValue,productFields,type TCBInputs,type TCBGrade} from './tcb-model';
 import {migrateLossProcesses,processOptions,lossError,lossTotals,lossDisplay,lossFields,type LossStep} from './loss-processes';
 import './tcb-calculator.css';
-import {decimalDisplay} from './number-format';
+import {rawPriceOption,decimalDisplay} from './number-format';
 
 type Data={lossMasters?:LossStep[];item:Row;saved:Record<string,unknown>;grades:TCBGrade[];prices:Row[];gradeError:string};
 export function TCBCalculator({row,opportunity,onClose,onSaved,lossOnly=false}:{lossOnly?:boolean;row:Row;opportunity:Row;onClose:()=>void;onSaved:(version:string)=>void}){
@@ -49,14 +50,14 @@ export function TCBCalculator({row,opportunity,onClose,onSaved,lossOnly=false}:{
   {loading?<p role="status">Loading TCB inputs and current material prices…</p>:data&&<>
    {!lossOnly&&!mix&&<section aria-label="Product"><h3>Product</h3>
     <ErrorNote value={data.gradeError}/>{staleGrades&&<p role="alert">Grades changed since this calculation was saved. Recheck all price selections.</p>}
-    <div className="table-scroll"><table className="tcb-grades"><thead><tr><th>Grades (summary)</th><th>Final proportion</th><th>Material / vendor / quantity tier</th><th>USD/lb</th></tr></thead><tbody>{data.grades.map(leaf=>{
+    <div className="table-scroll"><table className="tcb-grades"><thead><tr><th>Grades (summary)</th><th>Ratio</th><th>Material / vendor / quantity tier</th><th>USD/lb</th></tr></thead><tbody>{data.grades.map(leaf=>{
      const selection=inputs.Prices.find(p=>p.Path===leaf.Path),selected=prices.find(p=>p.PriceID===selection?.PriceID&&p.PriceVersion===selection?.PriceVersion&&(selection?.ExpectedUSDPerLb===undefined||String(p.USDPerLb)===selection.ExpectedUSDPerLb));
      const candidates=data.prices.filter(p=>p.RawGradeID===leaf.RawGradeID&&(!leaf.RawMaterialID||p.MaterialID===leaf.RawMaterialID));
      const quote=(p:Row)=>p.PriceID+':'+p.PriceVersion+':'+p.USDPerLb;
      const value=selection?selection.PriceID+':'+selection.PriceVersion+':'+(selection.ExpectedUSDPerLb??selected?.USDPerLb):'';
      return <tr key={leaf.Path}><td>{leaf.Path} · {leaf.Grade}</td><td>{quantityDisplay(quantity(leaf.Proportion)?{n:quantity(leaf.Proportion)!.n*100n,d:quantity(leaf.Proportion)!.d}:null,4)}%</td><td><select aria-label={'Price for grade '+leaf.Path} disabled={readonly||saving} value={value} onChange={e=>{const p=candidates.find(p=>quote(p)===e.target.value);change('Prices',[...inputs.Prices.filter(p=>p.Path!==leaf.Path),...(p?[{Path:leaf.Path,PriceID:Number(p.PriceID),PriceVersion:String(p.PriceVersion),ExpectedUSDPerLb:String(p.USDPerLb)}]:[])])}}>
       <option value="">Choose material price</option>{selection&&!candidates.some(p=>quote(p)===value)&&<option value={value}>Saved price snapshot — reselect a current price before saving</option>}
-      {candidates.map(p=><option key={String(p.PriceID)} value={quote(p)} disabled={p.USDPerLb===null}>{p.MaterialCode} · {p.VendorName||'No vendor'} · {p.QuantityFrom}–{p.QuantityTo??'∞'} {p.PriceBasis} · {money(quantity(p.USDPerLb,true))}{p.USDPerLb===null?' (conversion missing)':''}</option>)}</select></td><td>{money(quantity(selected?.USDPerLb,true))}</td></tr>
+      {candidates.map(p=><option key={String(p.PriceID)} value={quote(p)} disabled={p.USDPerLb===null}>{rawPriceOption(p)}</option>)}</select></td><td>{money(quantity(selected?.USDPerLb,true))}</td></tr>
     })}</tbody></table></div>
     <div className="tcb-grid"><label><FieldLabel help="Sum of final grade proportion × selected material price in USD/lb. Nested grade ratios are multiplied down their paths.">RM Cost ($/lbs)</FieldLabel><output>{money(!changed&&!staleGrades&&savedRM?savedRM:calc.rm)}</output></label>
      {productFields.map(([key,label])=>input(key,label))}
@@ -71,6 +72,7 @@ export function TCBCalculator({row,opportunity,onClose,onSaved,lossOnly=false}:{
     <div role="tablist" aria-label="Item loss tabs"><button role="tab" aria-selected={lossTab==='product'} onClick={()=>setLossTab('product')}>Product Loss</button><button role="tab" aria-selected={lossTab==='packaging'} onClick={()=>setLossTab('packaging')}>Packaging Loss</button></div>
     <ErrorNote value={processError}/>
     {lossTab==='product'?<div role="tabpanel" aria-label="Product Loss">
+     <div className="product-loss-heading">Product Loss <LossFormulaVariables weight={data.item.WeightGrams??row.WeightGrams} losses={steps.filter(s=>s.ProcessType==='Processing'||s.ProcessType==='Sorting').length}/></div>
      {mix?<p>Product loss belongs to each child product, not the Mix parent.</p>:<>
       <div className="table-scroll"><table className="item-loss-table"><thead><tr><th>Loss type</th><th>Loss code</th><th>Loss ratio (%)</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{steps.filter(p=>p.ProcessType==='Sorting'||p.ProcessType==='Processing').map((step,index)=><tr key={index}>
        <td><select aria-label={'Loss type '+(index+1)} disabled={readonly||saving} value={masterKey(step)} onChange={e=>{const master=masterChoices.find(m=>masterKey(m)===e.target.value);if(master)change('LossProcesses',steps.map(s=>s===step?{...master,ProcessType:'Processing',Sequence:index+1,LossPct:step.LossPct}:s))}}>

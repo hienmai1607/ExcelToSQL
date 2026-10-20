@@ -67,7 +67,7 @@ def header_read(username,page,size,search,status,sort):
     from packaging_api import execute
     sort_sql=order(sort,HEADERS,"RequestID DESC")
     cte="""WITH Summary AS (
-        SELECT h.ID RequestID,h.RequestNumber,h.OpportunityNumber,h.CustomerName,
+        SELECT h.ID RequestID,h.RowVersion HeaderRowVersion,h.RequestNumber,h.OpportunityNumber,h.CustomerName,
           h.ResponseDue,h.RequestedAt,h.RequestNotes,u.UserName RequestedByName,t.ItemCount,t.Unassigned,
           CASE WHEN t.OpenCount>0 THEN 'Open' WHEN t.ApprovedCount>0 THEN 'Completed' ELSE 'Canceled' END RequestStatus
         FROM dbo.PackagingConfigurationRequest h JOIN dbo.Users u ON u.ID=h.RequestedBy
@@ -145,6 +145,7 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN {layer_sql('i')} END LayerTareJSON,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN (SELECT JSON_MODIFY(s.SnapshotJSON,'$.ID',s.ID) FROM dbo.PalletPricingSnapshot s WHERE s.ID=i.PalletPricingID AND s.ItemID=i.ID) END PalletPricingJSON,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponsePalletSize END ResponsePalletSize,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponsePalletMaterialID END ResponsePalletMaterialID,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponsePalletStacking END ResponsePalletStacking,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponseMaxPalletHeightMM END ResponseMaxPalletHeightMM,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponseDefaultsInitialized END ResponseDefaultsInitialized,

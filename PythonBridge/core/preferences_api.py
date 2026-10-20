@@ -32,7 +32,7 @@ class Settings(BaseModel):
     column_widths: dict[Column | Literal["_Actions"], ColumnWidth] = Field(default_factory=dict,max_length=9)
     requests: RequestViews = Field(default_factory=RequestViews)
     opportunity: OpportunityViews = Field(default_factory=OpportunityViews)
-    shared_masters: dict[Literal["loss-processes","ports","categories"], MasterLayout] = Field(default_factory=dict)
+    shared_masters: dict[Literal["loss-processes","ports","categories","grade-densities"], MasterLayout] = Field(default_factory=dict)
     @field_validator("shared_masters")
     @classmethod
     def validate_shared_layouts(cls, layouts):
@@ -60,6 +60,8 @@ class Settings(BaseModel):
     created_by: str = Field("", pattern=r"^(|[1-9][0-9]{0,9})$")
     status: Literal["", "Active", "Block"] = ""
     page_size: int = Field(25, ge=1, le=500)
+    date_format: Literal["mm/dd/yyyy","dd/mm/yyyy","yyyy-mm-dd","dd.mm.yyyy"] = "mm/dd/yyyy"
+    time_format: Literal["12h","24h"] = "12h"
     dark: bool = False
     nav_hidden: bool = False
 

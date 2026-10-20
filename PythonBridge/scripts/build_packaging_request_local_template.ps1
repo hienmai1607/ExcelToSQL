@@ -22,7 +22,7 @@ try {
  for($i=0;$i -lt $labels.Count;$i++){$controls.Cells.Item($i+3,1)=$labels[$i];$controls.Cells.Item($i+3,2)='0'}
  $controls.Columns.Item(1).ColumnWidth=38;$controls.Columns.Item(2).ColumnWidth=32
  $controls.Range('A10').Value2='Save uses your Windows identity. Development header mode is testing only.'
- $controls.Range('A11').Value2='Responses only: Item Command N/U. Creation, PIC and workflow actions remain in the app.'
+ $controls.Range('A11').Value2='Responses only: Item Action U; blank unchanged. Creation, PIC and workflow actions remain in the app.'
  $controls.Range('A12').Value2='Pages keep whole requests together. Packaging PIC / Admin can edit unlocked responses.'
  $buttons=@(@('Save','PackagingRequestSave'),@('Refresh','PackagingRequestRefresh'),@('Filter','PackagingRequestFilter'),@('Previous','PackagingRequestPrevious'),@('Next','PackagingRequestNext'))
  for($i=0;$i -lt $buttons.Count;$i++){
@@ -40,7 +40,7 @@ try {
   $controls.Cells.Item(22+$i,2).Value2=$legend[$i][1]
  }
  $config.Visible=2
- foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modPackagingRequestLocal.bas')){
+ foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modLocalDropdowns.bas','modPackagingRequestLocal.bas')){
   [void]$book.VBProject.VBComponents.Import((Join-Path $root $name))
  }
  [void]$book.VBProject.References.AddFromGuid('{420B2830-E718-11CF-893D-00A0C9054228}',1,0)

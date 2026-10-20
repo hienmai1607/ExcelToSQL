@@ -22,10 +22,20 @@ async function setup(page:Page,availableContainers=[container],session:Record<st
  });
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
- await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
+ await page.getByRole('button',{name:/^(Edit|View) request PCR-1$/}).click();
  return writes;
 }
-test('3D preview copies price dimensions and draws the view without saving or applying',async({page},info)=>{
+test('response currency sits immediately beside price and pallet labels lead with L x W',async({page})=>{
+ await setup(page,undefined,undefined,undefined,{PrimaryPricePerUnit:'15000',PrimaryPriceCurrencyCode:'VND'});
+ const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
+ const field=editor.locator('.response-price-field').first();
+ const input=await field.locator('input').boundingBox(),currency=await field.locator('.response-price-currency').boundingBox();
+ await expect(field.locator('.response-price-currency')).toHaveText('VND');
+ expect(currency!.x-input!.x-input!.width).toBeLessThanOrEqual(8);
+ await expect(editor.getByLabel('Pallet',{exact:true}).locator('option:checked')).toHaveText('1200 × 800 mm');
+});
+
+test('3D copies final dimensions and captures the viewed container into the draft',async({page},info)=>{
  const writes=await setup(page);
  await expect(page.getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('3,100');
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
@@ -45,8 +55,8 @@ test('3D preview copies price dimensions and draws the view without saving or ap
  await dialog.getByRole('button',{name:'Close',exact:true}).click();
  await expect(dialog).toHaveCount(0);
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
- await expect(editor.getByLabel('Container type',{exact:true})).toHaveValue('');
- expect(writes).toHaveLength(1);
+ await expect(editor.getByLabel('Container type',{exact:true})).toHaveValue('20DC');
+ expect(writes).toHaveLength(2);
  expect(writes[0]).not.toHaveProperty('PalletPriceID');
  expect(writes[0].Inputs.pallet).toEqual({length:1200,width:800,height:140});
  expect(writes[0].Inputs.pallet_kg).toBe(20);
@@ -54,7 +64,7 @@ test('3D preview copies price dimensions and draws the view without saving or ap
 
 });
 
-test('3D defaults to response cartons per layer and previews without changing the response',async({page})=>{
+test('3D defaults to response cartons per layer without persisting the response',async({page})=>{
  const writes=await setup(page);
  await page.route('**/api/load-planning/items/1/*',route=>{
   if(route.request().method()!=='POST')return route.fallback();
@@ -70,7 +80,7 @@ test('3D defaults to response cartons per layer and previews without changing th
  await expect(dialog.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue('97.5');
  await expect(dialog.getByRole('button',{name:/Save|Apply/i})).toHaveCount(0);
  await dialog.getByRole('button',{name:'Close',exact:true}).click();
- expect(writes).toHaveLength(1);
+ expect(writes).toHaveLength(2);
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  await expect(editor.getByLabel('Cartons / layer',{exact:true})).toHaveValue('5');
 });
@@ -167,16 +177,16 @@ test('Clear load plan is an icon inside 3D only and clears the response draft',a
  await expect(clear.locator('svg')).toHaveCount(1);
  await clear.click();
  await expect(dialog).toHaveCount(0);
- expect(writes.some(w=>w.rows||w.ItemRowVersion)).toBe(false);
+ expect(writes.some(w=>w.rows)).toBe(false);
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  expect(writes.find(w=>w.rows).rows[0].LoadPlanID).toBeNull();
 });
 
-test('3D has no clear icon without a selected saved plan',async({page})=>{
+test('3D exposes clear after automatic capture',async({page})=>{
  await setup(page);
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
- await expect(page.getByRole('dialog',{name:'3D load planner',exact:true}).getByRole('button',{name:'Clear load plan',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('dialog',{name:'3D load planner',exact:true}).getByRole('button',{name:'Clear load plan',exact:true})).toBeVisible();
 });
 
 test('automatic previews compare all containers with bounded calls and reuse results when switching views',async({page},info)=>{
@@ -195,13 +205,13 @@ test('automatic previews compare all containers with bounded calls and reuse res
  await expect(table.getByRole('row')).toHaveCount(6);
  await expect(table.getByText('Calculating…',{exact:true})).toHaveCount(0);
  const row=table.getByRole('row').filter({has:page.getByRole('button',{name:'View 40HC',exact:true})});
- await expect(row.getByRole('cell')).toHaveText(['40HC','6','150','370.368','28,000','15%']);
+ await expect(row.getByRole('cell')).toHaveText(['40HC','5,900 × 2,350 × 2,390','6','150','Unknown','370.368','28,000','15%']);
  expect(calls.sort()).toEqual([1,2,3,4,5]);expect(maxActive).toBeLessThanOrEqual(2);
  await table.getByRole('button',{name:'View 40HC',exact:true}).click();
  await expect(dialog.getByLabel('Container type',{exact:true})).toHaveValue('3');
  await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
  expect(calls).toHaveLength(5);
- expect(posts.every(p=>p.endsWith('/preview'))).toBe(true);
+ expect(posts.every(p=>p.endsWith('/preview')||p.endsWith('/save'))).toBe(true);
  await expect(dialog.getByRole('button',{name:'Calculate & view',exact:true})).toHaveCount(0);
  await expect(dialog.getByRole('checkbox',{name:'Allow 90° rotation'})).toHaveCount(0);
  expect(await dialog.evaluate(el=>el.scrollHeight<=el.clientHeight+2)).toBe(true);
@@ -221,11 +231,11 @@ test('one failed container does not hide other results and can be retried',async
  await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
  await expect(table.getByRole('button',{name:'Retry 40HC',exact:true})).toBeVisible();
  await table.getByRole('button',{name:'View 40HC',exact:true}).click();
- await expect(dialog.getByRole('button',{name:'Preview confirm',exact:true})).toBeDisabled();
+ await expect(dialog.getByRole('button',{name:'Preview confirm',exact:true})).toHaveCount(0);
  await table.getByRole('button',{name:'Retry 40HC',exact:true}).click();
  await expect(table.getByRole('button',{name:'Retry 40HC',exact:true})).toHaveCount(0);
  await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
- await expect(dialog.getByRole('button',{name:'Preview confirm',exact:true})).toBeEnabled();
+ await expect(dialog.getByRole('button',{name:'Preview confirm',exact:true})).toHaveCount(0);
 });
 
 test('late results from the previous mode cannot replace the selected mode',async({page})=>{
@@ -278,54 +288,61 @@ test('Cartons per layer stays editable in response after confirmation and saves 
  expect(saved.LoadPlanID).toBeNull();
 });
 
-test('Preview confirm fills container totals and normal response save persists the selected setup',async({page})=>{
- const writes=await setup(page),posts:string[]=[];
- page.on('request',r=>{if(r.method()==='POST')posts.push(new URL(r.url()).pathname)});
- await page.route('**/api/load-planning/items/1/*',route=>{
-  if(route.request().method()!=='POST')return route.fallback();
-  const body=route.request().postDataJSON();writes.push(body);
-  return route.fulfill({json:{ID:7,Inputs:body.Inputs,Result:{...result,pallet_layer:layer.slice(0,5),cartons_per_layer:5,cartons_per_pallet:25,cartons:275,gross_kg:1072.5}}});
- });
+test('viewed container captures automatically and normal response save persists it',async({page})=>{
+ const writes=await setup(page);
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true}),confirm=dialog.getByRole('button',{name:'Preview confirm',exact:true});
- await expect(confirm).toBeDisabled();
- await dialog.getByLabel('Container type',{exact:true}).selectOption('1');
- await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
- await expect(confirm).toBeEnabled();
- await expect(dialog.getByRole('checkbox',{name:'Allow 90° rotation'})).toHaveCount(0);
- await confirm.click();
- await expect(dialog).toHaveCount(0);
+ const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
+ await expect(dialog.getByRole('button',{name:'Preview confirm',exact:true})).toHaveCount(0);
+ await expect.poll(()=>writes.filter(w=>w.ItemRowVersion).length).toBe(1);
+ await expect(dialog).toBeVisible();
+ await dialog.getByRole('button',{name:'Close',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  await expect(editor.getByLabel('Container type',{exact:true})).toHaveValue('20DC');
- await expect(editor.getByLabel('Pallet / Container',{exact:true})).toHaveValue('11');
- await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('275');
- await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('27.5');
- await expect(editor.getByLabel('Gross weight / Container (kg)',{exact:true})).toHaveValue('1,072.5');
- expect(posts.filter(p=>p.endsWith('/save'))).toEqual(['/api/load-planning/items/1/save']);
- expect(posts).not.toContain('/api/packaging/response/batch');
- expect(writes[1].ItemRowVersion).toBe(version);
+ expect(writes.some(w=>w.rows)).toBe(false);
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  const saved=writes.find(w=>w.rows).rows[0];
- expect(saved.LoadPlanID).toBe(7);expect(saved.ContainerLoadPlanIDs).toEqual({'1':7});
+ expect(saved.LoadPlanID).toBe(7);
+ expect(saved.ContainerLoadPlanIDs).toEqual({'1':7});
 });
 
-test('failed Preview confirm keeps viewer open and response unchanged',async({page})=>{
- await setup(page);
- await page.route('**/api/load-planning/items/1/save',route=>route.fulfill({status:409,json:{detail:'Response changed. Refresh before confirming.'}}));
+test('only viewed containers are captured and revisiting a row reuses its snapshot',async({page})=>{
+ const writes=await setup(page,[container,{...container,ID:2,Code:'40HC'},{...container,ID:3,Code:'20RC'}]);
+ const captured:number[]=[];
+ await page.route('**/api/load-planning/items/1/save',route=>{
+  const body=route.request().postDataJSON();captured.push(body.ContainerID);
+  return route.fulfill({json:{ID:100+body.ContainerID,Inputs:body.Inputs,Result:result}});
+ });
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
- await dialog.getByLabel('Container type',{exact:true}).selectOption('1');
- await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
- await dialog.getByRole('button',{name:'Preview confirm',exact:true}).click();
- await expect(page.getByRole('alert')).toContainText('Response changed');
+ await expect.poll(()=>captured).toEqual([1]);
+ await expect(dialog.getByRole('table',{name:'Container load summary'})).not.toContainText('Calculating');
+ await dialog.getByRole('button',{name:'View 40HC',exact:true}).click();
+ await expect.poll(()=>captured).toEqual([1,2]);
+ await dialog.getByRole('button',{name:'View 20DC',exact:true}).click();
+ await expect(dialog.getByLabel('Container type',{exact:true})).toHaveValue('1');
+ await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ expect(captured).toEqual([1,2]);expect(writes.some(w=>w.rows)).toBe(false);
+ const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ const saved=writes.find(w=>w.rows).rows[0];
+ expect(saved.LoadPlanID).toBe(101);expect(saved.ContainerLoadPlanIDs).toEqual({'1':101,'2':102});
+});
+
+test('failed automatic capture keeps the viewer open and does not save the response',async({page})=>{
+ const writes=await setup(page);
+ await page.route('**/api/load-planning/items/1/save',route=>route.fulfill({status:409,json:{detail:'Response changed. Refresh before capturing.'}}));
+ await page.getByRole('button',{name:'3D container load',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
+ await expect(dialog.getByRole('alert')).toContainText('Response changed');
  await expect(dialog).toBeVisible();
- await expect(dialog.getByRole('button',{name:'Preview confirm',exact:true})).toBeDisabled();
+ expect(writes.some(w=>w.rows)).toBe(false);
  await dialog.getByRole('button',{name:'Close',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'Edit Packaging request',exact:true}).getByLabel('Container type',{exact:true})).toHaveValue('');
 });
 
-test('Both requirement allows temporary previews per container without changing the response',async({page})=>{
+test('Both requirement captures viewed previews without persisting the response',async({page})=>{
  const writes=await setup(page,[container,{...container,ID:2,Code:'40HC',SizeFT:40}],undefined,'Both');
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
@@ -341,7 +358,7 @@ test('Both requirement allows temporary previews per container without changing 
  await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
  await dialog.getByRole('button',{name:'Close',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
- await expect(editor.getByLabel('Container type',{exact:true})).toHaveValue('');
+ await expect(editor.getByLabel('Container type',{exact:true})).toHaveValue('20DC');
  expect(writes.every(w=>w.Inputs)).toBe(true);
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
  await expect(dialog.getByLabel('Container type',{exact:true})).toHaveValue('1');
@@ -392,4 +409,96 @@ test('container master opens from sidebar with add next to ID',async({page})=>{
  const form=page.getByRole('dialog',{name:'Container type',exact:true});
  await expect(form.getByLabel('Internal length (mm)',{exact:true})).toBeVisible();
  await form.getByRole('button',{name:'Close container'}).click();
+});
+
+
+test('packing preview distinguishes proven layer maximum from overall 3D optimality',async({page})=>{
+ await setup(page);
+ await page.route('**/api/load-planning/items/1/*',route=>{
+  if(route.request().method()!=='POST')return route.fallback();
+  return route.fulfill({json:{ID:7,Inputs:route.request().postDataJSON().Inputs,Result:{...result,pallet_layer_capacity:20,pallet_layer_upper_bound:20,pallet_layout_optimal:true,container_layer_capacity:11,container_layer_upper_bound:11,container_layout_optimal:true}}});
+ });
+ await page.getByRole('button',{name:'3D container load',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
+ await expect(dialog.getByText(/Pallet layer: verified maximum 20 cartons/)).toBeVisible();
+ await expect(dialog.getByText(/Overall 3D maximum is not guaranteed/)).toBeVisible();
+ await expect(dialog.getByText(/Container floor: verified maximum 11 positions/)).toBeVisible();
+});
+
+
+test('Packaging Manager can open review details without editing or saving',async({page})=>{
+ const writes=await setup(page,undefined,{username:'Manager',user_id:2,is_admin:false,scopes:['PackagingManager'],permissions:{requests:'edit'}},'Pallet load',{ItemStage:'Pending Review',FirstPMType:'Box',FirstPMMOQ:1000});
+ await page.route('**/api/packaging/items/1/pricing/history',route=>route.fulfill({json:{snapshots:[{header:{ID:10,PackagingOrder:'Primary',PackagingTypeName:'Box',IsCurrent:true,UnitPrice:'12',FinalMOQ:'1000',CurrencyCode:'VND'},components:[{MaterialCode:'PKG-SAVED',MaterialName:'Saved liner',Quantity:'2',ProductMOQ:'1000',ProductUnitPrice:'12',CurrencyCode:'VND'}]}]}}));
+ const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
+ await expect(editor.getByRole('button',{name:'3D container load',exact:true})).toBeEnabled();
+ await expect(editor.getByRole('button',{name:'Pallet Pricing Calculator',exact:true})).toBeEnabled();
+ await expect(editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true})).toBeEnabled();
+ await expect(editor.getByLabel('Applicable Net weight (g)',{exact:true})).toHaveAttribute('readonly','');
+ await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
+ const pricing=page.getByRole('dialog',{name:'Saved packaging pricing',exact:true});
+ await expect(pricing.getByText('PKG-SAVED — Saved liner',{exact:true})).toBeVisible();
+ await expect(pricing.getByRole('button',{name:/Apply|Save/})).toHaveCount(0);
+ await pricing.getByRole('button',{name:'Close saved pricing',exact:true}).click();
+ await editor.getByRole('button',{name:'Pallet Pricing Calculator',exact:true}).click();
+ const pallet=page.getByRole('dialog',{name:'Pallet Pricing Calculator',exact:true});
+ await expect(pallet.getByText(/Saved pallet pricing/)).toBeVisible();
+ await expect(pallet.getByRole('button',{name:'Apply pallet pricing',exact:true})).toHaveCount(0);
+ await pallet.getByRole('button',{name:'Close',exact:true}).click();
+ await editor.getByRole('button',{name:'3D container load',exact:true}).click();
+ const planner=page.getByRole('dialog',{name:'3D load planner',exact:true});
+ await expect(planner.getByRole('img',{name:'3D container load layout'})).toBeVisible();
+ await planner.getByRole('button',{name:'Close',exact:true}).click();
+ expect(writes).toHaveLength(1); // preview only, never save/capture
+ await expect(editor.getByRole('button',{name:'Review & save',exact:true})).toBeDisabled();
+});
+
+test('container summary displays net kg separately from gross kg',async({page})=>{
+ await setup(page);
+ await page.route('**/api/load-planning/items/1/*',route=>{
+  if(route.request().method()!=='POST')return route.fallback();
+  return route.fulfill({json:{ID:7,Inputs:route.request().postDataJSON().Inputs,Result:{...result,net_kg:4800}}});
+ });
+ await page.getByRole('button',{name:'3D container load',exact:true}).click();
+ const table=page.getByRole('table',{name:'Container load summary'});
+ await expect(table.getByRole('columnheader',{name:'Net (kg)',exact:true})).toBeVisible();
+ await expect(table.getByRole('cell',{name:'4,800',exact:true})).toBeVisible();
+});
+
+test('review container selection uses saved profiles without dirtying the response',async({page})=>{
+ const saved=(Code:string,cartons:number)=>({ID:Code==='20DC'?1:2,Code,Inputs:inputs,Result:{...result,cartons}});
+ const first=saved('20DC',2000),second=saved('40HC',4000);
+ const writes=await setup(page,[container,{...container,ID:2,Code:'40HC'}],{username:'Manager',user_id:2,is_admin:false,scopes:['PackagingManager'],permissions:{requests:'display'}},'Pallet load',{
+  ItemStage:'Pending Review',RequestedLayerCount:2,ResponseLayerCount:2,WeightGrams:400,ApplicableNetWeightGrams:400,UnitsPerCarton:6,
+  SelectedContainerType:'20DC',LoadPlanJSON:JSON.stringify(first),ContainerPlansJSON:JSON.stringify({'20DC':first,'40HC':second})
+ });
+ const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
+ await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('4,800');
+ await editor.getByLabel('Container type',{exact:true}).selectOption('40HC');
+ await expect(editor.getByLabel('Net weight / Container (kg)',{exact:true})).toHaveValue('9,600');
+ await expect(editor.getByRole('button',{name:'Review & save',exact:true})).toBeDisabled();
+ expect(writes).toHaveLength(0);
+});
+
+test('five container dimensions and totals fit desktop without scrollbars',async({page},info)=>{
+ await setup(page,['20DC','20RC','40DC','40HC','40RHC'].map((Code,i)=>({...container,ID:i+1,Code})));
+ await page.route('**/api/load-planning/items/1/*',route=>{
+  if(route.request().method()!=='POST')return route.fallback();
+  return route.fulfill({json:{ID:7,Inputs:route.request().postDataJSON().Inputs,Result:{...result,net_kg:4800,pallet_layer_capacity:20,pallet_layout_optimal:true,container_layer_capacity:10,container_layout_optimal:true,warnings:['Pallet load rating has not been verified.']}}});
+ });
+ await page.getByRole('button',{name:'3D container load',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true}),table=dialog.getByRole('table',{name:'Container load summary'});
+ await expect(table.getByRole('cell',{name:'5,900 × 2,350 × 2,390',exact:true})).toHaveCount(5);
+ await expect(table.getByText('Calculating…',{exact:true})).toHaveCount(0);
+ for(const size of [{width:1366,height:768},{width:1280,height:720},{width:1920,height:1080}]){
+  await page.setViewportSize(size);
+  await dialog.screenshot({path:info.outputPath('layout-'+size.width+'.png')});
+  for(const element of [dialog,dialog.locator('.load-planner-layout'),dialog.locator('.load-planner-preview'),dialog.locator('.load-planner-controls'),dialog.locator('.load-container-table')]){
+   const measured=await element.evaluate(el=>({element:el.className,horizontal:el.scrollWidth-el.clientWidth,vertical:el.scrollHeight-el.clientHeight}));
+   expect(measured.horizontal,JSON.stringify(size)).toBeLessThanOrEqual(2);
+   expect(measured.vertical,JSON.stringify({size,measured})).toBeLessThanOrEqual(2);
+  }
+  const summary=await table.boundingBox(),close=await dialog.getByRole('button',{name:'Close',exact:true}).boundingBox();
+  expect(summary!.y+summary!.height).toBeLessThanOrEqual(close!.y);
+ }
+ await dialog.screenshot({path:info.outputPath('container-dimensions-compact.png')});
 });

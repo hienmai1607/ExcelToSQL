@@ -1,6 +1,86 @@
 import {captureRevealScrolls,expectReveal} from './reveal-scroll';
 import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
+test('packaging price overlap resolution is opt-in and confirmed before saving',async({page})=>{
+ const state=await setup(page);
+ await page.getByRole('button',{name:'Packaging Pricing',exact:true}).click();
+ await page.getByRole('button',{name:'New price',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New price',exact:true});
+ const resolve=form.getByLabel('Resolve overlap automatically',{exact:true});
+ await expect(resolve).not.toBeChecked();
+ await form.getByLabel('Vendor',{exact:true}).selectOption('7');
+ await form.getByLabel('Material',{exact:true}).selectOption('1');
+ await form.getByLabel('Price UoM',{exact:true}).selectOption('EA');
+ await form.getByLabel('Quantity from (inclusive)',{exact:true}).fill('1000');
+ await form.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('15.50');
+ await form.getByLabel('Effective from',{exact:true}).fill('2026-10-21');
+ await resolve.check();
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();
+ const confirmation=page.getByRole('dialog',{name:'Confirm master save',exact:true});
+ await expect(confirmation).toContainText('may cap the new quantity range or end the previous same-tier price');
+ expect(state.writes).toHaveLength(0);
+ await confirmation.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].rows[0]).toMatchObject({ResolveOverlap:true,QuantityFrom:'1000',EffectiveFrom:'2026-10-21'});
+});
+
+test('price defaults to material UoM and USD exchange rate is locked to one',async({page})=>{
+ await setup(page);
+ await page.route('**/api/workbench/masters/lookups?**',r=>r.fulfill({json:{
+ materials:[{ID:1,MaterialCode:'RM',MaterialName:'Nuts',UnitOfMeasure:'lbs',Status:'Active'}],
+ vendors:[{ID:7,VendorName:'US vendor',CurrencyID:2,Status:'Active'}],
+ currencies:[{ID:2,CurrencyCode:'USD'},{ID:3,CurrencyCode:'VND'}],uoms:[{ID:1,UoMCode:'lbs',Status:'Active'},{ID:2,UoMCode:'kg',Status:'Active'}]
+ }}));
+ await page.getByRole('button',{name:'Raw Pricing',exact:true}).click();
+ await page.getByRole('button',{name:'New raw material price',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New raw material price',exact:true});
+ await form.getByLabel('Material',{exact:true}).selectOption('1');
+ await expect(form.getByLabel('Price UoM',{exact:true})).toHaveValue('lbs');
+ await form.getByLabel('Vendor',{exact:true}).selectOption('7');
+ const rate=form.getByLabel('Exchange rate (Vendor currency per USD)',{exact:true});
+ await expect(rate).toHaveValue('1');await expect(rate).toHaveAttribute('readonly','');
+ await form.getByLabel('Vendor currency',{exact:true}).selectOption('3');
+ await expect(rate).toBeEditable();await expect(rate).toHaveValue('');
+ await rate.fill('25000');
+ await form.getByLabel('Vendor currency',{exact:true}).selectOption('2');
+ await expect(rate).toHaveValue('1');
+});
+
+
+test('pricing fields form aligned pairs and blank upper limits save as unlimited',async({page})=>{
+ const state=await setup(page);
+ await page.getByRole('button',{name:'Packaging Pricing',exact:true}).click();
+ await page.getByRole('button',{name:'New price',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New price',exact:true});
+ for(const [left,right] of [['Material','Price UoM'],['Quantity from (inclusive)','Quantity to (exclusive)'],['Unit price (Vendor currency)','Exchange rate (Vendor currency per USD)'],['Effective from','Effective to']]){
+  const a=await form.getByLabel(left,{exact:true}).boundingBox(),b=await form.getByLabel(right,{exact:true}).boundingBox();
+  expect(Math.abs(a!.y-b!.y)).toBeLessThan(2);expect(b!.x).toBeGreaterThan(a!.x);
+ }
+ await expect(form.getByLabel('Quantity to (exclusive)',{exact:true})).toHaveAttribute('placeholder','Unlimited');
+ await expect(form.getByLabel('Effective to',{exact:true})).toHaveValue('');
+ await form.getByLabel('Vendor',{exact:true}).selectOption('7');
+ await form.getByLabel('Material',{exact:true}).selectOption('1');
+ await form.getByLabel('Price UoM',{exact:true}).selectOption('EA');
+ await form.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('10');
+ await form.getByLabel('Effective from',{exact:true}).fill('2026-10-16');
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].rows[0]).toMatchObject({QuantityTo:null,EffectiveTo:null});
+});
+
+test('Vendor currency is beside Vendor and the unit price has an adjacent currency code',async({page})=>{
+ await setup(page);await page.getByRole('button',{name:'Packaging Pricing',exact:true}).click();
+ await page.getByRole('button',{name:'New price',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New price',exact:true});
+ await form.getByLabel('Vendor',{exact:true}).selectOption('7');
+ await form.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('1000');
+ const vendor=await form.getByLabel('Vendor',{exact:true}).boundingBox(),currency=await form.getByLabel('Vendor currency',{exact:true}).boundingBox();
+ expect(Math.abs(vendor!.y-currency!.y)).toBeLessThan(2);expect(currency!.x).toBeGreaterThan(vendor!.x);
+ const input=await form.getByLabel('Unit price (Vendor currency)',{exact:true}).boundingBox(),code=await form.locator('.master-unit-currency').boundingBox();
+ await expect(form.locator('.master-unit-currency')).toHaveText('USD');
+ expect(code!.x-input!.x-input!.width).toBeLessThanOrEqual(10);
+ await page.setViewportSize({width:390,height:844});
+ expect(await form.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+});
 
 test('parentless Final component is available for Material assignment',async({page})=>{
  const state=await setup(page);
@@ -25,35 +105,40 @@ test('parentless Final component is available for Material assignment',async({pa
  expect(state.writes[0].rows[0].TareWeight).toBe('0.011500001');
  expect(state.writes[0].rows[0].TareWeightBasis).toBe('kg/EA');
 });
-test('supplier dimensions are entered per one Price UoM and saved with the child formula version',async({page})=>{
+test('physical dimensions are maintained on material and absent from pricing',async({page})=>{
  const state=await setup(page);
  await page.route('**/api/workbench/masters/lookups?**',r=>r.fulfill({json:{
   materials:[{ID:1,MaterialCode:'BOX',MaterialName:'Film',PackagingTypeID:70,PriceBasis:'Square meter',Status:'Active'}],
+  packagingTypes:[{ID:70,PackagingType:'Film',PackagingOrder:'Primary',FinalComponent:true,Status:'Active'}],
   currencies:[{ID:2,CurrencyCode:'USD'}],vendors:[],creators:[],uoms:[{ID:1,UoMCode:'m',Status:'Active'}],
-  supplierDimensions:[{ID:9,PackagingTypeID:70,PackagingType:'Film',D1Name:'Length',D2Name:'Width',D1Unit:'mm',D2Unit:'mm',ConvertFromSupplierFormula:'D1*D2/1000000',RowVersion:rv,Status:'Active'}]
+  materialDimensions:[{ID:9,PackagingTypeID:70,D1Name:'Length',D2Name:'Width',D1Unit:'mm',D2Unit:'mm',RowVersion:rv,Status:'Active'}]
  }}));
+ await page.getByRole('button',{name:'Packaging Material',exact:true}).click();
+ await page.getByRole('button',{name:'New material',exact:true}).click();
+ const material=page.getByRole('dialog',{name:'New material',exact:true});
+ await material.getByLabel('Material name',{exact:true}).fill('Film');
+ await material.getByLabel('Packaging Type',{exact:true}).selectOption('70');
+ await material.getByLabel('Base UoM',{exact:true}).selectOption('m');
+ await material.getByLabel('Material dimension definition',{exact:true}).selectOption('9');
+ await material.getByLabel('Material D1',{exact:true}).fill('1000');
+ await material.getByLabel('Material D2',{exact:true}).fill('500.123456');
+ await material.getByRole('button',{name:'Review & save'}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].rows[0]).toMatchObject({MaterialDimensionID:9,MaterialDimensionRowVersion:rv,MaterialD1:'1000',MaterialD2:'500.123456',MaterialD3:null});
  await page.getByRole('button',{name:'Packaging Pricing',exact:true}).click();
  await page.getByRole('button',{name:'New price',exact:true}).click();
  const form=page.getByRole('dialog',{name:'New price',exact:true});
+ await expect(form.getByLabel('Supplier dimension definition',{exact:true})).toHaveCount(0);
+ await expect(form.getByLabel('Material dimension definition',{exact:true})).toHaveCount(0);
  await form.getByLabel('Material',{exact:true}).selectOption('1');
  await form.getByLabel('Price UoM',{exact:true}).selectOption('m');
- await expect(form.getByLabel('Supplier dimension definition',{exact:true})).toHaveValue('9');
- await expect(form.getByLabel('Supplier D3',{exact:true})).toHaveCount(0);
  await form.getByLabel('Vendor currency',{exact:true}).selectOption('2');
  await form.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('10000');
  await form.getByLabel('Effective from',{exact:true}).fill('2026-10-01');
  await form.getByRole('button',{name:'Review & save'}).click();
- expect(state.writes).toHaveLength(0);await expect(page.getByRole('dialog',{name:'Confirm master save'})).toHaveCount(0);
- await form.getByLabel('Supplier D1',{exact:true}).fill('1000');
- await form.getByLabel('Supplier D2',{exact:true}).fill('500.123456');
- await expect(form.getByText(/dimensions describe exactly 1 m/)).toBeVisible();
- await page.setViewportSize({width:390,height:844});
- expect(await form.evaluate(el=>el.scrollWidth<=el.clientWidth+2)).toBeTruthy();
- await form.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(form).toHaveCount(0);
- expect(state.writes[0].rows[0]).toMatchObject({SupplierDimensionID:9,SupplierDimensionRowVersion:rv,SupplierD1:'1000',SupplierD2:'500.123456',SupplierD3:null});
- expect(state.writes[0].rows[0]).not.toHaveProperty('SupplierAreaPerPriceUnit');
+ expect(state.writes[1].rows[0]).not.toHaveProperty('SupplierDimensionID');
+ expect(state.writes[1].rows[0]).not.toHaveProperty('MaterialDimensionID');
 });
 
 test('Add packaging master record smoothly reveals the last new section',async({page})=>{
@@ -78,7 +163,7 @@ async function setup(page:Page,scope='Admin'){
   const u=new URL(route.request().url()),p=u.pathname;
   if(p.endsWith('/session'))return route.fulfill({json:{user_id:1,username:'Tester',scopes:[scope],is_admin:scope==='Admin'}});
   if(p.endsWith('/preferences')){if(route.request().method()==='POST')profile={settings:route.request().postDataJSON().settings,version:profile.version+1};return route.fulfill({json:profile})}
-  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{packagingTypes:[{ID:70,PackagingOrder:'Primary',PackagingType:'Pouch',ParentTypeID:60,Status:'Active',FinalComponent:true},{ID:71,PackagingOrder:'Secondary',PackagingType:'Carton',ParentTypeID:61,Status:'Active',FinalComponent:true},{ID:72,PackagingOrder:'Primary',PackagingType:'Old bag',ParentTypeID:62,Status:'Block',FinalComponent:true}],rawGrades:[{ID:21,GradeName:'Whole kernels',Status:'Active',ParentGradeID:null,HasChildren:true},{ID:22,GradeName:'W320',ParentGradeName:'Whole kernels',Status:'Active',ParentGradeID:21,HasChildren:false}],uoms:[{ID:4,UoMCode:"EA",UoMName:"Each",Status:"Active"},{ID:1,UoMCode:"Each",UoMName:"Each",Status:"Active"},{ID:2,UoMCode:"Per box",Status:"Active"},{ID:3,UoMCode:"Changed basis",Status:"Active"}],vendors:[{ID:7,VendorName:'Local supplier',Status:'Active',CurrencyID:2}],materials:[{ID:1,MaterialCode:'BOX',MaterialName:'Cardboard box',Status:'Active'}],currencies:[{ID:2,CurrencyCode:'USD',CurrencyName:'US Dollar'}],creators:[{ID:1,UserName:'Tester'}]}});
+  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{packagingTypes:[{ID:70,PackagingOrder:'Primary',PackagingType:'Pouch',ParentTypeID:60,Status:'Active',FinalComponent:true},{ID:71,PackagingOrder:'Secondary',PackagingType:'Carton',ParentTypeID:61,Status:'Active',FinalComponent:true},{ID:72,PackagingOrder:'Primary',PackagingType:'Old bag',ParentTypeID:62,Status:'Block',FinalComponent:true}],rawGrades:[{ID:21,GradeName:'Whole kernels',FinalGrade:false,Status:'Active',ParentGradeID:null,HasChildren:true},{ID:22,GradeName:'W320',FinalGrade:true,ParentGradeName:'Whole kernels',Status:'Active',ParentGradeID:21,HasChildren:false}],uoms:[{ID:4,UoMCode:"EA",UoMName:"Each",Status:"Active"},{ID:1,UoMCode:"Each",UoMName:"Each",Status:"Active"},{ID:2,UoMCode:"Per box",Status:"Active"},{ID:3,UoMCode:"Changed basis",Status:"Active"}],vendors:[{ID:7,VendorName:'Local supplier',Status:'Active',CurrencyID:2}],materials:[{ID:1,MaterialCode:'BOX',MaterialName:'Cardboard box',Status:'Active'}],currencies:[{ID:2,CurrencyCode:'USD',CurrencyName:'US Dollar'},{ID:3,CurrencyCode:'VND',CurrencyName:'Vietnam dong'}],creators:[{ID:1,UserName:'Tester'}]}});
   if(p==='/api/workbench/masters/materials')return route.fulfill({json:{rows:[{ID:3,MaterialCode:'BAG',MaterialName:'Paper bag',Description:null,UnitOfMeasure:'EA',Status:'Active',RowVersion:rv}],total:1,page:1}});
   if(p==='/api/workbench/masters/prices')return route.fulfill({json:{rows:[{ID:4,MaterialID:1,MaterialCode:'BOX',MaterialName:'Cardboard box',CurrencyID:2,CurrencyCode:'USD',BaseUoM:'Each',QuantityFrom:'0.0000',QuantityTo:null,UnitPrice:'12345678901234.1234',EffectiveFrom:'2026-09-20',EffectiveTo:null,Status:'Active',RowVersion:rv}],total:1,page:1}});
   if(p.endsWith('/batch')){const payload=route.request().postDataJSON();writes.push({path:p,...payload});return route.fulfill({json:{results:payload.rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
@@ -148,7 +233,7 @@ test('raw material does not inherit packaging type assignment',async({page})=>{
  await setup(page);await page.getByRole('button',{name:'Raw Material',exact:true}).click();
  await page.getByRole('button',{name:'New raw material',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'New raw material',exact:true}).getByLabel('Packaging Type',{exact:true})).toHaveCount(0);
- await expect(page.getByRole('dialog',{name:'New raw material',exact:true}).getByLabel('Description',{exact:true})).toBeVisible();
+ await expect(page.getByRole('dialog',{name:'New raw material',exact:true}).getByLabel('Origin',{exact:true})).toBeVisible();
 });
 
 test('legacy root assignment stays disabled but survives an unrelated material edit',async({page})=>{
@@ -162,7 +247,7 @@ test('legacy root assignment stays disabled but survives an unrelated material e
  await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[0].rows[0].PackagingTypeID).toBe(70);expect(state.writes[0].rows[0]).not.toHaveProperty('Description');
 });
 
-test('retired material Description disappears from saved layouts and sort without changing Raw Material',async({page})=>{
+test('retired material Description disappears from saved layouts and sort',async({page})=>{
  const state=await setup(page);
  state.profile().settings.masters.materials={columns:['MaterialCode','MaterialName','Description','UnitOfMeasure','Status'],filters:['search','status'],values:{},sort:[{column:'Description',direction:'asc'}],column_widths:{Description:240},page_size:25};
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Packaging Material',exact:true}).click();
@@ -238,12 +323,12 @@ test('Vendor master creation and optional pricing selection',async({page})=>{
  await expect(page.getByLabel('Vendor',{exact:true})).toHaveValue('');
  await page.getByLabel('Vendor',{exact:true}).selectOption('7');
  await expect(page.getByLabel('Vendor currency',{exact:true})).toHaveValue('2');
- await page.getByLabel('Exchange rate (Vendor currency per USD)',{exact:true}).fill('25000');
+ await expect(page.getByLabel('Exchange rate (Vendor currency per USD)',{exact:true})).toHaveValue('1');
  await page.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
  expect(state.writes[1].rows[0].VendorID).toBe(7);
- expect(state.writes[1].rows[0].ExchangeRateToUSD).toBe('25000');
+ expect(state.writes[1].rows[0].ExchangeRateToUSD).toBe('1');
 });
 test('Packaging manager can view Vendors but cannot create',async({page})=>{
  await setup(page,'PackagingManager');
@@ -304,6 +389,7 @@ test('pricing entry groups thousands and rejects excess decimals',async({page})=
  await expect(price).toHaveAttribute('aria-invalid','true');
  await price.fill('25,000.12');await price.blur();
  await expect(price).toHaveValue('25,000.12');
+ await page.getByLabel('Vendor currency',{exact:true}).selectOption('3');
  const rate=page.getByLabel('Exchange rate (Vendor currency per USD)',{exact:true});
  await rate.fill('25000.1234');await rate.blur();
  await expect(rate).toHaveAttribute('aria-invalid','true');
@@ -364,7 +450,23 @@ test('RawMaterial users maintain Raw Grade relationships',async({page})=>{
  expect(state.writes[0].rows[0]).toMatchObject({GradeName:'W320',ParentGradeID:21});
 });
 
-test('Raw Material selects a leaf Grade and Grade Master has no material assignment',async({page})=>{
+test('Raw Grade puts name first and explicitly saves Final grade',async({page})=>{
+ const state=await setup(page,'RawMaterial');
+ await page.getByRole('button',{name:'Raw Grade Master',exact:true}).click();
+ await page.getByRole('button',{name:'New raw grade',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New raw grade',exact:true});
+ const flag=form.getByLabel('Final grade',{exact:true});
+ await expect(flag).not.toBeChecked();
+ await form.getByLabel('Grade name',{exact:true}).fill('NTS Raisins');
+ await flag.check();
+ const name=await form.getByLabel('Grade name',{exact:true}).boundingBox(),parent=await form.getByLabel('Parent grade',{exact:true}).boundingBox();
+ expect(name!.y).toBeLessThan(parent!.y);
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].rows[0]).toMatchObject({GradeName:'NTS Raisins',FinalGrade:true,ParentGradeID:null});
+});
+
+test('Raw Material selects a final Grade and Grade Master has no material assignment',async({page})=>{
  const state=await setup(page,'RawMaterial');
  await page.getByRole('button',{name:'Raw Material',exact:true}).click();
  await page.getByRole('button',{name:'New raw material',exact:true}).click();

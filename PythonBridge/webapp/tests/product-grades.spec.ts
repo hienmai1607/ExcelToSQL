@@ -8,10 +8,10 @@ async function setup(page:Page){
  const product={ID:7,ProductCode:'PRD-0000000007',ProductName:'Almonds',Category:'Nuts',WeightGrams:'100',Status:'Active',RowVersion:rv};
  await page.route('**/api/**',route=>{
   const p=new URL(route.request().url()).pathname;
-  if(p.endsWith('/raw-grade-lookups'))return route.fulfill({json:{rows:gradeNames.map((GradeName,i)=>({ID:i+1,GradeName,ParentGradeID:gradeParent[GradeName]?gradeID(gradeParent[GradeName]):null,MaterialCode:'RAW-1',MaterialName:'Raw nuts'})),materials:[{ID:101,GradeID:gradeID('A1'),MaterialCode:'RAW-101',MaterialName:'Nuts A',Status:'Active'},{ID:102,GradeID:gradeID('A1'),MaterialCode:'RAW-102',MaterialName:'Nuts B',Status:'Active'},{ID:201,GradeID:gradeID('B1'),MaterialCode:'RAW-201',MaterialName:'Other',Status:'Active'}]}});
+  if(p.endsWith('/raw-grade-lookups'))return route.fulfill({json:{rows:gradeNames.map((GradeName,i)=>({ID:i+1,GradeName,FinalGrade:!Object.values(gradeParent).includes(GradeName),ParentGradeID:gradeParent[GradeName]?gradeID(gradeParent[GradeName]):null,MaterialCode:'RAW-1',MaterialName:'Raw nuts'})),materials:[{ID:101,GradeID:gradeID('A1'),MaterialCode:'RAW-101',MaterialName:'Nuts A',Status:'Active'},{ID:102,GradeID:gradeID('A1'),MaterialCode:'RAW-102',MaterialName:'Nuts B',Status:'Active'},{ID:201,GradeID:gradeID('B1'),MaterialCode:'RAW-201',MaterialName:'Other',Status:'Active'}]}});
   if(p.endsWith('/session'))return route.fulfill({json:{username:'Tester',user_id:1,scopes:['Product'],is_admin:false}});
   if(p.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,masters:{}},version:0}});
-  if(p.endsWith('/lookups'))return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:"Northstar",Status:"Active"}],materials:[],currencies:[],creators:[]}});
+  if(p.endsWith('/lookups'))return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:"Northstar",Status:"Active"}],materials:[],currencies:[],creators:[],uoms:[{ID:99,UoMCode:'g',UoMName:'Grams',Category:'Weight/Mass',BaseFactor:1,Status:'Active'}]}});
   if(p.endsWith('/masters/products'))return route.fulfill({json:{rows:[product],total:1,page:1}});
   if(p==='/api/product/batch'){const body=route.request().postDataJSON();writes.push(body);return route.fulfill({json:{results:body.rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
   if(p.endsWith('/products/7/grades'))return route.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Active',RowVersion:rv}],items:[{VersionID:3,ParentID:'0',ID:1,Grade:'Existing',RawGradeID:gradeID('Existing'),RatioPct:100}]}});
@@ -20,6 +20,129 @@ async function setup(page:Page){
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  return {writes,product};
 }
+test('a final root grade links directly to Raw Material with compact root totals',async({page})=>{
+ const {product}=await setup(page);
+ await page.route('**/raw-grade-lookups',r=>r.fulfill({json:{
+  rows:[{ID:71,GradeName:'NTS Raisins',ParentGradeID:null,FinalGrade:true},{ID:72,GradeName:'Nuts',ParentGradeID:null,FinalGrade:false}],
+  materials:[{ID:701,GradeID:71,MaterialCode:'RAW-701',MaterialName:'Raisins',Status:'Active'}]
+ }}));
+ let saved:any;
+ await page.route('**/products/7/grades',r=>{
+  if(r.request().method()==='POST'){saved=r.request().postDataJSON();return r.fulfill({json:{ID:3}})}
+  return r.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Draft',RowVersion:rv}],items:[
+   {VersionID:3,ParentID:'0',ID:1,Grade:'NTS Raisins',RawGradeID:71,RawMaterialID:null,RatioPct:'100'}
+  ]}});
+ });
+ await page.getByRole('button',{name:'Grades for product 7'}).click();
+ const dialog=page.getByRole('dialog',{name:'Product grades',exact:true});
+ const material=dialog.getByLabel('Raw Material 0/1',{exact:true});
+ await expect(material).toBeVisible();
+ await expect(dialog.getByRole('button',{name:'Add child grade to 0/1',exact:true})).toBeDisabled();
+ await expect(dialog.getByText('Ratios under each parent must total 100%.',{exact:true})).toHaveCount(0);
+ await expect(dialog.locator('.grade-tree-level-heading').first()).toContainText('100% / 100%');
+ await material.selectOption('701');
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(saved.items[0]).toMatchObject({ParentID:'0',RawGradeID:71,RawMaterialID:701});
+});
+
+test('late Final grade lookups align direct-root material cards to their source rows',async({page})=>{
+ const {product}=await setup(page);
+ let release!:()=>void;
+ const gate=new Promise<void>(resolve=>{release=resolve});
+ await page.route('**/raw-grade-lookups',async r=>{
+  await gate;
+  await r.fulfill({json:{rows:[
+   {ID:71,GradeName:'Raisins',ParentGradeID:null,FinalGrade:true},
+   {ID:72,GradeName:'Chocolate',ParentGradeID:null,FinalGrade:true}
+  ],materials:[]}});
+ });
+ await page.route('**/products/7/grades',r=>r.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Draft',RowVersion:rv}],items:[
+  {VersionID:3,ParentID:'0',ID:1,Grade:'Raisins',RawGradeID:71,RatioPct:'50'},
+  {VersionID:3,ParentID:'0',ID:2,Grade:'Chocolate',RawGradeID:72,RatioPct:'50'}
+ ]}}));
+ await page.getByRole('button',{name:'Grades for product 7'}).click();
+ const dialog=page.getByRole('dialog',{name:'Product grades',exact:true});
+ await expect(dialog.getByLabel('Grade 0/2',{exact:true})).toBeVisible();
+ await expect(dialog.getByLabel('Raw Material 0/2',{exact:true})).toHaveCount(0);
+ release();
+ await expect(dialog.getByLabel('Raw Material 0/2',{exact:true})).toBeVisible();
+ for(const id of ['0/1','0/2']){
+  await expect(async()=>{
+   const source=await dialog.locator('[data-grade-path="'+id+'"]').boundingBox(),material=await dialog.locator('[data-material-path="'+id+'"]').boundingBox();
+   expect(Math.abs(source!.y+source!.height/2-material!.y-material!.height/2)).toBeLessThan(2);
+  }).toPass({timeout:3000});
+ }
+});
+
+test('Copy grades loads an active Product into a draft without saving or changing source',async({page})=>{
+ const {product}=await setup(page);let writes=0;
+ const sourceItems=[{ParentID:'0',ID:1,Grade:'A',RawGradeID:gradeID('A'),RawMaterialID:null,RatioPct:'100'},
+  {ParentID:'0/1',ID:1,Grade:'A1',RawGradeID:gradeID('A1'),RawMaterialID:101,RatioPct:'100'}];
+ await page.route('**/grade-copy/sources',r=>r.fulfill({json:{rows:[{ID:7,ProductCode:'TARGET',ProductName:'Current Product',Version:1},{ID:81,ProductCode:'SOURCE',ProductName:'Source Product',Version:2}]}}));
+ await page.route('**/grade-copy/81',r=>r.fulfill({json:{product:{ID:81,ProductCode:'SOURCE',Version:2},items:sourceItems}}));
+ await page.route('**/products/7/grades',r=>{
+  if(r.request().method()==='POST'){writes++;return r.fulfill({json:{ID:3}})}
+  return r.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Draft',RowVersion:rv}],items:[]}});
+ });
+ await page.getByRole('button',{name:'Grades for product 7'}).click();
+ const grades=page.getByRole('dialog',{name:'Product grades',exact:true});
+ await grades.getByRole('button',{name:'Copy grades',exact:true}).click();
+ const copy=page.getByRole('dialog',{name:'Copy grades from Product',exact:true});
+ await expect(copy.getByLabel('Copy grades from Product',{exact:true}).locator('option[value="7"]')).toHaveCount(0);
+ await copy.getByLabel('Copy grades from Product',{exact:true}).selectOption('81');
+ await copy.getByRole('button',{name:'Copy grades',exact:true}).click();
+ await expect(copy).toHaveCount(0);
+ await expect(grades.getByLabel('Grade 0/1/1',{exact:true})).toHaveValue(String(gradeID('A1')));
+ await expect(grades.getByLabel('Raw Material 0/1/1',{exact:true})).toHaveValue('101');
+ await grades.getByLabel('Ratio 0/1/1',{exact:true}).fill('75');
+ expect(sourceItems[1].RatioPct).toBe('100');expect(writes).toBe(0);
+ await expect(grades.getByRole('status')).toContainText('SOURCE - Version 2');
+});
+
+test('Copy grades failure preserves the current draft and active versions stay immutable',async({page})=>{
+ const {product}=await setup(page);
+ await page.getByRole('button',{name:'Grades for product 7'}).click();
+ const active=page.getByRole('dialog',{name:'Product grades',exact:true});
+ await expect(active.getByRole('button',{name:'Copy grades',exact:true})).toBeDisabled();
+ await active.getByRole('button',{name:'New version',exact:true}).click();
+ await page.route('**/grade-copy/sources',r=>r.fulfill({json:{rows:[{ID:81,ProductCode:'SOURCE',ProductName:'Source',Version:2}]}}));
+ await page.route('**/grade-copy/81',r=>r.fulfill({status:404,json:{detail:'No active grade version is available for this Product.'}}));
+ await active.getByRole('button',{name:'Copy grades',exact:true}).click();
+ const copy=page.getByRole('dialog',{name:'Copy grades from Product',exact:true});
+ await copy.getByLabel('Copy grades from Product',{exact:true}).selectOption('81');
+ await copy.getByRole('button',{name:'Copy grades',exact:true}).click();
+ await expect(copy.getByRole('alert')).toContainText('No active grade version');
+ await copy.getByRole('button',{name:'Close copy grades',exact:true}).click();
+ await expect(active.getByLabel('Grade 0/1',{exact:true})).toHaveValue(String(gradeID('Existing')));
+});
+
+test('an unsaved Product can copy grades and keep them in its draft',async({page})=>{
+ const {writes}=await setup(page);
+ await page.route('**/grade-copy/sources',r=>r.fulfill({json:{rows:[{ID:81,ProductCode:'SOURCE',ProductName:'Source Product',Version:2}]}}));
+ await page.route('**/grade-copy/81',r=>r.fulfill({json:{product:{ID:81,ProductCode:'SOURCE',Version:2},items:[
+  {ParentID:'0',ID:1,Grade:'A',RawGradeID:gradeID('A'),RawMaterialID:null,RatioPct:'100'},
+  {ParentID:'0/1',ID:1,Grade:'A1',RawGradeID:gradeID('A1'),RawMaterialID:101,RatioPct:'100'}
+ ]}}));
+ await page.getByRole('button',{name:'New product',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New product',exact:true});
+ await form.getByLabel('Customer',{exact:true}).selectOption('1');
+ await form.getByLabel('Product name',{exact:true}).fill('Copied grades product');
+ await form.getByLabel('Category',{exact:true}).selectOption('Nuts');
+ await form.getByLabel('Weight',{exact:true}).fill('400');
+ await form.getByRole('button',{name:'Grades for record 1',exact:true}).click();
+ const grades=page.getByRole('dialog',{name:'Product grades',exact:true});
+ await grades.getByRole('button',{name:'Copy grades',exact:true}).click();
+ const copy=page.getByRole('dialog',{name:'Copy grades from Product',exact:true});
+ await copy.getByLabel('Copy grades from Product',{exact:true}).selectOption('81');
+ await copy.getByRole('button',{name:'Copy grades',exact:true}).click();
+ await grades.getByRole('button',{name:'Use grades',exact:true}).click();
+ expect(writes).toHaveLength(0);
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(writes[0].rows[0].GradeVersion.items[1]).toMatchObject({RawGradeID:gradeID('A1'),RawMaterialID:101,RatioPct:'100'});
+});
+
 test('new Product has automatic code and nested tree grades persist in the Product draft',async({page})=>{
  const {writes}=await setup(page);
  await page.getByRole('button',{name:'New product',exact:true}).click();
@@ -62,6 +185,11 @@ test('grade toolbar displays compact structural summary',async({page})=>{
  const dialog=page.getByRole('dialog',{name:'Product grades',exact:true});
  await expect(dialog.getByLabel('Grade summary')).toContainText('Balanced parents');
  await expect(dialog.getByLabel('Grade summary')).toContainText('1 / 1');
+ await expect(dialog.locator('.customer-editor-heading').getByLabel('Grade summary')).toBeVisible();
+ const title=await dialog.getByRole('heading',{name:'Product grades',exact:true}).boundingBox();
+ const summary=await dialog.getByLabel('Grade summary').boundingBox();
+ expect(summary!.x).toBeGreaterThan(title!.x+title!.width);
+ expect(Math.abs(summary!.y-title!.y)).toBeLessThan(25);
  await page.screenshot({path:'test-results/product-grade-layout.png',fullPage:true});
 });
 test('active version is immutable; copying supports activation and retains conflicts',async({page})=>{
@@ -125,7 +253,7 @@ test('tree edits descendants and saves the complete structure',async({page})=>{
  await grades.getByLabel('Ratio 0/1/2',{exact:true}).fill('50');
  await grades.getByRole('button',{name:'Add child grade to 0/1/1',exact:true}).click();
  await grades.getByLabel('Grade 0/1/1/1',{exact:true}).selectOption(String(gradeID("Grandchild")));
- await expect(grades.getByText('Parent 0/1/1: 100% / 100%',{exact:true})).toBeVisible();
+ await expect(grades.getByLabel('Parent 0/1/1 ratios',{exact:true})).toBeVisible();
  await expect(grades.getByLabel('Grade 0/1/1/1',{exact:true})).toHaveValue(String(gradeID("Grandchild")));
  await expect(grades.getByLabel('Grade 0/1',{exact:true})).toHaveValue(String(gradeID("Updated root")));
  await grades.getByRole('button',{name:'Review & save'}).click();
@@ -216,7 +344,7 @@ test('tree respects active version lock and submits a new edited version',async(
  await dialog.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(dialog.getByRole('alert')).toContainText('Version conflict');
- expect(payload.items).toEqual([{ParentID:'0',ID:1,Grade:'Revised',RawGradeID:gradeID('Revised'),RawMaterialID:null,RatioPct:'100'},{ParentID:'0/1',ID:1,Grade:'Component',RawGradeID:gradeID('Component'),RawMaterialID:null,RatioPct:'100'}]);
+ expect(payload.items).toEqual([{ParentID:'0',ID:1,Grade:'Revised',RawGradeID:gradeID('Revised'),RawMaterialID:null,RatioPct:'100',Process:true},{ParentID:'0/1',ID:1,Grade:'Component',RawGradeID:gradeID('Component'),RawMaterialID:null,RatioPct:'100',Process:false}]);
  await expect(tree.getByLabel('Grade 0/1/1',{exact:true})).toHaveValue(String(gradeID("Component")));
 });
 
@@ -317,4 +445,94 @@ test('Raw Pricing errors do not appear as zero prices',async({page})=>{
  await dialog.getByRole('button',{name:'Raw Pricing',exact:true}).click();
  await expect(dialog.getByRole('alert')).toContainText('Pricing unavailable');
  await expect(dialog.getByRole('table')).toHaveCount(0);
+});
+
+test('separate Raw Material section preserves grade links and uses compact cards',async({page})=>{
+ const {product}=await setup(page);
+ await page.route('**/products/7/grades',r=>r.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Draft',RowVersion:rv}],items:[
+  {VersionID:3,ParentID:'0',ID:1,Grade:'A',RawGradeID:gradeID('A'),RatioPct:'100'},
+  {VersionID:3,ParentID:'0/1',ID:1,Grade:'A1',RawGradeID:gradeID('A1'),RawMaterialID:101,RatioPct:'100'}
+ ]}}));
+ await page.getByRole('button',{name:'Grades for product 7'}).click();
+ const dialog=page.getByRole('dialog',{name:'Product grades',exact:true});
+ const materials=dialog.getByRole('region',{name:'Raw Material',exact:true});
+ const choice=materials.getByLabel('Raw Material 0/1/1',{exact:true});
+ await expect(choice).toHaveValue('101');
+ await expect(choice.locator('option[value="201"]')).toHaveCount(0);
+ await expect(materials.locator('[data-material-path="0/1/1"]')).toContainText('A1');
+ await expect(dialog.locator('.grade-tree-node').getByLabel('Raw Material 0/1/1',{exact:true})).toHaveCount(0);
+ const child=await dialog.locator('[data-grade-path="0/1/1"]').boundingBox();
+ const materialBox=await materials.boundingBox();
+ expect(materialBox!.x).toBeGreaterThan(child!.x+child!.width);
+ expect(child!.height).toBeLessThan(130);
+ await choice.selectOption('102');
+ await expect(dialog.getByRole('button',{name:'Add child grade to 0/1/1',exact:true})).toBeDisabled();
+ // Final grades retain their material and cannot acquire children.
+ await expect(choice).toHaveValue('102');
+ await page.screenshot({path:'test-results/grade-material-section.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+ await choice.scrollIntoViewIfNeeded();
+ await expect(choice).toHaveValue('102');
+ await expect(dialog.getByLabel('Grade summary')).toBeVisible();
+});
+
+test('read-only Raw Material section displays saved unavailable assignments without editable controls',async({page})=>{
+ const {product}=await setup(page);
+ await page.route('**/products/7/grades',r=>r.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Active',RowVersion:rv}],items:[
+  {VersionID:3,ParentID:'0',ID:1,Grade:'A',RawGradeID:gradeID('A'),RatioPct:'100'},
+  {VersionID:3,ParentID:'0/1',ID:1,Grade:'A1',RawGradeID:gradeID('A1'),RawMaterialID:999,RatioPct:'100'}
+ ]}}));
+ await page.getByRole('button',{name:'Grades for product 7'}).click();
+ const materials=page.getByRole('dialog',{name:'Product grades',exact:true}).getByRole('region',{name:'Raw Material',exact:true});
+ await expect(materials).toContainText('Raw Material #999 (unavailable)');
+ await expect(materials.getByRole('combobox')).toHaveCount(0);
+ await expect(materials.getByRole('button')).toHaveCount(0);
+});
+
+test('grade version and compact view controls are in the header',async({page},info)=>{
+ await setup(page);await page.getByRole('button',{name:'Products',exact:true}).click();
+ await page.getByRole('button',{name:'Grades for product 7',exact:true}).click();
+ const grades=page.getByRole('dialog',{name:'Product grades',exact:true}),heading=grades.locator('.customer-editor-heading');
+ await expect(heading.getByLabel('Grade version',{exact:true})).toBeVisible();
+ await expect(heading.getByRole('button',{name:'New version',exact:true})).toHaveText('');
+ await expect(heading.getByRole('button',{name:'Tree',exact:true})).toBeVisible();
+ await expect(heading.getByRole('button',{name:'Raw Pricing',exact:true})).toBeVisible();
+ for(const size of [{width:1366,height:768},{width:390,height:844}]){
+  await page.setViewportSize(size);
+  await expect(heading.getByLabel('Grade version',{exact:true})).toBeVisible();
+  const box=await heading.boundingBox();expect(box!.width).toBeLessThanOrEqual(size.width);
+  await grades.screenshot({path:info.outputPath('grade-header-'+size.width+'.png')});
+ }
+});
+
+test('material cards align to their source grade boxes across sibling rows',async({page})=>{
+ const {product}=await setup(page);
+ await page.route('**/products/7/grades',r=>r.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Draft',RowVersion:rv}],items:[
+  {VersionID:3,ParentID:'0',ID:1,Grade:'A',RawGradeID:gradeID('A'),RatioPct:'50'},
+  {VersionID:3,ParentID:'0/1',ID:1,Grade:'A1',RawGradeID:gradeID('A1'),RawMaterialID:101,RatioPct:'100'},
+  {VersionID:3,ParentID:'0',ID:2,Grade:'B',RawGradeID:gradeID('B'),RatioPct:'50'},
+  {VersionID:3,ParentID:'0/2',ID:1,Grade:'B1',RawGradeID:gradeID('B1'),RawMaterialID:201,RatioPct:'100'}
+ ]}}));
+ await page.getByRole('button',{name:'Grades for product 7'}).click();
+ const dialog=page.getByRole('dialog',{name:'Product grades',exact:true});
+ async function expectAligned(ids:string[]){
+  for(const id of ids){
+   await expect(async()=>{
+    const source=await dialog.locator('[data-grade-path="'+id+'"]').boundingBox(),material=await dialog.locator('[data-material-path="'+id+'"]').boundingBox();
+    expect(Math.abs((source!.y+source!.height/2)-(material!.y+material!.height/2))).toBeLessThan(2);
+   }).toPass({timeout:3000});
+  }
+ }
+ for(const size of [{width:1366,height:768},{width:390,height:844}]){
+  await page.setViewportSize(size);
+  await expectAligned(['0/1/1','0/2/1']);
+ }
+ await page.setViewportSize({width:1366,height:768});
+ await dialog.getByRole('button',{name:'Add root grade',exact:true}).click();
+ await dialog.getByLabel('Grade 0/3',{exact:true}).selectOption(String(gradeID('Existing')));
+ await expectAligned(['0/1/1','0/2/1','0/3']);
+ await expect(dialog.getByLabel('Raw Material 0/1',{exact:true})).toHaveCount(0);
+ await expect(dialog.getByLabel('Raw Material 0/3',{exact:true})).toBeVisible();
+ await page.screenshot({path:'test-results/aligned-grade-materials.png',fullPage:true});
 });

@@ -25,6 +25,7 @@ async function setup(page:Page,root:any=normal,childRows:any[]=[],fail=false,opp
  const reads:string[]=[],writes:string[]=[];
  await page.route('**/api/**',route=>{
   const request=route.request(),url=new URL(request.url()),path=url.pathname;
+  if(path.endsWith('/eligibility'))return route.fulfill({json:{rows:[]}}); // read-only POST, not a business mutation
   if(request.method()!=='GET'){writes.push(path);return route.fulfill({status:500,json:{detail:'Unexpected write'}})}
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',user_id:1,is_admin:false,scopes:['Opportunity']}});
   if(path.endsWith('/preferences'))return route.fulfill({json:{version:0,settings:{}}});
@@ -180,4 +181,14 @@ test('packaging summary remains usable on narrow screens',async({page})=>{
  await expect(dialog.getByRole('region',{name:'Smallest unit packaging costs'})).toContainText('92.00 VND');
  expect(await dialog.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
  await expect(dialog.getByRole('button',{name:'Close Packaging Summary'})).toBeInViewport();
+});
+
+test('saved container plan is configured even without legacy profiles',async({page})=>{
+ const {open}=await setup(page,{...normal,ConfigurationRequest:'Pallet load',ContainerRequest:'40DC',ContainerLoadProfiles:null,SelectedContainerType:'20DC',
+ ContainerPlansJSON:JSON.stringify([{ID:7,Code:'40DC',Inputs:{mode:'pallet'},Result:{loaded_units:40,cartons:4000,cartons_per_pallet:100}}]),
+ ContainerLoadResults:{'40DC':{CalculatedCartonsPerContainer:4000,NetWeightPerContainerKG:9600}}});
+ const dialog=await open(),container=dialog.getByRole('article',{name:'Container Load 40DC',exact:true});
+ await expect(container.getByText('Not configured',{exact:true})).toHaveCount(0);
+ await expect(container.getByRole('row').filter({hasText:'Pallet / Container'})).toContainText('40');
+ await expect(container).toContainText('4,000');
 });

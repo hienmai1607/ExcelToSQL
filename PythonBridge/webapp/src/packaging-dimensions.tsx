@@ -1,3 +1,7 @@
+import {useSession} from './session';
+import {AddMasterButton,canCreateMaster,type InlineMasterEntity} from './add-master-button';
+import {InlineMasterCreate} from './inline-master-create';
+import {BusinessDelete} from './business-delete';
 import {useEffect,useRef,useState} from 'react';
 import {call,text,type Row,type Page} from './api';
 import {Modal,ErrorNote,Badge,Pager,FieldLabel,InfoTip,Notification} from './ui';
@@ -10,11 +14,12 @@ import './packaging-dimensions.css';
 
 type Options={uoms:Row[];packagingTypes:Row[];parentDimensions?:Row[]};
 type Draft=Record<string,string>;
+type MasterTarget={entity:InlineMasterEntity;field:string;previousValue:string};
 type Calculation={Value:string|null;CalculationStatus:string;OutputUnit:string};
 const dimensions=['D1','D2','D3'];
 const formulaRoles=['OccupiedM2Formula','OccupiedM3Formula','ConvertFromParentFormula','ConvertFromSupplierFormula'] as const;
-const formulaLabels:Record<string,string>={OccupiedM2Formula:'Occupied m² fx',OccupiedM3Formula:'Occupied m³ fx',ConvertFromParentFormula:'Convert from parent fx',ConvertFromSupplierFormula:'Convert from supplier fx'};
-const formulaHelp:Record<string,string>={OccupiedM2Formula:'Footprint of one Shipping parent, in m². Used for Pallet Utilization; not material cut area.',OccupiedM3Formula:'External volume of one Shipping parent, in m³. Used for Carton Efficiency.',ConvertFromParentFormula:'Material required per child occurrence, using parent D1–D3. Do not include child quantity N. Results use the shared Formula output UoM; pricing converts to m² for area pricing or the Material base unit for Count.',ConvertFromSupplierFormula:'Material supplied per ONE vendor Price UoM, using supplier D1–D3 in Packaging Material Pricing. Output the same unit as Convert from parent. No parent formula is inherited.'};
+const formulaLabels:Record<string,string>={OccupiedM2Formula:'Occupied m² fx',OccupiedM3Formula:'Occupied m³ fx',ConvertFromParentFormula:'Convert from parent fx',ConvertFromSupplierFormula:'Material yield fx'};
+const formulaHelp:Record<string,string>={OccupiedM2Formula:'Footprint of one Shipping parent, in m². Used for Pallet Utilization; not material cut area.',OccupiedM3Formula:'External volume of one Shipping parent, in m³. Used for Carton Efficiency.',ConvertFromParentFormula:'Material required per child occurrence, using parent D1–D3. Do not include child quantity N. Results use the shared Formula output UoM; pricing converts to m² for area pricing or the Material base unit for Count.',ConvertFromSupplierFormula:'Material yield per ONE material Base UoM, using D1–D3 in Packaging Material. Output the same unit as Convert from parent. No parent formula is inherited.'};
 const columns=['PackagingType','D1','D1Unit','D2','D2Unit','D3','D3Unit',...formulaRoles,'ConversionOutputUnit','Status'];
 const labels=['Packaging Type','D1','D1 Unit','D2','D2 Unit','D3','D3 Unit',...formulaRoles.map(k=>formulaLabels[k]),'Formula output UoM','Status'];
 const widths=Object.fromEntries(columns.map((c,i)=>[c,i===0?180:formulaRoles.includes(c as typeof formulaRoles[number])?300:c==='Status'?100:i%2===0?90:130]));
@@ -33,7 +38,9 @@ function payload(draft:Draft,child:boolean,shipping=false,areaRequired=false,out
 const areaText=(value:unknown)=>value==null?'':decimalDisplay(value,9)||'';
 const eligibleType=(type:Row)=>type.Status==='Active';
 
-export function PackagingDimensions({canWrite}:{canWrite:boolean}){
+export function PackagingDimensions({canWrite,inline=false,initialTypeID='',onClose,onCreated}:{canWrite:boolean;inline?:boolean;initialTypeID?:string;onClose?:()=>void;onCreated?:(records:Row[])=>void}){
+ const session=useSession(),initialized=useRef(false);
+ const [masterTarget,setMasterTarget]=useState<MasterTarget|null>(null),[masterRefresh,setMasterRefresh]=useState(false),[retryMaster,setRetryMaster]=useState<{target:MasterTarget;records:Row[]}|null>(null);
  const [data,setData]=useState<Page>({rows:[],total:0,page:1}),[options,setOptions]=useState<Options>({uoms:[],packagingTypes:[]});
  const layout=useListLayout('packaging-dimensions'),size=layout.pageSize;
  useEffect(()=>setPage(1),[size]);
@@ -45,17 +52,24 @@ export function PackagingDimensions({canWrite}:{canWrite:boolean}){
  const posting=useRef(false),testRevision=useRef(0),testing=useRef(false);
  const selectedType=options.packagingTypes.find(t=>String(t.ID)===draft?.PackagingTypeID);
  const child=selectedType?.ParentTypeID!=null;
- const parents=(options.parentDimensions||[]).filter(d=>Number(d.PackagingTypeID)===Number(selectedType?.RootTypeID??selectedType?.ID)&&(d.Status==='Active'||String(d.ID)===draft?.ParentDimensionID));
+ const parents=(options.parentDimensions||[]).filter(d=>(Array.isArray(selectedType?.RootTypeIDs)?selectedType.RootTypeIDs.map(Number):[Number(selectedType?.RootTypeID??selectedType?.ID)]).includes(Number(d.PackagingTypeID))&&(d.Status==='Active'||String(d.ID)===draft?.ParentDimensionID));
  const parentDefinition=parents.find(d=>String(d.ID)===draft?.ParentDimensionID);
  const shipping=!child&&!!selectedType?.Shipping,areaRequired=child&&selectedType?.PriceBasis==='Square meter',roles=visibleRoles(child,shipping),usesArea=roles.length>0;
  const dirty=!testOnly&&!!draft&&(JSON.stringify(draft)!==JSON.stringify(original)||reviewed);
  useEffect(()=>{let alive=true;setBusy(true);setError('');setOptionsReady(false);
-  Promise.all([call<Page>('/api/packaging/dimensions?page='+page+'&page_size='+size+'&search='+encodeURIComponent(query)+(status?'&status='+status:'')),call<Options>('/api/packaging/dimensions/lookups')])
+  Promise.all([inline?Promise.resolve({rows:[],total:0,page:1}):call<Page>('/api/packaging/dimensions?page='+page+'&page_size='+size+'&search='+encodeURIComponent(query)+(status?'&status='+status:'')),call<Options>('/api/packaging/dimensions/lookups')])
    .then(([rows,lookups])=>{if(alive){setData(rows);setOptions(lookups);setOptionsReady(true)}})
    .catch(e=>{if(alive){setError(e.message);setData({rows:[],total:0,page})}})
    .finally(()=>{if(alive)setBusy(false)});
   return()=>{alive=false};
- },[page,size,query,status,revision]);
+  },[page,size,query,status,revision,inline]);
+ useEffect(()=>{
+  if(!inline||!optionsReady||initialized.current)return;
+  initialized.current=true;
+  const selected=options.packagingTypes.find(t=>String(t.ID)===initialTypeID&&eligibleType(t));
+  const values={...Object.fromEntries(inputs.map(k=>[k,''])),Status:'Active',PackagingTypeID:selected?initialTypeID:'',...(selected?.Shipping&&!selected.ParentTypeID?{D3:'Height'}:{})};
+  setDraft(values);setOriginal(values);
+ },[inline,optionsReady,options,initialTypeID]);
  useEffect(()=>{const nav=(e:Event)=>{if(saving||(dirty&&!window.confirm('Discard unsaved dimension changes?')))e.preventDefault()};
   const unload=(e:BeforeUnloadEvent)=>{if(dirty||saving){e.preventDefault();e.returnValue=''}};
   window.addEventListener('bridge:navigate',nav);window.addEventListener('beforeunload',unload);
@@ -69,16 +83,16 @@ export function PackagingDimensions({canWrite}:{canWrite:boolean}){
   const next={...values,Status:String(row?.Status??'Active'),...(row?{ID:String(row.ID),RowVersion:String(row.RowVersion)}:{})};
   setDraft(next);setOriginal(next);setFormError('');setUncertain(false);
  }
- function close(){if(!saving&&(!dirty||window.confirm('Discard unsaved dimension changes?'))){clearTest();setDraft(null)}}
- function change(key:string,value:string){
+ function close(){if(!saving&&(!dirty||window.confirm('Discard unsaved dimension changes?'))){clearTest();setDraft(null);if(inline)onClose?.()}}
+ function change(key:string,value:string,choices=options,expected?:string){
   clearTest();setDraft(d=>{
-   if(!d)return d;
+   if(!d||expected!==undefined&&d[key]!==expected)return d;
    const next={...d,[key]:value,...(dimensions.includes(key)&&!value.trim()?{[key+'UoMID']:''}:{})};
-   const type=options.packagingTypes.find(t=>String(t.ID)===next.PackagingTypeID);
+   const type=choices.packagingTypes.find(t=>String(t.ID)===next.PackagingTypeID);
    if(key==='PackagingTypeID'||key==='ParentDimensionID'){
     if(key==='PackagingTypeID'){for(const role of formulaRoles)next[role]='';next.ConversionOutputUoMID='';}
-    const choices=(options.parentDimensions||[]).filter(p=>Number(p.PackagingTypeID)===Number(type?.RootTypeID)&&p.Status==='Active');
-    const parent=key==='ParentDimensionID'?choices.find(p=>String(p.ID)===value):choices.length===1?choices[0]:undefined;
+    const parents=(choices.parentDimensions||[]).filter(p=>(Array.isArray(type?.RootTypeIDs)?type.RootTypeIDs.map(Number):[Number(type?.RootTypeID)]).includes(Number(p.PackagingTypeID))&&p.Status==='Active');
+    const parent=key==='ParentDimensionID'?parents.find(p=>String(p.ID)===value):parents.length===1?parents[0]:undefined;
     next.ParentDimensionID=type?.ParentTypeID!=null?String(parent?.ID??''):'';
     next.ParentDimensionRowVersion=type?.ParentTypeID!=null?String(parent?.RowVersion??''):'';
     // Linking parent consumption never overwrites the child's supplier names/units.
@@ -113,8 +127,19 @@ export function PackagingDimensions({canWrite}:{canWrite:boolean}){
   }catch(e){if(request===testRevision.current)setTestError((e as Error).message)}
   finally{testing.current=false;setCalculating(false)}
  }
+ async function masterCreated(target:MasterTarget,records:Row[]){
+  setMasterRefresh(true);setRetryMaster({target,records});setFormError('');
+  try{
+   const fresh=await call<Options>('/api/packaging/dimensions/lookups');setOptions(fresh);
+   const choices=target.entity==='packaging-types'?fresh.packagingTypes:fresh.uoms;
+   const created=choices.find(c=>c.Status==='Active'&&records.some(r=>Number(r.ID)===Number(c.ID)));
+   if(created)change(target.field,String(created.ID),fresh,target.previousValue);
+   setRetryMaster(null);
+  }catch(exc){setFormError('Master saved, but choices could not be refreshed. Do not create it again. '+(exc as Error).message)}
+  finally{setMasterRefresh(false)}
+ }
  async function save(){
-  if(!draft||posting.current||uncertain||testOnly)return;
+  if(!draft||posting.current||uncertain||testOnly||masterRefresh||retryMaster)return;
   let body:Record<string,unknown>;try{body=payload(draft,child,shipping,areaRequired)}catch(e){setFormError((e as Error).message);return}
   if(child&&!draft.ParentDimensionID){setFormError('Choose a parent dimension definition.');return}
   const type=options.packagingTypes.find(t=>String(t.ID)===draft.PackagingTypeID);
@@ -123,39 +148,42 @@ export function PackagingDimensions({canWrite}:{canWrite:boolean}){
   }
   if(needsReview&&!reviewed&&draft.Status==='Active'){setFormError('Review the legacy formula using the selected input units before saving.');return}
   posting.current=true;setSaving(true);setFormError('');
-  try{await call('/api/packaging/dimensions',{...body,Status:draft.Status,ID:draft.ID?Number(draft.ID):null,RowVersion:draft.RowVersion||null,FormulaReviewed:reviewed});setDraft(null);setSuccess('Packaging dimension saved.');setRevision(x=>x+1)}
+  try{const result=await call<{row:Row}>('/api/packaging/dimensions',{...body,Status:draft.Status,ID:draft.ID?Number(draft.ID):null,RowVersion:draft.RowVersion||null,FormulaReviewed:reviewed});setDraft(null);setSuccess('Packaging dimension saved.');setRevision(x=>x+1);if(inline){onCreated?.([result.row]);onClose?.()}}
   catch(e){const err=e as Error&{status?:number};if(!err.status||err.status>=500){setUncertain(true);setFormError('Save outcome unknown. Close and refresh before retrying.')}else setFormError(err.message)}
   finally{posting.current=false;setSaving(false)}
  }
- return <section className="customers-page dimension-page"><header className="customer-heading"><h1>Packaging Dimension Master<InfoTip text="D1–D3 define dimension names and units. Use Test Calculation to verify the formula with temporary measurements."/></h1></header>
+ return <section className="customers-page dimension-page" style={inline?{display:'none'}:undefined}><header className="customer-heading"><h1>Packaging Dimension Master<InfoTip text="D1–D3 define dimension names and units. Use Test Calculation to verify the formula with temporary measurements."/></h1></header>
   <div className="view-toolbar"><ListLayoutTools control={layout}/><IconButton icon="refresh" label="Refresh packaging dimensions" disabled={busy||!!draft} onClick={()=>setRevision(x=>x+1)}/></div>
 
   <ErrorNote value={error}/><Notification value={success} onDismiss={()=>setSuccess('')}/>
   <form className="filters" onSubmit={e=>{e.preventDefault();setPage(1);setQuery(search)}}><label>Search<input value={search} maxLength={200} onChange={e=>setSearch(e.target.value)}/></label><label>Status<select value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}}><option value="">All statuses</option><option>Active</option><option>Block</option></select></label><button className="primary" disabled={busy}>Search</button><button type="button" disabled={busy} onClick={()=>{setSearch('');setQuery('');setStatus('');setPage(1)}}>Clear</button></form>
   <div className="panel"><div className="table-wrap"><ResizableTable pinFirstColumn columns={columns} widths={widths} leading={[155]} disabled onResize={()=>{}} aria-label="Packaging dimensions"><thead><tr><th className="customer-actions record-id-column"><span>Dimension ID</span>{canWrite&&<IconButton icon="plus" label="New packaging dimension" disabled={busy||!!draft||!optionsReady} onClick={()=>edit()}/>}</th>{labels.map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>
-   {busy||!data.rows.length?<tr><td colSpan={columns.length+1} className="empty">{busy?'Loading…':error?'Unable to load dimensions.':'No dimensions found.'}</td></tr>:data.rows.map(row=><tr key={String(row.ID)}><td><div className="record-reference"><button className="record-link" aria-label={(canWrite?'Edit':'View')+' packaging dimension '+row.ID} disabled={!!draft||!optionsReady} onClick={()=>edit(row,!canWrite)}>#{String(row.ID)}</button></div></td>{columns.map(key=><td key={key} title={String(row[key]??'')}>{key==='Status'?<Badge value={row.Status}/>:<>{text(row[key])}{((key==='OccupiedM2Formula'&&!!row.OccupiedFormulaNeedsReview)||(key==='ConvertFromParentFormula'&&!!row.FormulaNeedsReview))&&<small className="dimension-review-tag">Formula review required</small>}</>}</td>)}</tr>)}
+   {busy||!data.rows.length?<tr><td colSpan={columns.length+1} className="empty">{busy?'Loading…':error?'Unable to load dimensions.':'No dimensions found.'}</td></tr>:data.rows.map(row=><tr key={String(row.ID)}><td><div className="record-reference"><button className="record-link" aria-label={(canWrite?'Edit':'View')+' packaging dimension '+row.ID} disabled={!!draft||!optionsReady} onClick={()=>edit(row,!canWrite)}>#{String(row.ID)}</button><BusinessDelete entity="packaging-dimensions" id={row.ID} version={row.RowVersion} label={'packaging dimension '+row.ID} allowed={canWrite} disabled={!!draft} onDeleted={()=>setRevision(x=>x+1)}/></div></td>{columns.map(key=><td key={key} title={String(row[key]??'')}>{key==='Status'?<Badge value={row.Status}/>:<>{text(row[key])}{((key==='OccupiedM2Formula'&&!!row.OccupiedFormulaNeedsReview)||(key==='ConvertFromParentFormula'&&!!row.FormulaNeedsReview))&&<small className="dimension-review-tag">Formula review required</small>}</>}</td>)}</tr>)}
   </tbody></ResizableTable></div><Pager page={page} size={size} total={data.total} busy={busy||!!draft} onPage={setPage} onSize={n=>{layout.setPageSize(n);setPage(1)}}/></div>
   {draft&&<Modal label={testOnly?'View packaging dimension':draft.ID?'Edit packaging dimension':'New packaging dimension'} className="dialog dimension-dialog" onClose={close}><form onSubmit={e=>{e.preventDefault();if(!testOnly)void save()}}>
    <header className="dimension-heading"><h2>{testOnly?'Test packaging dimension':draft.ID?'Edit packaging dimension':'New packaging dimension'}</h2><IconButton icon="close" label="Close dimension editor" disabled={saving} onClick={close}/></header>
    <ErrorNote value={formError}/>
    {draft.PackagingTypeID&&!options.packagingTypes.some(t=>String(t.ID)===draft.PackagingTypeID&&eligibleType(t))&&<div className="notice">The existing Packaging Type is blocked. Choose an active type before saving Active. You can still block this record.</div>}
    {needsReview&&<div className="notice">Review the migrated formulas and output units. The previous parent material-area formula was not copied into occupied footprint. Original formulas and snapshots are preserved.</div>}
-   <fieldset disabled={saving||uncertain||testOnly}>
-    <div className="dimension-type-row"><label>Packaging Type<select aria-label="Packaging Type" required value={draft.PackagingTypeID} onChange={e=>change('PackagingTypeID',e.target.value)}><option value="">Choose packaging type</option>{options.packagingTypes.filter(t=>eligibleType(t)||String(t.ID)===draft.PackagingTypeID).map(t=><option key={String(t.ID)} value={String(t.ID)} disabled={!eligibleType(t)}>{typeLabel(t,' — ')+(!eligibleType(t)?' (existing - '+text(t.PriceBasis)+(t.Status!=='Active'?', blocked':'')+')':'')}</option>)}</select></label>{draft.ID&&<label>Status<select aria-label="Status" value={draft.Status} onChange={e=>change('Status',e.target.value)}><option>Active</option><option>Block</option></select></label>}</div>
+   <fieldset disabled={saving||uncertain||testOnly||masterRefresh||!!retryMaster}>
+    <div className="dimension-type-row"><label>Packaging Type<span className="master-lookup-control"><select aria-label="Packaging Type" required value={draft.PackagingTypeID} onChange={e=>change('PackagingTypeID',e.target.value)}><option value="">Choose packaging type</option>{options.packagingTypes.filter(t=>eligibleType(t)||String(t.ID)===draft.PackagingTypeID).map(t=><option key={String(t.ID)} value={String(t.ID)} disabled={!eligibleType(t)}>{typeLabel(t,' — ')+(!eligibleType(t)?' (existing - '+text(t.PriceBasis)+(t.Status!=='Active'?', blocked':'')+')':'')}</option>)}</select>{!testOnly&&canWrite&&canCreateMaster(session,'packaging-types')&&<AddMasterButton entity="packaging-types" onClick={()=>setMasterTarget({entity:'packaging-types',field:'PackagingTypeID',previousValue:draft.PackagingTypeID})}/>}</span></label>{draft.ID&&<label>Status<select aria-label="Status" value={draft.Status} onChange={e=>change('Status',e.target.value)}><option>Active</option><option>Block</option></select></label>}</div>
     {child&&<label>Parent dimension definition<select aria-label="Parent dimension definition" required value={draft.ParentDimensionID} onChange={e=>change('ParentDimensionID',e.target.value)}><option value="">Choose parent definition</option>{parents.map(d=><option key={String(d.ID)} value={String(d.ID)}>{String(d.PackagingType)+' · '+dimensions.filter(k=>d[k]).map(k=>String(d[k])).join(' / ')}</option>)}</select><small>This link supplies parent D1–D3 to Convert from parent. Maintain independent child names and units below for Convert from supplier; they are not inherited.</small></label>}
-    <div className="dimension-input-grid">{dimensions.map((name,i)=><div key={name}><label>{name+(i&&!shipping?' (optional)':'')}<input aria-label={name} readOnly={shipping&&name==='D3'} required={!i||shipping} maxLength={100} placeholder={['Length','Width','Height / Gusset'][i]} value={draft[name]} onChange={e=>change(name,e.target.value)}/></label><label>{name+' Unit'}<select aria-label={name+' Unit'} required={!!draft[name]?.trim()} disabled={!draft[name]?.trim()} value={draft[name+'UoMID']} onChange={e=>change(name+'UoMID',e.target.value)}><option value="">Choose UoM</option>{options.uoms.filter(u=>u.Status==='Active'||String(u.ID)===draft[name+'UoMID']).map(u=><option key={String(u.ID)} value={String(u.ID)}>{text(u.UoMCode)+(u.UoMName?' — '+u.UoMName:'')+(u.Status!=='Active'?' (blocked)':'')}</option>)}</select></label></div>)}</div>
+    <div className="dimension-input-grid">{dimensions.map((name,i)=><div key={name}><label>{name+(i&&!shipping?' (optional)':'')}<input aria-label={name} readOnly={shipping&&name==='D3'} required={!i||shipping} maxLength={100} placeholder={['Length','Width','Height / Gusset'][i]} value={draft[name]} onChange={e=>change(name,e.target.value)}/></label><label>{name+' Unit'}<span className="master-lookup-control"><select aria-label={name+' Unit'} required={!!draft[name]?.trim()} disabled={!draft[name]?.trim()} value={draft[name+'UoMID']} onChange={e=>change(name+'UoMID',e.target.value)}><option value="">Choose UoM</option>{options.uoms.filter(u=>u.Category==='Length/Distance'&&u.Status==='Active'||String(u.ID)===draft[name+'UoMID']).map(u=><option key={String(u.ID)} value={String(u.ID)} disabled={u.Category!=='Length/Distance'||u.Status!=='Active'}>{text(u.UoMCode)+(u.UoMName?' — '+u.UoMName:'')+(u.Status!=='Active'?' (blocked)':'')}</option>)}</select></span></label></div>)}</div>
     {roles.map(role=><div key={role} className={'dimension-formula-row'+(role==='ConvertFromParentFormula'?' with-output-uom':'')}><label><FieldLabel help={formulaHelp[role]}>{formulaLabels[role]}</FieldLabel><input aria-label={formulaLabels[role]} required={role==='ConvertFromParentFormula'&&areaRequired} maxLength={200} placeholder={role==='OccupiedM2Formula'?'D1*D2/1000000':role==='OccupiedM3Formula'?'D1*D2*D3/1000000000':role==='ConvertFromParentFormula'?'(D2*2+25)*D1/1000000':'D1*D2/1000000'} value={draft[role]} onChange={e=>change(role,e.target.value)}/></label>{role==='ConvertFromParentFormula'&&<label><FieldLabel help="One shared output unit for Convert from parent and Convert from supplier. Formula values are in this unit, not the D1-D3 input units. Maintain a unit conversion when the pricing unit differs.">Formula output UoM</FieldLabel><select aria-label="Formula output UoM" required={(draft.Status||'Active')==='Active'&&formulaRoles.slice(2).some(k=>!!draft[k]?.trim())} value={draft.ConversionOutputUoMID} onChange={e=>change('ConversionOutputUoMID',e.target.value)}><option value="">Choose UoM</option>{draft.ConversionOutputUoMID&&!options.uoms.some(u=>String(u.ID)===draft.ConversionOutputUoMID)&&<option value={draft.ConversionOutputUoMID} disabled>Unavailable unit (retained)</option>}{options.uoms.filter(u=>u.Status==='Active'||String(u.ID)===draft.ConversionOutputUoMID).map(u=><option key={String(u.ID)} value={String(u.ID)} disabled={u.Status!=='Active'}>{text(u.UoMCode)+(u.UoMName?' - '+u.UoMName:'')+(u.Status!=='Active'?' (blocked)':'')}</option>)}</select></label>}</div>)}
     {needsReview&&<label className="dimension-review-checkbox"><input type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)}/>I reviewed the formulas and their output units.</label>}
    </fieldset>
-   {usesArea&&<details className="dimension-test"  onKeyDown={e=>{if(e.key==='Enter'&&e.target instanceof HTMLInputElement){e.preventDefault();void testCalculation()}}}><summary><FieldLabel help="Temporary measurements only; they are not saved. Supplier and parent measurements are independent.">Test Calculation</FieldLabel></summary>
-    <fieldset disabled={saving||calculating||uncertain}>{(child?['parent','supplier']:['parent']).map(source=><section key={source}><h3>{source==='supplier'?'Supplier measurements (one Price UoM)':'Parent measurements'}</h3><div className="dimension-input-grid">{dimensions.filter(name=>(child&&source==='parent'?parentDefinition?.[name]:draft[name])?.toString().trim()).map(name=>{
+   {usesArea&&<details className="dimension-test"  onKeyDown={e=>{if(e.key==='Enter'&&e.target instanceof HTMLInputElement){e.preventDefault();void testCalculation()}}}><summary><FieldLabel help="Temporary measurements only; they are not saved. Material and parent measurements are independent.">Test Calculation</FieldLabel></summary>
+    <fieldset disabled={saving||calculating||uncertain}>{(child?['parent','supplier']:['parent']).map(source=><section key={source}><h3>{source==='supplier'?'Material measurements (one Base UoM)':'Parent measurements'}</h3><div className="dimension-input-grid">{dimensions.filter(name=>(child&&source==='parent'?parentDefinition?.[name]:draft[name])?.toString().trim()).map(name=>{
      const definition=child&&source==='parent'?parentDefinition:draft,unit=options.uoms.find(u=>String(u.ID)===String(definition?.[name+'UoMID'])),values=source==='supplier'?supplierTestValues:testValues;
-     return <label key={name}>{name+' — '+String(definition?.[name]??'')+(unit?' ('+unit.UoMCode+')':'')}<input aria-label={(source==='supplier'?'Supplier ':'')+name+' Test value'} inputMode="decimal" maxLength={20} value={values[name]||''} onChange={e=>{clearTest();(source==='supplier'?setSupplierTestValues:setTestValues)(v=>({...v,[name]:e.target.value}))}}/></label>;
+     return <label key={name}>{name+' — '+String(definition?.[name]??'')+(unit?' ('+unit.UoMCode+')':'')}<input aria-label={(source==='supplier'?'Material ':'')+name+' Test value'} inputMode="decimal" maxLength={20} value={values[name]||''} onChange={e=>{clearTest();(source==='supplier'?setSupplierTestValues:setTestValues)(v=>({...v,[name]:e.target.value}))}}/></label>;
     })}</div></section>)}<button type="button" onClick={()=>void testCalculation()}>Test calculation</button></fieldset>
     <ErrorNote value={testError}/>
     {roles.map(role=><div key={role}><ErrorNote value={preview?.[role]?.Value==null?preview?.[role]?.CalculationStatus||'':''}/><label>{formulaLabels[role]+' result'+(preview?.[role]?.OutputUnit?' ('+preview[role].OutputUnit+')':'')}<input aria-label={formulaLabels[role]+' result'} readOnly value={calculating?'Calculating…':areaText(preview?.[role]?.Value)}/></label></div>)}
    </details>}
-   {!testOnly&&<div className="actions"><button className="primary" disabled={saving||uncertain||(needsReview&&!reviewed&&draft.Status==='Active')}>Save dimension</button></div>}
+   {retryMaster&&<button type="button" disabled={masterRefresh} onClick={()=>void masterCreated(retryMaster.target,retryMaster.records)}>Retry refreshing choices</button>}
+   {!testOnly&&<div className="actions"><button className="primary" disabled={saving||uncertain||masterRefresh||!!retryMaster||(needsReview&&!reviewed&&draft.Status==='Active')}>Save dimension</button></div>}
   </form></Modal>}
+ {masterTarget&&<InlineMasterCreate entity={masterTarget.entity} onClose={()=>setMasterTarget(null)} onSaved={records=>void masterCreated(masterTarget,records)}/>}
+ {inline&&!draft&&<Modal label="New packaging dimension" className="customer-drawer" onClose={()=>onClose?.()}><header className="customer-editor-heading"><h2>New packaging dimension</h2><IconButton icon="close" label="Close new master" onClick={()=>onClose?.()}/></header><ErrorNote value={error}/>{error?<button onClick={()=>setRevision(n=>n+1)}>Retry loading master</button>:<p>Loading master…</p>}</Modal>}
  </section>;
 }

@@ -1,0 +1,12 @@
+/* Bounded flex dialogs allocate a separate navigation row below their action bar. */
+.record-dialog>.view-trail{position:static;flex:none}
+/* Scrolling forms keep actions at the end; never cover later records. */
+.app dialog:not(.record-dialog)>form>.actions,
+.app dialog:not(.record-dialog) .batch-actions,
+.app dialog:not(.record-dialog)>.actions{position:static;bottom:auto}
+.view-trail{position:static;z-index:9;width:fit-content;max-width:100%;margin:16px 0 0 auto;padding:9px 12px;border:1px solid var(--border,#dce3e8);border-radius:10px;background:var(--surface,#fff);box-shadow:0 3px 16px #10251f22;font-size:11px;color:var(--muted,#627280)}
+.view-trail ol{display:flex;flex-wrap:wrap;align-items:center;gap:5px 8px;list-style:none;margin:0;padding:0}
+.view-trail li{display:flex;align-items:center;gap:8px;min-width:0;overflow-wrap:anywhere}
+.view-trail li+li::before{content:'›';color:var(--muted,#627280)}
+.view-trail li[aria-current]{color:var(--accent,#176c65);font-weight:700}
+@media(max-width:600px){.view-trail{font-size:10px;padding:7px 9px}}

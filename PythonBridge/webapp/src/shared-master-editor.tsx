@@ -5,7 +5,7 @@ import {Modal,ErrorNote,Badge} from './ui';
 import {IconButton} from './icons';
 type Values=Record<string,string>;
 type Entry={key:number;values:Values;saved:boolean;error:string};
-export function SharedMasterEditor({row,canWrite,title,endpoint,initial,fields,validate,payload,onClose,onSaved}:{row:Row|null;canWrite:boolean;title:string;endpoint:string;initial:()=>Values;fields:(values:Values,change:(key:string,value:string)=>void)=>ReactNode;validate:(values:Values)=>string;payload:(values:Values)=>Record<string,unknown>;onClose:()=>void;onSaved:()=>void}){
+export function SharedMasterEditor({row,canWrite,title,endpoint,initial,fields,validate,payload,onClose,onSaved}:{row:Row|null;canWrite:boolean;title:string;endpoint:string;initial:()=>Values;fields:(values:Values,change:(key:string,value:string)=>void)=>ReactNode;validate:(values:Values)=>string;payload:(values:Values)=>Record<string,unknown>;onClose:()=>void;onSaved:(records:Row[])=>void}){
  const [entries,setEntries]=useState<Entry[]>(()=>[{key:1,values:initial(),saved:false,error:''}]),[confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[uncertain,setUncertain]=useState(false),[error,setError]=useState('');
  const serial=useRef(1),lock=useRef(false),baseline=useRef(JSON.stringify(entries.map(e=>e.values)));
  const pending=entries.filter(e=>!e.saved),dirty=JSON.stringify(entries.map(e=>e.values))!==baseline.current;
@@ -14,15 +14,17 @@ export function SharedMasterEditor({row,canWrite,title,endpoint,initial,fields,v
  function review(){const checked=entries.map(e=>({...e,error:e.saved?'':validate(e.values)}));setEntries(checked);if(!checked.some(e=>e.error)&&pending.length)setConfirm(true)}
  async function save(){if(lock.current||uncertain||!canWrite)return;lock.current=true;setBusy(true);setError('');
  try{
-  let count=0;
+  let count=0;const records:Row[]=[];
   for(const entry of pending){try{
-   await call(endpoint,{ID:row?.ID??null,RowVersion:row?.RowVersion??null,...payload(entry.values)});
+   const submitted={ID:row?.ID??null,RowVersion:row?.RowVersion??null,...payload(entry.values)};
+   const result=await call<{rows?:Row[];row?:Row}>(endpoint,submitted);
+   records.push({...submitted,...(result?.row||result?.rows?.[0]||{})} as Row);
    count++;setEntries(list=>list.map(e=>e.key===entry.key?{...e,saved:true,error:''}:e));
   }catch(exc){
    if(exc instanceof ApiError&&(exc.status===0||exc.status>=500)){setUncertain(true);setError('Save outcome unknown. Close and refresh before retrying.');break}
    setEntries(list=>list.map(e=>e.key===entry.key?{...e,error:(exc as Error).message}:e));
   }}
-  if(count)onSaved();if(count===pending.length)onClose();
+  if(count)onSaved(records);if(count===pending.length)onClose();
  }finally{lock.current=false;setBusy(false);setConfirm(false)}
  }
  return <Modal label={(canWrite?(row?'Edit ':'New '):'View ')+title} className="customer-drawer batch-drawer" onClose={close}>

@@ -10,7 +10,7 @@ async function setup(page:Page,admin=true,blocked=false){
    if(route.request().method()==='POST'){writes.push(route.request().postDataJSON());return route.fulfill({json:{rows:[{ID:2,RowVersion:rv}]}})}
    return route.fulfill({json:{rows:[{ID:1,CategoryName:'Almonds',Status:'Active',RowVersion:rv}],total:1,page:1}});
   }
-  if(path==='/api/workbench/masters/lookups')return route.fulfill({json:{categories:[{ID:1,CategoryName:'Almonds',Status:'Active'},{ID:2,CategoryName:'Test',Status:'Block'}],customers:[{ID:1,CustomerName:'Northstar',Status:'Active'}],materials:[],currencies:[],creators:[]}});
+  if(path==='/api/workbench/masters/lookups')return route.fulfill({json:{uoms:[{ID:99,UoMCode:'g',UoMName:'Grams',Category:'Weight/Mass',BaseFactor:1,Status:'Active'}],categories:[{ID:1,CategoryName:'Almonds',Status:'Active'},{ID:2,CategoryName:'Test',Status:'Block'}],customers:[{ID:1,CustomerName:'Northstar',Status:'Active'}],materials:[],currencies:[],creators:[]}});
   if(path==='/api/workbench/masters/products')return route.fulfill({json:{rows:[{ID:7,ProductCode:'P7',ProductName:'Almond pack',CustomerID:1,Category:blocked?'Test':'Almonds',WeightGrams:100,Status:'Active',RowVersion:rv}],total:1,page:1}});
   if(path==='/api/product/batch'){const body=route.request().postDataJSON();writes.push(body);return route.fulfill({json:{results:body.rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
   return route.fulfill({json:{rows:[],total:0,page:1}});

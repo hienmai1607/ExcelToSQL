@@ -1,7 +1,7 @@
 import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
 const area='D1*D2/1000000',volume='D1*D2*D3/1000000000',consumption='(D2*2+25)*D1/1000000';
-async function setup(page:Page,{scope='Admin',review=false,conflict=false,child=false}={}){
+async function setup(page:Page,{scope='Admin',review=false,conflict=false,child=false,multi=false}={}){
  const writes:any[]=[],previews:any[]=[];
  const parent={ID:1,RowVersion:rv,PackagingTypeID:1,ParentTypeID:null,PackagingOrder:'Secondary',PackagingType:'RSC',Shipping:true,PriceBasis:'Count',D1:'Length',D2:'Width',D3:'Height',D1UoMID:2,D2UoMID:2,D3UoMID:2,D1Unit:'mm',D2Unit:'mm',D3Unit:'mm',OccupiedM2Formula:review?null:area,OccupiedM3Formula:volume,ConvertFromParentFormula:null,ConvertFromSupplierFormula:null,OccupiedFormulaNeedsReview:review,Status:'Active'};
  const row=child?{...parent,ID:2,PackagingTypeID:2,ParentTypeID:1,RootTypeID:1,ParentDimensionID:1,ParentDimensionRowVersion:rv,PackagingType:'Film',PriceBasis:'Square meter',OccupiedM2Formula:null,OccupiedM3Formula:null,ConvertFromParentFormula:consumption,ConvertFromSupplierFormula:area,ConversionOutputUoMID:3,ConversionOutputUnit:'m2'}:parent;
@@ -9,9 +9,9 @@ async function setup(page:Page,{scope='Admin',review=false,conflict=false,child=
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{user_id:1,username:'Tester',scopes:[scope],is_admin:scope==='Admin'}});
   if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],page_size:25,dark:false,nav_hidden:false,masters:{}},version:0}});
-  if(path==='/api/packaging/dimensions/lookups')return route.fulfill({json:{uoms:[{ID:1,UoMCode:'m',Status:'Active'},{ID:2,UoMCode:'mm',Status:'Active'},{ID:3,UoMCode:'m2',Status:'Active'},{ID:4,UoMCode:'mm2',Status:'Active'}],parentDimensions:[parent],packagingTypes:[
+  if(path==='/api/packaging/dimensions/lookups')return route.fulfill({json:{uoms:[{ID:1,UoMCode:'m',Category:'Length/Distance',Status:'Active'},{ID:2,UoMCode:'mm',Category:'Length/Distance',Status:'Active'},{ID:98,UoMCode:'g',Category:'Weight/Mass',Status:'Active'},{ID:99,UoMCode:'EA',Category:'Unit/Count',Status:'Active'},{ID:3,UoMCode:'m2',Status:'Active'},{ID:4,UoMCode:'mm2',Status:'Active'}],parentDimensions:multi?[parent,{...parent,ID:3,PackagingTypeID:3,PackagingType:'Pillow'}]:[parent],packagingTypes:[
    {ID:1,RootTypeID:1,ParentTypeID:null,PackagingType:'RSC',PackagingOrder:'Secondary',Shipping:true,PriceBasis:'Count',Status:'Active'},
-   {ID:2,RootTypeID:1,ParentTypeID:1,PackagingType:'Film',PackagingOrder:'Secondary',Shipping:true,PriceBasis:'Square meter',Status:'Active'},
+   {ID:2,RootTypeID:1,RootTypeIDs:multi?[1,3]:[1],ParentTypeID:1,PackagingType:'Film',PackagingOrder:'Secondary',Shipping:true,PriceBasis:'Square meter',Status:'Active'},
    {ID:3,RootTypeID:3,ParentTypeID:null,PackagingType:'Pillow',PackagingOrder:'Primary',Shipping:false,PriceBasis:'Square meter',Status:'Active'},
    {ID:4,RootTypeID:4,ParentTypeID:null,PackagingType:'Blocked',PackagingOrder:'Primary',Shipping:false,PriceBasis:'Count',Status:'Block'}
   ]}});
@@ -52,7 +52,7 @@ test('Shipping parent exposes only occupied formulas and fixes D3 as Height',asy
  await expect(dialog.getByLabel('Occupied m² fx',{exact:true})).toBeVisible();
  await expect(dialog.getByLabel('Occupied m³ fx',{exact:true})).toBeVisible();
  await expect(dialog.getByLabel('Convert from parent fx',{exact:true})).toHaveCount(0);
- await expect(dialog.getByLabel('Convert from supplier fx',{exact:true})).toHaveCount(0);
+ await expect(dialog.getByLabel('Material yield fx',{exact:true})).toHaveCount(0);
  await expect(dialog.getByLabel('D3',{exact:true})).toHaveValue('Height');
  await expect(dialog.getByLabel('D3',{exact:true})).toHaveAttribute('readonly','');
  await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
@@ -76,7 +76,7 @@ test('Child names and units are editable independently of its Shipping parent',a
  const state=await setup(page,{child:true});const dialog=await edit(page,true);
  await expect(dialog.getByLabel('Occupied m² fx',{exact:true})).toHaveCount(0);
  await expect(dialog.getByLabel('Convert from parent fx',{exact:true})).toHaveValue(consumption);
- await expect(dialog.getByLabel('Convert from supplier fx',{exact:true})).toHaveValue(area);
+ await expect(dialog.getByLabel('Material yield fx',{exact:true})).toHaveValue(area);
  await expect(dialog.getByLabel('D1',{exact:true})).toBeEditable();
  await expect(dialog.getByLabel('D1 Unit',{exact:true})).toBeEnabled();
  await expect(dialog.getByLabel('D3',{exact:true})).toBeEditable();
@@ -84,7 +84,7 @@ test('Child names and units are editable independently of its Shipping parent',a
  await dialog.getByLabel('D1 Unit',{exact:true}).selectOption('1');
  await dialog.getByLabel('D2',{exact:true}).fill('');
  await dialog.getByLabel('D3',{exact:true}).fill('');
- await dialog.getByLabel('Convert from supplier fx',{exact:true}).fill('D1');
+ await dialog.getByLabel('Material yield fx',{exact:true}).fill('D1');
  await dialog.getByLabel('Parent dimension definition',{exact:true}).selectOption('');
  await dialog.getByLabel('Parent dimension definition',{exact:true}).selectOption('1');
  await expect(dialog.getByLabel('D1',{exact:true})).toHaveValue('Roll width');
@@ -98,12 +98,12 @@ test('Independent child metadata does not relabel parent preview measurements',a
  await dialog.getByLabel('D1 Unit',{exact:true}).selectOption('1');
  await dialog.getByLabel('D2',{exact:true}).fill('');
  await dialog.getByLabel('D3',{exact:true}).fill('');
- await dialog.getByLabel('Convert from supplier fx',{exact:true}).fill('1');
+ await dialog.getByLabel('Material yield fx',{exact:true}).fill('1');
  await values(page);
  await expect(dialog.getByLabel('D1 Test value',{exact:true}).locator('..')).toContainText('Length (mm)');
  await expect(dialog.getByLabel('D3 Test value',{exact:true}).locator('..')).toContainText('Height (mm)');
- await expect(dialog.getByLabel('Supplier D1 Test value',{exact:true}).locator('..')).toContainText('Roll width (m)');
- await expect(dialog.getByLabel('Supplier D3 Test value',{exact:true})).toHaveCount(0);
+ await expect(dialog.getByLabel('Material D1 Test value',{exact:true}).locator('..')).toContainText('Roll width (m)');
+ await expect(dialog.getByLabel('Material D3 Test value',{exact:true})).toHaveCount(0);
  await dialog.getByRole('button',{name:'Test calculation',exact:true}).click();
  await expect(dialog.getByLabel('Convert from parent fx result',{exact:true})).toHaveValue('0.045');
  expect(state.previews.find(p=>p.FormulaRole==='ConvertFromParentFormula')).toMatchObject({D1:'Roll width',D1UoMID:1,D3:null,TestD1:'200',TestD2:'100'});
@@ -127,11 +127,11 @@ test('Occupied m2 and m3 preview independently; temporary measurements are never
 });
 test('Child previews use parent and supplier measurement sets separately',async({page})=>{
  const state=await setup(page,{child:true});await edit(page,true);const dialog=await values(page);
- await dialog.getByLabel('Supplier D1 Test value',{exact:true}).fill('1000');
- await dialog.getByLabel('Supplier D2 Test value',{exact:true}).fill('500');
+ await dialog.getByLabel('Material D1 Test value',{exact:true}).fill('1000');
+ await dialog.getByLabel('Material D2 Test value',{exact:true}).fill('500');
  await dialog.getByRole('button',{name:'Test calculation',exact:true}).click();
  await expect(dialog.getByLabel('Convert from parent fx result',{exact:true})).toHaveValue('0.045');
- await expect(dialog.getByLabel('Convert from supplier fx result',{exact:true})).toHaveValue('0.5');
+ await expect(dialog.getByLabel('Material yield fx result',{exact:true})).toHaveValue('0.5');
  expect(state.previews.find(p=>p.FormulaRole==='ConvertFromParentFormula')).toMatchObject({TestD1:'200',TestD2:'100',TestD3:null});
  expect(state.previews.find(p=>p.FormulaRole==='ConvertFromSupplierFormula')).toMatchObject({TestD1:'1000',TestD2:'500',TestD3:null});
 });
@@ -141,14 +141,14 @@ test('Missing child consumption blocks save and does not inherit occupied area',
  await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
  expect(state.writes).toHaveLength(0);
  await dialog.getByLabel('Convert from parent fx',{exact:true}).fill(consumption);
- await dialog.getByLabel('Convert from supplier fx',{exact:true}).fill('');
+ await dialog.getByLabel('Material yield fx',{exact:true}).fill('');
  await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
  expect(state.writes[0].ConvertFromSupplierFormula).toBeNull();
 });
 test('Constant conversion factors preview without measurements',async({page})=>{
  const state=await setup(page,{child:true});const dialog=await edit(page,true);
  await dialog.getByLabel('Convert from parent fx',{exact:true}).fill('1');
- await dialog.getByLabel('Convert from supplier fx',{exact:true}).fill('1');
+ await dialog.getByLabel('Material yield fx',{exact:true}).fill('1');
  await dialog.getByText('Test Calculation',{exact:true}).click();
  await dialog.getByRole('button',{name:'Test calculation',exact:true}).click();
  await expect(dialog.getByLabel('Convert from parent fx result',{exact:true})).toHaveValue('1');
@@ -192,7 +192,7 @@ test('Child editor fits mobile and keeps both conversion formulas accessible',as
  await setup(page,{child:true});const dialog=await edit(page,true);
  await page.setViewportSize({width:390,height:844});
  expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth+2)).toBeTruthy();
- await expect(dialog.getByLabel('Convert from supplier fx',{exact:true})).toBeVisible();
+ await expect(dialog.getByLabel('Material yield fx',{exact:true})).toBeVisible();
 });
 test('Concurrency conflict leaves draft open without automatic retries',async({page})=>{
  const state=await setup(page,{conflict:true});const dialog=await edit(page);
@@ -205,17 +205,17 @@ test('One shared output UoM is saved and sent to both formula previews',async({p
  const unit=dialog.getByLabel('Formula output UoM',{exact:true});
  await expect(unit).toHaveCount(1);await expect(unit).toHaveValue('3');
  await values(page);
- await dialog.getByLabel('Supplier D1 Test value',{exact:true}).fill('1000');
- await dialog.getByLabel('Supplier D2 Test value',{exact:true}).fill('500');
+ await dialog.getByLabel('Material D1 Test value',{exact:true}).fill('1000');
+ await dialog.getByLabel('Material D2 Test value',{exact:true}).fill('500');
  await dialog.getByRole('button',{name:'Test calculation',exact:true}).click();
  await expect(dialog.getByLabel('Convert from parent fx result',{exact:true})).toHaveValue('0.045');
  expect(state.previews).toHaveLength(2);
  expect(state.previews.every(p=>p.ConversionOutputUoMID===3)).toBeTruthy();
  await unit.selectOption('4');
  await expect(dialog.getByLabel('Convert from parent fx result',{exact:true})).toHaveValue('');
- await expect(dialog.getByLabel('Convert from supplier fx result',{exact:true})).toHaveValue('');
+ await expect(dialog.getByLabel('Material yield fx result',{exact:true})).toHaveValue('');
  await dialog.getByRole('button',{name:'Test calculation',exact:true}).click();
- await expect(dialog.getByLabel('Convert from supplier fx result',{exact:true})).toHaveValue('0.5');
+ await expect(dialog.getByLabel('Material yield fx result',{exact:true})).toHaveValue('0.5');
  expect(state.previews.slice(2).every(p=>p.ConversionOutputUoMID===4)).toBeTruthy();
  await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
  expect(state.writes[0]).toMatchObject({ConversionOutputUoMID:4});
@@ -226,4 +226,25 @@ test('Active conversion formulas cannot save without shared output UoM',async({p
  await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
  expect(state.writes).toHaveLength(0);
  await expect(dialog.getByLabel('Formula output UoM',{exact:true})).toBeFocused();
+});
+
+test('shared child can choose geometry from either parent without overwriting supplier dimensions',async({page})=>{
+ const state=await setup(page,{child:true,multi:true});
+ const dialog=await edit(page,true);
+ const parents=dialog.getByLabel('Parent dimension definition',{exact:true});
+ await expect(parents.locator('option')).toHaveCount(3);
+ await parents.selectOption('3');
+ await expect(dialog.getByLabel('D1',{exact:true})).toHaveValue('Length');
+ await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
+ expect(state.writes[0]).toMatchObject({PackagingTypeID:2,ParentDimensionID:3,ParentDimensionRowVersion:rv});
+});
+
+test('dimension measurement units only offer Length/Distance while output units stay independent',async({page})=>{
+ await setup(page,{child:true});
+ const dialog=await edit(page,true);
+ for(const name of ['D1 Unit','D2 Unit','D3 Unit']){
+  const units=dialog.getByLabel(name,{exact:true});
+  await expect(units.locator('option')).toHaveText(['Choose UoM','m','mm']);
+ }
+ await expect(dialog.getByLabel('Formula output UoM',{exact:true}).locator('option[value="3"]')).toHaveCount(1);
 });

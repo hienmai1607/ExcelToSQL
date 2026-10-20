@@ -42,7 +42,8 @@ Private Function Editable(ByVal key As String) As Boolean
 End Function
 Private Function Api(ByVal endpoint As String, ByVal body As Object) As Object
     Dim http As Object, base As String
-    If S(Config.Range("B1").Value2) <> "1" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
+    If S(Config.Range("B1").Value2) <> "master-5" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
+    If endpoint = "save" Then body("template_version") = S(Config.Range("B1").Value2)
     base = S(Config.Range("B2").Value2)
     If Left$(base, 7) <> "http://" And Left$(base, 8) <> "https://" Then Err.Raise vbObjectError + 3101, , "Invalid API URL."
     Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
@@ -153,6 +154,7 @@ Private Sub LoadPage(ByVal target As Long)
     body("currency") = S(Controls.Range("B10").Value2)
     body("as_of") = ISODate(Controls.Range("B11").Value2)
     Set response = Api("page", body)
+    RefreshLocalDropdowns WS, response
     If LastRow() >= 3 Then WS.Range(WS.Cells(3, 1), WS.Cells(LastRow(), LastFieldColumn())).ClearContents
     r = 3
     For Each row In response("rows")
@@ -161,7 +163,7 @@ Private Sub LoadPage(ByVal target As Long)
             key = S(WS.Cells(2, c).Value2)
             WS.Cells(r, c).NumberFormat = "@"
             Select Case key
-                Case "Command": WS.Cells(r, c).Value2 = "N"
+                Case "Command": WS.Cells(r, c).Value2 = ""
                 Case "_ID": WS.Cells(r, c).Value2 = row("ID")
                 Case "_RowVersion": WS.Cells(r, c).Value2 = row("RowVersion")
                 Case "_Original", "_Result", "_Message"
@@ -229,8 +231,13 @@ Public Sub PackagingMasterNew()
     WS.Cells(r, FieldColumn("Command")).Value2 = "C"
     WS.Cells(r, FieldColumn("Status")).Value2 = "Active"
     If S(Config.Range("B6").Value2) = "prices" Or S(Config.Range("B6").Value2) = "raw-prices" Then WS.Cells(r, FieldColumn("QuantityFrom")).Value2 = 0
+    InitializeLocalRow WS, r
     WS.Activate
-    If S(Config.Range("B6").Value2) = "uoms" Then
+    If S(Config.Range("B6").Value2) = "packaging-types" Then
+        WS.Cells(r, FieldColumn("PackagingType")).Select
+    ElseIf S(Config.Range("B6").Value2) = "pallets" Then
+        WS.Cells(r, FieldColumn("Width")).Select
+    ElseIf S(Config.Range("B6").Value2) = "uoms" Then
         WS.Cells(r, FieldColumn("UoMCode")).Select
     ElseIf S(Config.Range("B6").Value2) = "vendors" Then
         WS.Cells(r, FieldColumn("VendorName")).Select
@@ -251,7 +258,7 @@ Public Sub PackagingMasterSave()
     For r = 3 To LastRow()
         cmd = UCase$(Trim$(S(WS.Cells(r, FieldColumn("Command")).Value2)))
         If cmd = "" Or cmd = "N" Then cmd = "U"
-        If cmd <> "C" And cmd <> "U" And cmd <> "D" Then Err.Raise vbObjectError + 3108, , "Invalid command at row " & r
+        If cmd <> "C" And cmd <> "U" Then Err.Raise vbObjectError + 3108, , "Invalid command at row " & r
         Set delta = Changes(r, cmd)
         If delta.Count > 0 Or cmd = "C" Or cmd = "D" Then
             Set entry = CreateObject("Scripting.Dictionary")
@@ -296,7 +303,7 @@ Public Sub PackagingMasterSave()
                     End If
                 End If
             End If
-            WS.Cells(r, FieldColumn("Command")).Value2 = "N"
+            WS.Cells(r, FieldColumn("Command")).Value2 = ""
             WS.Cells(r, FieldColumn("_ID")).Value2 = x("NewID")
             WS.Cells(r, FieldColumn("_RowVersion")).Value2 = x("NewRowVersion")
             If x.Exists("NewMaterialCode") Then

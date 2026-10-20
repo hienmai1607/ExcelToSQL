@@ -33,8 +33,9 @@
 @media(max-width:950px){.pricing-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pricing-area-details{grid-template-columns:repeat(2,minmax(0,1fr))}.pricing-conversion{grid-column:1/-1}}
 @media(max-width:520px){.pkg-pricing-dialog{padding:14px}.pricing-entry-grid,.pricing-area-details{grid-template-columns:1fr}.pricing-total{gap:8px}.pkg-pricing-dialog .actions{flex-wrap:wrap}}
 
-.pkg-pricing-dialog:has(.pricing-calculator-layout){overflow:hidden}
-.pricing-calculator-layout{height:min(84dvh,900px);min-height:0;display:flex;flex-direction:column}
+.pkg-pricing-dialog:has(.pricing-calculator-layout){display:flex;flex-direction:column;overflow:hidden;height:min(92dvh,1000px)}
+.pkg-pricing-dialog:has(.pricing-calculator-layout)>.view-trail{position:static;flex:none}
+.pricing-calculator-layout{flex:1;min-height:0;display:flex;flex-direction:column}
 .pricing-calculator-layout>.customer-editor-heading{flex:none}
 .pricing-calculator-body{flex:1;min-height:0;overflow:auto;padding:0 2px 12px;overscroll-behavior:contain}
-.pricing-calculator-actions{flex:none;margin:0;padding:12px 0 0;border-top:1px solid var(--border);background:var(--surface)}
+.pricing-calculator-layout>.pricing-calculator-actions{position:static;flex:none;margin:0;padding:12px 0 0;border-top:1px solid var(--border);background:var(--surface)}

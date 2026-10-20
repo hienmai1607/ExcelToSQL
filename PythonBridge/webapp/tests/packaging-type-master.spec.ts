@@ -1,67 +1,66 @@
 import {test,expect,type Page} from '@playwright/test';
+import {selectableType} from '../src/packaging-orders';
 const rv='AAAAAAAAAAE=';
+test('regular and Mix eligibility are independent for parents and child units',()=>{
+ const regular={PackagingOrders:['Primary'],Shipping:true};
+ const mix={PackagingOrders:['Primary Mix'],Shipping:true};
+ expect(selectableType(regular,'Primary',1,false,false)).toBe(true);
+ expect(selectableType(regular,'Primary',1,false,true)).toBe(false);
+ expect(selectableType(mix,'Primary',1,false,true)).toBe(true);
+ expect(selectableType(mix,'Primary',1,true,false)).toBe(false);
+ expect(selectableType(regular,'Primary',1,true,false)).toBe(true);
+});
 
-test('edit places names, orders and flags in three rows and fits on mobile',async({page})=>{
- await setup(page);await open(page);
- await page.getByRole('button',{name:'Edit packaging type 1'}).click();
+test('Palletization derives Single and root dimension copying without a separate Copy Dim control',async({page})=>{
+ const state=await setup(page);await open(page);await page.getByRole('button',{name:'New packaging type',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New packaging type',exact:true});
+ await form.getByLabel('Packaging Type',{exact:true}).fill('Rigid corner');
+ await form.getByRole('checkbox',{name:'Palletization order',exact:true}).check();
+ await expect(form.getByRole('checkbox',{name:'Single',exact:true})).toBeChecked();
+ await expect(form.getByRole('checkbox',{name:'Copy Dim.',exact:true})).toHaveCount(0);
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].rows[0]).toMatchObject({PackagingOrders:['Pallet'],CopyDim:true,FinalComponent:true,Shipping:false});
+});
+
+test('regular, Mix and logistics flags form three checkbox rows on desktop and mobile',async({page})=>{
+ await setup(page);await open(page);await page.getByRole('button',{name:'Edit packaging type 1',exact:true}).click();
  const form=page.getByRole('dialog',{name:'Edit packaging type',exact:true});
- const parent=await form.getByLabel('Parent Type',{exact:true}).boundingBox();
- const name=await form.getByLabel('Packaging Type',{exact:true}).boundingBox();
- expect(Math.abs(parent!.y-name!.y)).toBeLessThanOrEqual(2);
- expect(parent!.x+parent!.width).toBeLessThan(name!.x);
- const orders=await Promise.all(['Primary','Secondary','Tertiary'].map(o=>form.getByRole('checkbox',{name:o+' order',exact:true}).boundingBox()));
- expect(Math.max(...orders.map(o=>o!.y))-Math.min(...orders.map(o=>o!.y))).toBeLessThanOrEqual(2);
- expect(orders[0]!.y).toBeGreaterThan(name!.y+name!.height);
- const flags=await Promise.all(['FinalComponent','CopyDim','Shipping'].map(key=>form.locator('[data-field="'+key+'"]').boundingBox()));
- expect(Math.max(...flags.map(o=>o!.y))-Math.min(...flags.map(o=>o!.y))).toBeLessThanOrEqual(2);
- expect(flags[0]!.y).toBeGreaterThan(orders[0]!.y);
- expect(flags[0]!.x).toBeLessThan(flags[1]!.x);expect(flags[1]!.x).toBeLessThan(flags[2]!.x);
- for(const label of ['Single','Copy Dim.','Shipping']){
-  const checkbox=form.getByRole('checkbox',{name:label,exact:true});
-  expect(await checkbox.evaluate(input=>{const label=input.closest('label')!,a=input.getBoundingClientRect(),b=label.getBoundingClientRect();return getComputedStyle(label).flexDirection==='row'&&getComputedStyle(input).order==='-1'&&Math.abs(a.top+a.height/2-b.top-b.height/2)<2})).toBe(true);
+ await expect(form.getByRole('button',{name:'Add new Packaging Type master',exact:true})).toHaveCount(0);
+ for(const width of [1920,390]){
+  await page.setViewportSize({width,height:width===390?844:1080});
+  const rows=[['Primary order','Secondary order','Tertiary order'],['Primary Mix order','Secondary Mix order','Tertiary Mix order'],['Shipping','Palletization order','Single']];
+  let previous=-1;
+  for(const names of rows){
+   const boxes=await Promise.all(names.map(name=>form.getByRole('checkbox',{name,exact:true}).boundingBox()));
+   for(const box of boxes)expect(Math.abs(box!.y-boxes[0]!.y)).toBeLessThanOrEqual(2);
+   expect(boxes[0]!.y).toBeGreaterThan(previous);previous=boxes[0]!.y;
+  }
+  expect(await form.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+  await page.screenshot({path:'test-results/packaging-type-flags-'+width+'.png'});
  }
- for(let i=0;i<flags.length;i++)expect(Math.abs(flags[i]!.x-orders[i]!.x)).toBeLessThanOrEqual(2);
- const status=await form.getByLabel('Status',{exact:true}).boundingBox();
- expect(Math.abs(status!.y+status!.height/2-flags[0]!.y-flags[0]!.height/2)).toBeLessThanOrEqual(2);
- expect(status!.x).toBeGreaterThan(flags[2]!.x);
- const primary=form.locator('.packaging-order-option').first();
- expect(await primary.evaluate(el=>getComputedStyle(el).flexDirection)).toBe('row');
- await page.setViewportSize({width:390,height:844});
- expect(await form.evaluate(el=>el.scrollWidth<=el.clientWidth+2)).toBeTruthy();
+ await expect(form.getByRole('checkbox',{name:'Copy Dim.',exact:true})).toHaveCount(0);
 });
 
-test('Copy Dim. follows Single, is conditional, and clears when Single is unticked',async({page})=>{
- await setup(page);await open(page);await page.getByRole('button',{name:'New packaging type',exact:true}).click();
+test('root Single automatically sends CopyDim true',async({page})=>{
+ const state=await setup(page);await open(page);await page.getByRole('button',{name:'New packaging type',exact:true}).click();
  const form=page.getByRole('dialog',{name:'New packaging type',exact:true});
- const single=form.getByRole('checkbox',{name:'Single',exact:true}),copy=form.getByRole('checkbox',{name:'Copy Dim.',exact:true}),shipping=form.getByRole('checkbox',{name:'Shipping',exact:true});
- await expect(copy).toBeDisabled();await single.check();await expect(copy).toBeEnabled();await copy.check();
- await expect(form.getByLabel('Parent Type',{exact:true})).toBeDisabled();
- const a=await single.boundingBox(),b=await copy.boundingBox(),c=await shipping.boundingBox();
- expect(a!.x).toBeLessThan(b!.x);expect(b!.x).toBeLessThan(c!.x);expect(Math.abs(a!.y-b!.y)).toBeLessThan(2);
- await single.uncheck();await expect(copy).not.toBeChecked();await expect(copy).toBeDisabled();
- await expect(form.getByLabel('Parent Type',{exact:true})).toBeEnabled();
- await single.check();await form.getByLabel('Parent Type',{exact:true}).selectOption('2');
- await expect(copy).toBeDisabled();
- await form.getByLabel('Parent Type',{exact:true}).selectOption('');await expect(copy).toBeEnabled();
-});
-
-test('type form uses three horizontal rows without Order and Price Basis captions',async({page})=>{
- const state=await setup(page);await open(page);
- await page.getByRole('button',{name:'New packaging type',exact:true}).click();
- const form=page.getByRole('dialog',{name:'New packaging type',exact:true});
- await expect(form.getByText('Order',{exact:true})).toHaveCount(0);
- await expect(form.getByLabel('Price Basis',{exact:true})).toHaveCount(0);
+ await form.getByLabel('Packaging Type',{exact:true}).fill('Single film');
  await form.getByRole('checkbox',{name:'Primary order',exact:true}).check();
- await form.getByLabel('Packaging Type',{exact:true}).fill('Ready pouch');
  await form.getByRole('checkbox',{name:'Single',exact:true}).check();
- const name=await form.getByLabel('Packaging Type',{exact:true}).boundingBox();
- const shipping=await form.getByRole('checkbox',{name:'Shipping',exact:true}).boundingBox();
- expect(shipping!.y).toBeGreaterThan(name!.y);
- await form.getByRole('button',{name:'Review & save'}).click();
- await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(state.writes[0].rows[0]).toMatchObject({ParentTypeID:null,FinalComponent:true,Shipping:false,PackagingType:'Ready pouch'});
- expect(state.writes[0].rows[0]).not.toHaveProperty('PriceBasis');
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].rows[0]).toMatchObject({FinalComponent:true,CopyDim:true});
 });
+
+test('Mix-only layer selections save independently from regular layers',async({page})=>{
+ const state=await setup(page);await open(page);await page.getByRole('button',{name:'New packaging type',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New packaging type',exact:true});
+ await form.getByLabel('Packaging Type',{exact:true}).fill('Mix-only primary');
+ await form.getByRole('checkbox',{name:'Primary Mix order',exact:true}).check();
+ await expect(form.getByRole('checkbox',{name:'Primary order',exact:true})).not.toBeChecked();
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].rows[0].PackagingOrders).toEqual(['Primary Mix']);
+});
+
 test('Shipping is editable for roots and cleared when assigning a parent',async({page})=>{
  const state=await setup(page);await open(page);
  await expect(page.getByRole('button',{name:'Sort by Shipping',exact:true})).toBeVisible();
@@ -71,14 +70,14 @@ test('Shipping is editable for roots and cleared when assigning a parent',async(
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
  expect(state.writes[0].rows[0].Shipping).toBe(true);
  await page.getByRole('button',{name:'Edit packaging type 1'}).click();await shipping.check();
- await page.getByLabel('Parent Type',{exact:true}).selectOption('2');await expect(shipping).toHaveCount(0);
+ await page.getByRole('checkbox',{name:'Parent Group',exact:true}).check();await expect(shipping).toHaveCount(0);
  await page.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[1].rows[0]).toMatchObject({ParentTypeID:2,Shipping:false});
+ await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[1].rows[0]).toMatchObject({ParentTypeIDs:[2],Shipping:false});
 });
-async function setup(page:Page,scope='Admin',parent:number|null=null,legacyLayout=false){
+async function setup(page:Page,scope='Admin',parent:number|number[]|null=null,legacyLayout=false){
  const writes:any[]=[],exports:any[]=[];
  const types=[
-  {ID:1,PackagingOrder:'Primary',PackagingType:'Pouch',Status:'Active',ParentTypeID:parent},
+  {ID:1,PackagingOrder:'Primary',PackagingType:'Pouch',Status:'Active',ParentTypeID:Array.isArray(parent)?parent[0]:parent,...(Array.isArray(parent)?{ParentTypeIDs:parent}:{})},
   {ID:2,PackagingOrder:'Secondary',PackagingType:'Group',Status:'Active',ParentTypeID:null},
   {ID:3,PackagingOrder:'Primary',PackagingType:'Child',Status:'Active',ParentTypeID:1},
   {ID:4,PackagingOrder:'Primary',PackagingType:'Grandchild',Status:'Active',ParentTypeID:3},
@@ -108,14 +107,14 @@ test('Packaging maintains types without tare weight',async({page})=>{
  const state=await setup(page,'Packaging');await open(page);
  await expect(page.getByRole('cell',{name:'1,234.123',exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'New packaging type',exact:true}).click();
- await expect(page.getByRole('group',{name:'Packaging orders'}).getByRole('checkbox')).toHaveCount(4);
+ await expect(page.getByRole('group',{name:'Packaging orders'}).getByRole('checkbox')).toHaveCount(7);
  await expect(page.getByLabel('Price Basis',{exact:true})).toHaveCount(0);
  await page.getByRole('checkbox',{name:'Primary order',exact:true}).check();
  await expect(page.getByLabel('Tare weight (g)',{exact:true})).toHaveCount(0);
  await page.getByLabel('Packaging Type',{exact:true}).fill('Film');
  await page.getByRole('button',{name:'Review & save',exact:true}).click();expect(state.writes).toHaveLength(0);
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(state.writes[0].rows[0]).toEqual({RowNum:1,Command:'C',ID:null,RowVersion:null,ParentTypeID:null,PackagingOrders:['Primary'],PackagingType:'Film',Shipping:false,FinalComponent:false,CopyDim:false});
+ expect(state.writes[0].rows[0]).toEqual({RowNum:1,Command:'C',ID:null,RowVersion:null,ParentTypeIDs:[],PackagingOrders:['Primary'],PackagingType:'Film',Shipping:false,FinalComponent:false,CopyDim:false});
 });
 
 test('one type can support all three orders and persist the selected set',async({page})=>{
@@ -160,48 +159,47 @@ test('retired tare column is removed from old profiles, exports and layout optio
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Excel local template'}).click();await download;
  expect(state.exports[0].columns).not.toContain('TareWeight');
  await expect(page.getByRole('button',{name:'Sort by Tare weight (g)',exact:true})).toHaveCount(0);
- await page.getByRole('button',{name:'Layout options'}).click();await page.getByRole('button',{name:'Move Packaging Type left'}).click();await page.getByRole('button',{name:'Save layout to profile'}).click();
+ await page.getByRole('button',{name:'Layout options'}).click();await page.getByRole('button',{name:'Move Packaging Type right'}).click();await page.getByRole('button',{name:'Save layout to profile'}).click();
  await expect(page.getByRole('status')).toContainText('saved');
  expect(state.profile().settings.masters['packaging-types'].sort).toEqual([]);
  expect(state.profile().settings.masters['packaging-types'].column_widths).not.toHaveProperty('TareWeight');
  await expect(page.getByText('Tare weight (g)',{exact:true})).toHaveCount(0);
- expect(state.profile().settings.masters['packaging-types'].columns.slice(0,2)).toEqual(['PackagingType','PackagingOrder']);
+ expect(state.profile().settings.masters['packaging-types'].columns.slice(0,2)).toEqual(['FinalComponent','PackagingType']);
  await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
 test('new type can select a parent from either order',async({page})=>{
  const state=await setup(page);await open(page);
- await expect(page.getByRole('button',{name:'Sort by Parent Type',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Sort by Parent Types',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'New packaging type',exact:true}).click();
- const select=page.getByLabel('Parent Type',{exact:true});
- await expect(select.locator('option')).toHaveText(['None (root type)','Pouch','Group','Child','Grandchild']);
- await select.selectOption('2');
+ const parents=page.getByRole('group',{name:'Parent Types',exact:true});
+ await expect(parents.getByRole('checkbox')).toHaveCount(4);
+ await parents.getByRole('checkbox',{name:'Parent Group',exact:true}).check();
  await expect(page.getByRole('group',{name:'Packaging orders'})).toHaveCount(0);await page.getByLabel('Packaging Type',{exact:true}).fill('Film');
 
  await page.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[0].rows[0].ParentTypeID).toBe(2);expect(state.writes[0].rows[0]).not.toHaveProperty('PackagingOrders');
+ await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[0].rows[0].ParentTypeIDs).toEqual([2]);expect(state.writes[0].rows[0]).not.toHaveProperty('PackagingOrders');
 });
 
 test('parent dropdown removes self, descendants and unavailable choices and clears assignment',async({page})=>{
  const state=await setup(page,'Admin',2);await open(page);
  await expect(page.getByRole('cell',{name:'Group',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Edit packaging type 1'}).click();
- const select=page.getByLabel('Parent Type',{exact:true});await expect(select).toHaveValue('2');
- await expect(select.locator('option[value="1"]')).toHaveCount(0);
- for(const id of [3,4])await expect(select.locator('option[value="'+id+'"]')).toHaveCount(0);
- await expect(select.locator('option[value="5"]')).toHaveCount(0);
- await select.selectOption('');await page.getByRole('checkbox',{name:'Primary order',exact:true}).check();await page.getByRole('button',{name:'Review & save',exact:true}).click();
+ const parents=page.getByRole('group',{name:'Parent Types',exact:true});
+ await expect(parents.getByRole('checkbox',{name:'Parent Group',exact:true})).toBeChecked();
+ for(const name of ['Pouch','Child','Grandchild','Old group'])await expect(parents.getByRole('checkbox',{name:'Parent '+name,exact:true})).toHaveCount(0);
+ await parents.getByRole('checkbox',{name:'Parent Group',exact:true}).uncheck();await page.getByRole('checkbox',{name:'Primary order',exact:true}).check();await page.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(state.writes[0].rows[0]).toMatchObject({ParentTypeID:null,RowVersion:rv});
+ expect(state.writes[0].rows[0]).toMatchObject({ParentTypeIDs:[],RowVersion:rv});
 });
 
 test('unchanged blocked parent remains visible and saves with other edits',async({page})=>{
  const state=await setup(page,'Admin',5);await open(page);await page.getByRole('button',{name:'Edit packaging type 1'}).click();
- const select=page.getByLabel('Parent Type',{exact:true});await expect(select).toHaveValue('5');
- await expect(select.locator('option[value="5"]')).toHaveText('Old group (Blocked)');
+ await expect(page.getByRole('checkbox',{name:'Parent Old group',exact:true})).toBeChecked();
+ await expect(page.getByText('Old group (Blocked)',{exact:true})).toBeVisible();
  await page.getByLabel('Packaging Type',{exact:true}).fill('Renamed pouch');
  await page.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[0].rows[0].ParentTypeID).toBe(5);
+ await expect(page.getByRole('dialog')).toHaveCount(0);expect(state.writes[0].rows[0].ParentTypeIDs).toEqual([5]);
 });
 
 test('existing child has a blank Order cell and updates without sending orders',async({page})=>{
@@ -215,7 +213,7 @@ test('existing child has a blank Order cell and updates without sending orders',
  await expect(page.getByRole('dialog',{name:'Confirm master save'})).toContainText('Renamed child');
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(state.writes[0].rows[0]).toMatchObject({Command:'U',ID:1,ParentTypeID:2,RowVersion:rv,PackagingType:'Renamed child'});
+ expect(state.writes[0].rows[0]).toMatchObject({Command:'U',ID:1,ParentTypeIDs:[2],RowVersion:rv,PackagingType:'Renamed child'});
  expect(state.writes[0].rows[0]).not.toHaveProperty('PackagingOrders');
  expect(state.writes[0].rows[0]).not.toHaveProperty('PackagingOrder');
 });
@@ -224,18 +222,50 @@ test('switching root to child hides orders and nested child needs only name and 
  const state=await setup(page);await open(page);
  await page.getByRole('button',{name:'New packaging type',exact:true}).click();
  await page.getByRole('checkbox',{name:'Primary order',exact:true}).check();
- await page.getByLabel('Parent Type',{exact:true}).selectOption('3');
+ await page.getByRole('checkbox',{name:'Parent Child',exact:true}).check();
  await expect(page.getByRole('group',{name:'Packaging orders'})).toHaveCount(0);
  await page.getByRole('button',{name:'Review & save',exact:true}).click();
  await expect(page.getByText('Required.',{exact:true})).toHaveCount(1);
-await page.getByLabel('Parent Type',{exact:true}).selectOption('');
+await page.getByRole('checkbox',{name:'Parent Child',exact:true}).uncheck();
  await expect(page.getByRole('checkbox',{name:'Primary order',exact:true})).toBeChecked();
- await page.getByLabel('Parent Type',{exact:true}).selectOption('3');
+ await page.getByRole('checkbox',{name:'Parent Child',exact:true}).check();
  await page.getByLabel('Packaging Type',{exact:true}).fill('Nested film');
 
  await page.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(state.writes[0].rows[0]).toMatchObject({ParentTypeID:3,PackagingType:'Nested film',FinalComponent:false});
+ expect(state.writes[0].rows[0]).toMatchObject({ParentTypeIDs:[3],PackagingType:'Nested film',FinalComponent:false});
  expect(state.writes[0].rows[0]).not.toHaveProperty('PackagingOrders');
+});
+
+test('one type keeps multiple parents when edited and saves one ID',async({page})=>{
+ const state=await setup(page,'Admin',[2,5]);await open(page);
+ await page.getByRole('button',{name:'Edit packaging type 1',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'Edit packaging type',exact:true});
+ await expect(form.getByRole('checkbox',{name:'Parent Group',exact:true})).toBeChecked();
+ await expect(form.getByRole('checkbox',{name:'Parent Old group',exact:true})).toBeChecked();
+ await form.getByRole('checkbox',{name:'Parent Old group',exact:true}).uncheck();
+ await form.getByLabel('Packaging Type',{exact:true}).fill('Shared Seal');
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].rows).toHaveLength(1);
+ expect(state.writes[0].rows[0]).toMatchObject({ID:1,ParentTypeIDs:[2],PackagingType:'Shared Seal',CopyDim:false});
+});
+
+test('new shared component selects several parents without creating duplicate types',async({page})=>{
+ const state=await setup(page);await open(page);
+ await page.getByRole('button',{name:'New packaging type',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New packaging type',exact:true});
+ const parents=form.getByRole('group',{name:'Parent Types',exact:true});
+ expect(await parents.evaluate(el=>getComputedStyle(el).display)).toBe('grid');
+ for(const name of ['Pouch','Group'])await form.getByRole('checkbox',{name:'Parent '+name,exact:true}).check();
+ await form.getByLabel('Packaging Type',{exact:true}).fill('Shared Seal');
+ await form.getByRole('checkbox',{name:'Single',exact:true}).check();
+ await page.setViewportSize({width:390,height:844});
+ expect(await form.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+ await page.screenshot({path:'test-results/packaging-multiple-parents-mobile.png'});
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(state.writes[0].rows).toHaveLength(1);
+ expect(state.writes[0].rows[0]).toMatchObject({ParentTypeIDs:[1,2],PackagingType:'Shared Seal',CopyDim:false,FinalComponent:true});
 });

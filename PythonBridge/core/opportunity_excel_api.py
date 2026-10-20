@@ -1,4 +1,6 @@
 """Combined, layout-aware Opportunity workbook using the existing atomic document writer."""
+from excel_dropdowns import with_dropdowns,transaction_choices
+from excel_template_version import TemplateBatch,TEMPLATE_VERSIONS
 import io
 import json
 import os
@@ -27,7 +29,7 @@ from schemas import OpportunityBatchRequest
 router=APIRouter(prefix="/api/workbench/opportunity-excel",tags=["Opportunity Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Opportunity_Local_Update.xlsm"
 HEADER_REQUIRED=["OpportunityNumber","CustomerName","OpportunityDesc","BidOpen","BidClose","CustomerCurrencyCode","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"]
-ITEM_REQUIRED=["ProductCode","AnnualUnit","PalletSize","ContainerRequest"]
+ITEM_REQUIRED=["ProductCode","AnnualUnit","ContainerRequest"]
 HEADER_EDITABLE={"CustomerName","OpportunityDesc","BidOpen","BidClose","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"}
 ITEM_EDITABLE={"ProductCode","ItemDescription","AnnualUnit","EstPctAwarded","ShelfPrice",*OPPORTUNITYITEM_FIELDS,*SHIPMENT_COLUMNS}
 META=["_OpportunityID","_ItemID","_HeaderVersion","_ItemVersion","_Original"]
@@ -58,7 +60,7 @@ class View(BaseModel):
 def workbook_row(row):
  row={**row,**shipment_columns(row)}
  row={k:str(v) if isinstance(v,(Decimal,date,datetime)) else v for k,v in row.items()}
- values={**row,"HeaderCommand":"N","ItemCommand":"N","_OpportunityID":row.get("OpportunityID"),
+ values={**row,"HeaderCommand":"","ItemCommand":"","_OpportunityID":row.get("OpportunityID"),
  "_ItemID":row.get("ItemID"),"_HeaderVersion":row.get("HeaderRowVersion"),"_ItemVersion":row.get("ItemRowVersion")}
  values["_Original"]=json.dumps({k:row.get(k) for k in HEADER_COLUMNS|ITEM_COLUMNS|{"ParentItemID","HasOpenPackagingRequest"}},default=str,ensure_ascii=False)
  return values
@@ -95,6 +97,7 @@ def read_page(body,ctx):
    for parent in sorted([r for r in group if not r.get("ParentItemID")],key=cmp_to_key(compare))
    for r in [parent,*sorted([c for c in group if c.get("ParentItemID")==parent.get("ItemID")],key=lambda c:c["MixChildNumber"])]]
  data["rows"]=[workbook_row(r) for r in data["rows"]]
+ data["dropdowns"]=transaction_choices(ctx,HEADER_EDITABLE|ITEM_EDITABLE)
  return data
 
 @router.post("/page")
@@ -109,14 +112,14 @@ def build(body,data,base):
  hidden=[i+1 for i,k in enumerate(keys) if k in META or k in HEADER_COLUMNS-set(hc) or k in ITEM_COLUMNS-set(ic)]
  labels=[]
  for k in keys:
-  if k in ("HeaderCommand","ItemCommand"):label=("Header" if k=="HeaderCommand" else "Item")+" Command (C/U/D)"
+  if k in ("HeaderCommand","ItemCommand"):label=("Header" if k=="HeaderCommand" else "Item")+" Action (C/U)"
   elif k.startswith("_"):label={"_Result":"Result","_Message":"Message"}.get(k,k)
   else:
    label=("Header: " if k in HEADER_COLUMNS else "Item: ")+LABELS.get(k,re.sub(r"(?<=[a-z])(?=[A-Z])"," ",k))
    if k in HEADER_REQUIRED+ITEM_REQUIRED:label+=" *"
    if k not in HEADER_EDITABLE|ITEM_EDITABLE and k!="OpportunityNumber":label+=" [display]"
   labels.append(label)
- config=[["Version","2"],["API",base.rstrip("/")],["Layout",body.model_dump_json()],["Pending","0"],["LoadedPage",body.page],
+ config=[["Version",TEMPLATE_VERSIONS["opportunities"]],["API",base.rstrip("/")],["Layout",body.model_dump_json()],["Pending","0"],["LoadedPage",body.page],
  ["HeaderEditable","|".join(sorted(HEADER_EDITABLE))],["ItemEditable","|".join(sorted(ITEM_EDITABLE))],
  ["Required","|".join(HEADER_REQUIRED+ITEM_REQUIRED)],["ShipmentEditable","|".join(sorted(SHIPMENT_COLUMNS))],keys]
  with zipfile.ZipFile(TEMPLATE) as z:
@@ -155,7 +158,7 @@ def build(body,data,base):
   stream=io.BytesIO()
   with zipfile.ZipFile(stream,"w",zipfile.ZIP_DEFLATED) as out:
    for entry in z.infolist():out.writestr(entry,replacements.get(entry.filename,z.read(entry.filename)))
- return stream.getvalue()
+ return with_dropdowns(stream.getvalue(),data.get("dropdowns",{"HeaderCommand":["C","U"],"ItemCommand":["C","U"]}))
 
 @router.post("/download")
 def download(body:View,request:Request,ctx:AccessContext=Depends(get_access_context)):
@@ -171,8 +174,8 @@ class Edit(BaseModel):
  model_config=ConfigDict(extra="forbid")
  row:int=Field(ge=3,le=1048576)
  number:str=Field(min_length=1,max_length=30)
- header_command:Literal["N","C","U","D"]="N"
- item_command:Literal["N","C","U","D"]="N"
+ header_command:Literal["N","C","U"]="N"
+ item_command:Literal["N","C","U"]="N"
  opportunity_id:int|None=Field(None,ge=1)
  item_id:int|None=Field(None,ge=1)
  header_version:str|None=None
@@ -187,7 +190,8 @@ class Edit(BaseModel):
   if self.header_command=="C" and self.opportunity_id:raise ValueError("Create cannot have a header ID.")
   if self.item_command=="C" and self.item_id:raise ValueError("Create cannot have an item ID.")
   return self
-class Batch(BaseModel):
+class Batch(TemplateBatch):
+ template_kind="opportunities"
  model_config=ConfigDict(extra="forbid")
  rows:list[Edit]=Field(min_length=1,max_length=10000)
  @model_validator(mode="after")
@@ -234,6 +238,9 @@ def merge_shipment(ctx,original,changes,header):
    shipment[key]=value
  if "InterestDays" in changes:
   shipment["InterestMonths"]=None
+ if "ImportClearanceCustomerPerContainer" in changes and shipment.get("ImportClearanceCustomerPerContainer") is not None:
+  shipment["ImportClearanceCustomerPerPallet"]=None
+  shipment["ImportClearanceUSDPerContainer"]=None
  if "ImportClearanceCustomerPerPallet" in changes and shipment.get("ImportClearanceCustomerPerPallet") is not None:
   shipment["ImportClearanceUSDPerContainer"]=None
  mode=changes.get("MarginMode")

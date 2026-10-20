@@ -1,5 +1,6 @@
 import {palletDimensionLabel} from './pallet-label';
-import {useEffect,useState} from 'react';
+import {createContext,useContext,useEffect,useState} from 'react';
+export const ResponseEditable=createContext(true);
 import {call,type Row} from './api';
 import {NumericInput} from './numeric-input';
 import {decimalDisplay} from './number-format';
@@ -32,7 +33,8 @@ export function responseTypeError(key:string,value:string,original:unknown,types
  return order&&value.trim()&&(value!==String(original??'')||layerCount(layers)!==layerCount(originalLayers))&&!types.some(t=>selectableType(t,order,layers,mixChild,mixParent)&&t.PackagingType===value)?'Choose an active '+order+' Type from Packaging Type Master.':'';
 }
 export function ResponseInput({field,value,onChange,types,pallets=[],loading,layers,mixChild=false,mixParent=false}:{field:PackagingField;value:string;onChange:(v:string)=>void;types:Row[];pallets?:Row[];loading:boolean;layers?:unknown;mixChild?:boolean;mixParent?:boolean}){
- if(field.readOnly)return <input readOnly aria-label={field.label} value={field.numeric?(decimalDisplay(value,9)??''):value}/>;
+ const editable=useContext(ResponseEditable);
+ if(field.readOnly||!editable)return <input disabled={!editable} readOnly aria-label={field.label} value={field.numeric?(decimalDisplay(value,9)??''):value}/>;
  const order=orderFor(field.key),choices=types.filter(t=>!!order&&selectableType(t,order,layers,mixChild,mixParent));
  if(field.key==='ResponsePalletSize'||field.key==='ResponsePalletStacking'){
   const options=field.key==='ResponsePalletSize'?pallets.map(p=>({value:String(p.PalletSize),label:palletDimensionLabel(p)})):['Single','Double'].map(value=>({value,label:value}));

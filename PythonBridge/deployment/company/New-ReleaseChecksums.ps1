@@ -13,7 +13,9 @@ $patterns = @(
     'deployment\company\*.ps1', 'deployment\company\*.json',
     'deployment\company\*.md', 'docs\*.md', '*.bas',
     'Admin_Master.xlsm', 'Product_Template.xlsm', 'Sales_Template.xlsm',
-    'requirements.txt', 'requirements.lock.txt', '.env.example', '.gitignore', 'README.md'
+    'requirements.txt', 'requirements.lock.txt', '.env.example', '.gitignore', 'README.md',
+    'webapp\dist\index.html', 'webapp\dist\assets\*', 'templates\*.xlsm',
+    'scripts\Build-VMUpgrade117To137.ps1'
 )
 
 $files = foreach ($pattern in $patterns) {

@@ -31,7 +31,7 @@ try {
  }
  $legend=@(
   @('Required *','Product name, weight. Category is required for new products.',0xCCF2FF),
-  @('Editable','Optional input columns and Command.',0xF7EBDD),
+  @('Editable','Optional input columns and Action.',0xF7EBDD),
   @('Display only','Product code, calculated weight, audit details, results and hidden metadata.',0xE6E6E7)
  )
  for($i=0;$i -lt $legend.Count;$i++){
@@ -40,7 +40,7 @@ try {
   $controls.Cells.Item(22+$i,2).Value2=$legend[$i][1]
  }
  $config.Visible=2
- foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modProductLocal.bas')){
+ foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modLocalDropdowns.bas','modProductLocal.bas')){
   [void]$book.VBProject.VBComponents.Import((Join-Path $root $name))
  }
  [void]$book.VBProject.References.AddFromGuid('{420B2830-E718-11CF-893D-00A0C9054228}',1,0)

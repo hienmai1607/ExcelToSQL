@@ -15,3 +15,24 @@
 .tcb-dialog .field-label{display:inline-flex;flex-direction:row;align-items:center;justify-content:flex-start;align-self:flex-start;gap:4px;text-align:left}
 .tcb-dialog .field-label-text{min-width:0}
 .tcb-dialog .field-label .info-tip{margin-left:0}
+.product-loss-heading{display:flex;align-items:center;gap:8px}
+dialog.opportunity-loss-dialog:not(.record-dialog){padding:22px;--editor-inset:22px}
+.opportunity-loss-dialog .table-scroll{position:relative;max-width:100%;overflow-x:auto}
+.material-recipe-row>td{padding:0 12px 8px}
+.material-recipe{border-left:3px solid var(--accent,#176c65);padding:8px 12px;background:var(--surface-muted,#f6f9fa)}
+.material-recipe>summary{cursor:pointer;font-weight:600}
+.material-recipe .tcb-grid{grid-template-columns:minmax(80px,.65fr) minmax(100px,.85fr) minmax(175px,1.3fr) minmax(195px,1.45fr) minmax(90px,.8fr) minmax(65px,.6fr) minmax(150px,1.1fr) minmax(165px,1.2fr);margin:0;gap:10px}
+.material-recipe label{display:grid;grid-template-rows:auto 38px;gap:5px;align-items:end;white-space:nowrap;margin:0}
+.material-recipe label .tcb-field-error{white-space:normal}
+.material-recipe output{height:38px;min-height:0}
+.commercial-price-table .material-recipe input[type=number]{min-width:0;width:100%;max-width:100%;box-sizing:border-box}
+.material-recipe-row:has(.material-recipe:not([open]))>td{padding:0}
+.opportunity-loss-dialog details.material-recipe:not([open]){margin:0;padding:0;border:0}
+.opportunity-loss-dialog details.material-recipe[open]{margin:0 0 8px;padding:8px 12px}
+.commercial-price-table th:nth-child(5){width:110px}
+.commercial-price-table th:nth-child(6){width:145px}
+.commercial-price-table th:last-child{width:44px}
+.material-line-total{white-space:nowrap}
+.commercial-price-table tbody>tr:not(.material-recipe-row)>td:nth-child(5),
+.commercial-price-table tbody>tr:not(.material-recipe-row)>td:nth-child(6){text-align:right;font-variant-numeric:tabular-nums}
+.commercial-price-table select,.material-recipe output{font-variant-numeric:tabular-nums}

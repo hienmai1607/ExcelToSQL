@@ -35,7 +35,9 @@ class MaterialRow(MasterRow):
     UnitOfMeasure: str | None = Field(None, max_length=20)
     Status: Literal['Active', 'Block'] | None = None
 
-class PackagingMaterialRow(MaterialRow):
+from material_dimensions import MaterialDimensionFields
+
+class PackagingMaterialRow(MaterialRow,MaterialDimensionFields):
     PackagingTypeID: int | None = Field(None, ge=1)
     TareWeight: Decimal | None = Field(None, ge=0, max_digits=18, decimal_places=9, allow_inf_nan=False)
     TareWeightBasis: Literal['kg/EA', 'kg/m2'] | None = None
@@ -46,6 +48,8 @@ class PackagingMaterialRow(MaterialRow):
         return "PackagingTypeID" in self.model_fields_set
 
 class UoMRow(MasterRow):
+    Category: Literal["Weight/Mass","Length/Distance","Area","Volume","Unit/Count","Other"] | None = None
+    BaseFactor: Decimal | None = Field(None,gt=0,max_digits=24,decimal_places=12,allow_inf_nan=False)
     UoMCode: str | None = Field(None, max_length=40)
     UoMName: str | None = Field(None, max_length=500)
     Status: Literal["Active", "Block"] | None = None
@@ -105,6 +109,7 @@ class PriceBatch(Input):
     rows: list[PriceRow] = Field(min_length=1, max_length=500)
 
 class PackagingPriceRow(PriceRow):
+    ResolveOverlap: bool = False
     MaterialDimensionID: int | None = Field(None, ge=1)
     MaterialDimensionRowVersion: str | None = None
     MaterialD1: Decimal | None = Field(None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
@@ -265,7 +270,12 @@ def material_save(payload: MaterialBatch, ctx: AccessContext = Depends(get_acces
             by_num={r.RowNum:r for r in payload.rows}
             for saved in results:
                 row=by_num[saved['RowNum']]
-                if saved['Status']!='OK' or row.Command=='D' or not ({'TareWeight','TareWeightBasis'} & row.model_fields_set):continue
+                if saved['Status']!='OK' or row.Command=='D':continue
+                from material_dimensions import save_dimensions
+                save_dimensions(cur,row,saved['NewID'])
+                if not ({'TareWeight','TareWeightBasis'} & row.model_fields_set):
+                    saved['NewRowVersion']=cur.execute('SELECT RowVersion FROM dbo.PackagingMaterial WHERE ID=?',saved['NewID']).fetchval()
+                    continue
                 current=cur.execute('SELECT TareWeight,TareWeightBasis FROM dbo.PackagingMaterial WITH(UPDLOCK,HOLDLOCK) WHERE ID=?',saved['NewID']).fetchone()
                 weight=row.TareWeight if 'TareWeight' in row.model_fields_set else current[0]
                 basis=row.TareWeightBasis if 'TareWeightBasis' in row.model_fields_set else current[1]
@@ -284,6 +294,8 @@ def material_save(payload: MaterialBatch, ctx: AccessContext = Depends(get_acces
 def price_save(payload: PackagingPriceBatch, ctx: AccessContext = Depends(get_access_context)):
     require(ctx,'Packaging')
     for row in payload.rows:
+        if row.ResolveOverlap and row.Command != 'C':
+            raise HTTPException(422, 'Automatic overlap resolution is available for new prices only.')
         if 'BaseUoM' in row.model_fields_set:
             if row.PriceBasis is not None and row.PriceBasis != row.BaseUoM:
                 raise HTTPException(422,'Conflicting Base UoM values.')
@@ -301,61 +313,24 @@ def price_save(payload: PackagingPriceBatch, ctx: AccessContext = Depends(get_ac
         for row in payload.rows:
             if row.ID in existing and 'ExchangeRateToUSD' not in row.model_fields_set and row.CurrencyID==existing[row.ID]['CurrencyID']:
                 row.ExchangeRateToUSD=existing[row.ID]['ExchangeRateToUSD']
-    from supplier_geometry import SUPPLIER_FIELDS, supplier_area
-    extra = {}
+    from material_dimensions import FIELDS
+    retired={'SupplierDimensionID','SupplierDimensionRowVersion','SupplierD1','SupplierD2','SupplierD3',*FIELDS}
     for row in payload.rows:
-        supplied = bool((set(SUPPLIER_FIELDS) | {'SupplierDimensionRowVersion'}) & row.model_fields_set)
-        extra[row.RowNum] = {'SupplierSet': supplied}
-        if row.Command == 'D' or not supplied:
-            continue
-        dimension_id = getattr(row, 'SupplierDimensionID', None)
-        measurements = {k: getattr(row, 'Supplier'+k, None) for k in ('D1','D2','D3')}
-        if dimension_id is None:
-            if any(v is not None for v in measurements.values()) or getattr(row, 'SupplierDimensionRowVersion', None):
-                raise HTTPException(422, 'Supplier measurements require a child dimension definition.')
-            continue
-        definitions = execute("""DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT;
-            SELECT d.*,d.EffectiveSquareMeterFormula,t.PriceBasis AS CalculationBasis,m.UnitOfMeasure,
-             u1.Status AS D1UnitStatus,u2.Status AS D2UnitStatus,u3.Status AS D3UnitStatus
-            FROM dbo.v_PackagingDimensionWeb d JOIN dbo.PackagingMaterial m ON m.PackagingTypeID=d.PackagingTypeID
-            JOIN dbo.PackagingType t ON t.ID=d.PackagingTypeID
-            JOIN dbo.PackagingDimension parent ON parent.ID=d.ParentDimensionID
-            JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID LEFT JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID
-            WHERE d.ID=? AND m.ID=? AND d.Status='Active' AND parent.Status='Active'
-             AND t.Status='Active' AND t.ParentTypeID IS NOT NULL;""", [ctx.username, dimension_id, row.MaterialID])[0]
-        if not definitions:
-            raise HTTPException(422, 'Choose an active child dimension belonging to the selected material.')
-        definition = definitions[0]
-        version = rv(getattr(row, 'SupplierDimensionRowVersion', None), True)
-        if definition['RowVersion'] != base64.b64encode(version).decode('ascii'):
-            raise HTTPException(409, 'Supplier formula changed. Refresh pricing before saving.')
-        try:
-            area = supplier_area(definition, measurements)
-            if definition.get("ConversionOutputUoMID") is not None:
-                from formula_output_units import output_unit_factor,converted_output
-                units=execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT; SELECT ID,UoMCode,UoMName,Status,RowVersion FROM dbo.UoM ORDER BY ID",[ctx.username])[0]
-                unit_map={u["ID"]:u for u in units}
-                target=definition["UnitOfMeasure"]
-                if definition["CalculationBasis"]=="Square meter":
-                    from pkg_pricing_api import is_area_unit
-                    active_area=next((u for u in units if u["Status"]=="Active" and is_area_unit(u)),None)
-                    if not active_area:raise ValueError("Maintain an active square-metre unit for area pricing.")
-                    target=active_area["UoMCode"]
-                def conversion_lookup(source,target):
-                    rows=execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT; SELECT c.*,u.RowVersion FROM dbo.fn_UnitConversion(?,?,?,NULL,?) c LEFT JOIN dbo.UnitConversion u ON u.ID=c.ID",[ctx.username,source,target,row.MaterialID,row.VendorID])[0]
-                    return rows[0] if rows else None
-                factor,_=output_unit_factor(definition,unit_map,target,conversion_lookup)
-                area=converted_output(area,factor)
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-        extra[row.RowNum].update(SupplierDimensionRowVersion='0x'+version.hex(), SupplierAreaPerPriceUnit=str(area))
-    supplier_columns = [('SupplierDimensionID','INT'),('SupplierDimensionRowVersion','VARCHAR(18)'),
+        if any(getattr(row,key,None) is not None for key in retired & row.model_fields_set):
+            raise HTTPException(422,'Maintain dimensions in Packaging Material, not Packaging Pricing.')
+    ids=sorted({row.MaterialID for row in payload.rows if row.MaterialID})
+    sources=execute("DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Maintain',@Actor OUTPUT; SELECT ID,MaterialDimensionID,MaterialDimensionRowVersion,MaterialD1,MaterialD2,MaterialD3 FROM dbo.PackagingMaterial WHERE ID IN(SELECT value FROM OPENJSON(?))",[ctx.username,json.dumps(ids)])[0] if ids else []
+    material_by_id={row['ID']:row for row in sources}
+    extra={}
+    for row in payload.rows:
+        source=material_by_id.get(row.MaterialID,{})
+        version=rv(source.get('MaterialDimensionRowVersion'),False)
+        extra[row.RowNum]={key:str(source[key]) if isinstance(source.get(key),Decimal) else source.get(key) for key in FIELDS}
+        extra[row.RowNum].update(SupplierSet=True,SupplierDimensionID=None,SupplierDimensionRowVersion=None,SupplierD1=None,SupplierD2=None,SupplierD3=None,SupplierAreaPerPriceUnit=None,MaterialDimensionSet=True,
+            MaterialDimensionRowVersion='0x'+version.hex() if version else None)
+    supplier_columns=[('SupplierDimensionID','INT'),('SupplierDimensionRowVersion','VARCHAR(18)'),
         ('SupplierD1','DECIMAL(18,6)'),('SupplierD2','DECIMAL(18,6)'),('SupplierD3','DECIMAL(18,6)'),
         ('SupplierAreaPerPriceUnit','DECIMAL(28,9)'),('SupplierSet','BIT')]
-    for row in payload.rows:
-        extra[row.RowNum]['MaterialDimensionSet'] = any(k in row.model_fields_set for k in ('MaterialDimensionID','MaterialDimensionRowVersion','MaterialD1','MaterialD2','MaterialD3'))
-        version = rv(getattr(row, "MaterialDimensionRowVersion", None), getattr(row, "MaterialDimensionID", None) is not None)
-        extra[row.RowNum]['MaterialDimensionRowVersion'] = '0x'+version.hex() if version else None
     return batch(payload,ctx,'PackagingPriceBatchTypeV4','usp_PackagingPrice_BatchV6',
         PRICE+[('VendorID','INT'),('ExchangeRateToUSD','DECIMAL(18,10)')]+supplier_columns, document_extra=extra, json_input=True)
 
@@ -463,6 +438,8 @@ def vendor_save(payload:VendorBatch,ctx:AccessContext=Depends(get_access_context
 
 @router.post("/uom/batch")
 def uom_save(payload:UoMBatch,ctx:AccessContext=Depends(get_access_context)):
+    require(ctx,"Admin")
     require_page_edit(ctx,"uoms")
     fields=[("RowNum","INT"),("Command","CHAR(1)"),("ID","INT"),("UoMCode","NVARCHAR(40)"),("UoMName","NVARCHAR(500)"),("Status","VARCHAR(10)"),("RowVersionB64","VARCHAR(18)")]
-    return batch(payload,ctx,"UoMBatchType","usp_UoM_Batch",fields)
+    from uom_categories import save_uoms
+    return save_uoms(payload,ctx,fields)

@@ -1,0 +1,21 @@
+.local-ai-launch{position:fixed;right:24px;bottom:24px;z-index:40;width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:#176f68;color:white;box-shadow:0 4px 16px #0003}
+.local-ai-launch svg{width:26px;height:26px}
+.local-ai-dialog{position:fixed;right:24px;bottom:88px;z-index:40;width:min(460px,calc(100vw - 32px));height:min(720px,calc(100dvh - 116px));display:flex;flex-direction:column;gap:10px;padding:16px;border:1px solid var(--border);border-radius:16px;background:var(--surface,#fff);color:inherit;box-shadow:0 8px 36px #0003;overflow:hidden}
+.local-ai-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.local-ai-heading h2{font-size:20px;margin:0}
+.local-ai-privacy{font-size:12px;margin:0;color:var(--muted,#627575)}
+.local-ai-history{display:flex;align-items:end;gap:6px}.local-ai-history label{min-width:0;flex:1}.local-ai-history select{width:100%}
+.local-ai-messages{flex:1;min-height:90px;overflow:auto;overscroll-behavior:contain;padding-right:5px}
+.local-ai-question{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-alt,#edf5f4);padding:10px;border-radius:10px}
+.local-ai-dialog fieldset{border:0;padding:0;min-width:0}.local-ai-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.local-ai-dialog textarea{width:100%;resize:vertical;max-height:130px;margin:6px 0}.local-ai-answer{white-space:pre-wrap;overflow-wrap:anywhere}
+.local-ai-result{margin:10px 0 20px}.local-ai-result dl>div{display:grid;grid-template-columns:1fr 1fr;gap:8px}.local-ai-result dd{margin:0;overflow-wrap:anywhere}
+.local-ai-dialog .table-wrap{max-width:100%;overflow:auto}.local-ai-dialog details{font-size:12px}
+@media(max-width:600px){.local-ai-dialog{right:16px;bottom:80px;padding:12px}.local-ai-launch{right:16px;bottom:16px}}
+
+
+.local-ai-launch:hover:not(:disabled){background:#12564f;color:white}
+.local-ai-dialog p,.local-ai-dialog small,.local-ai-dialog label{color:var(--muted,#627575)}
+.local-ai-dialog th{background:var(--surface-alt);color:inherit}.local-ai-dialog td{border-color:var(--border)}
+
+
+.local-ai-feedback{margin:0 0 16px;border-top:1px solid var(--border);padding-top:6px}.local-ai-feedback small{overflow-wrap:anywhere}.local-ai-feedback button{white-space:normal}

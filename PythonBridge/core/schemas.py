@@ -13,9 +13,11 @@ from pydantic import ConfigDict
 from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 from packaging_fields import ProductFields, HeaderFields, ItemFields
+from product_mix_models import InitialMix
 
 
 class ProductRow(ProductFields):
+    MixVersion: InitialMix | None = None
     is_mix: Optional[bool] = Field(None, alias="IsMix")
     customer_id: Optional[int] = Field(None, alias="CustomerID", ge=1)
     row_num: int = Field(..., alias="RowNum")
@@ -23,13 +25,15 @@ class ProductRow(ProductFields):
     id: Optional[int] = Field(None, alias="ID")
     product_code: Optional[str] = Field(None, alias="ProductCode")
     product_name: Optional[str] = Field(None, alias="ProductName")
-    weight_value: Optional[float] = Field(None, alias="WeightValue")
-    weight_unit: Optional[Literal["g", "oz"]] = Field(None, alias="WeightUnit")
+    weight_value: Optional[float] = Field(None, alias="WeightValue",allow_inf_nan=False,ge=0,le=999999.9999)
+    weight_unit: Optional[str] = Field(None, alias="WeightUnit",max_length=40)
     status: Optional[Literal["Active", "Block"]] = Field(None, alias="Status")
     row_version: Optional[str] = Field(None, alias="RowVersion")  # base64
 
     @model_validator(mode="after")
     def grade_create_only(self):
+        if self.MixVersion is not None and (self.command != "C" or self.is_mix is not True):
+            raise ValueError("Initial MixVersion is allowed only when creating a Product Mix.")
         if self.is_mix and self.GradeVersion is not None:
             raise ValueError("Product Mix uses child Product grades; it cannot maintain its own Grade version.")
         if self.command != "C" and self.GradeVersion is not None:

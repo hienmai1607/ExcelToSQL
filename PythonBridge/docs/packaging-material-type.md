@@ -6,7 +6,7 @@ The assignment uses PackagingTypeID with a foreign key. Existing materials are l
 
 The Packaging Material table, layout/sort options and Excel exports include Packaging Type. For Excel updates, use Order / Packaging Type; an unqualified name is accepted only when it uniquely identifies an active child leaf. Blank clears the assignment, while omitted values preserve it.
 
-Description is retired from Packaging Material entry, layout, sort and exports. SQL 75 retains historical descriptions unchanged; Raw Material still supports Description. Older material clients cannot overwrite the retired description.
+Description is retired from Packaging Material entry, layout, sort and exports. SQL 75 retains historical descriptions unchanged; Raw Material now uses a separate optional Origin field (migration 131); its historical Description data is retained but no longer editable in the UI or current templates. Older material clients cannot overwrite the retired description.
 
 VM deployment:
 

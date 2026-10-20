@@ -1,4 +1,6 @@
 """Layout-aware Product workbooks. VBA is built once, never through server-side Office."""
+from excel_dropdowns import with_dropdowns,master_choices
+from excel_template_version import TemplateBatch,TEMPLATE_VERSIONS
 import io
 import json
 import os
@@ -52,9 +54,10 @@ def page_data(body,ctx,override=False):
   try: creator=int(values["created_by"])
   except ValueError:raise HTTPException(422,"Invalid creator filter.")
  if status not in ("","Active","Block"):raise HTTPException(422,"Invalid status.")
- return master_read(entity="products",page=body.page,page_size=body.layout.page_size,search=search,
+ data=master_read(entity="products",page=body.page,page_size=body.layout.page_size,search=search,
    status=status or None,material_id=None,currency_id=None,as_of=None,created_by=creator,
    sort=json.dumps([s.model_dump() for s in body.layout.sort]),ctx=ctx)
+ return {**data,"dropdowns":master_choices("products",ctx)}
 @router.post("/page")
 def page(body:PageInput,ctx:AccessContext=Depends(get_access_context)):
  return page_data(body,ctx,True)
@@ -103,15 +106,15 @@ def sheet(rows,hidden_cols=(),hide_keys=False,filter_rows=False,styles=None):
 def build(body,data,base_url,creator=""):
  selected=check_layout("products",body.layout).columns
  keys=["Command",*selected,*[k for k in COLUMNS["products"] if k not in selected],"_Result","_Message",*META]
- labels={"Command":"Command (C/U/D)","_Result":"Result","_Message":"Message",**COLUMNS["products"]}
+ labels={"Command":"Action (C/U)","_Result":"Result","_Message":"Message",**COLUMNS["products"]}
  labels.update({k:labels[k]+(" * (new)" if k=="Category" else " *") for k in REQUIRED})
  rows=[[labels.get(k,k) for k in keys],keys]
  for r in data["rows"]:
   original={k:r.get(k) for k in COLUMNS["products"]}
-  values={**r,"Command":"N","_ID":r["ID"],"_RowVersion":r["RowVersion"],"_Original":json.dumps(original,default=str,ensure_ascii=False)}
+  values={**r,"Command":"","_ID":r["ID"],"_RowVersion":r["RowVersion"],"_Original":json.dumps(original,default=str,ensure_ascii=False)}
   rows.append([values.get(k) for k in keys])
  hidden=[i+1 for i,k in enumerate(keys) if k in META or (k in COLUMNS["products"] and k not in selected)]
- config=[["Version","1"],["API",base_url.rstrip("/")],["Layout",body.layout.model_dump_json()],["Pending","0"],["LoadedPage",body.page]]
+ config=[["Version",TEMPLATE_VERSIONS["products"]],["API",base_url.rstrip("/")],["Layout",body.layout.model_dump_json()],["Pending","0"],["LoadedPage",body.page]]
  # Controls sheet has static macro buttons; replace only its input cells preserving drawings.
  with zipfile.ZipFile(TEMPLATE) as z:
   style_xml,style_ids=header_styles(z.read("xl/styles.xml").decode("utf-8"))
@@ -129,7 +132,7 @@ def build(body,data,base_url,creator=""):
 "xl/worksheets/sheet2.xml":control.encode("utf-8"),
                  "xl/worksheets/sheet3.xml":sheet(config)}
    for entry in z.infolist():target.writestr(entry,replacements.get(entry.filename,z.read(entry.filename)))
- return output.getvalue()
+ return with_dropdowns(output.getvalue(),data.get("dropdowns",{"Command":["C","U"],"Status":["Active","Block"]}))
 @router.post("/download")
 def download(body:View,request:Request,ctx:AccessContext=Depends(get_access_context)):
  require(ctx,"Product")
@@ -146,7 +149,7 @@ def download(body:View,request:Request,ctx:AccessContext=Depends(get_access_cont
 class Edit(BaseModel):
  model_config=ConfigDict(extra="forbid")
  row:int=Field(ge=3)
- command:Literal["C","U","D"]
+ command:Literal["C","U"]
  id:int|None=Field(None,ge=1)
  version:str|None=None
  changes:dict=Field(default_factory=dict)
@@ -156,7 +159,8 @@ class Edit(BaseModel):
   if self.command!="C" and (not self.id or not self.version):raise ValueError("ID and RowVersion are required.")
   if self.command=="C" and (self.id or self.version):raise ValueError("A new row cannot have an ID.")
   return self
-class Batch(BaseModel):
+class Batch(TemplateBatch):
+ template_kind="products"
  model_config=ConfigDict(extra="forbid")
  rows:list[Edit]=Field(min_length=1,max_length=500)
  @model_validator(mode="after")

@@ -32,7 +32,7 @@ class CategoryContract(unittest.TestCase):
     self.assertEqual(error.exception.status_code,status)
  def test_product_lookups_include_categories(self):
   categories=[{"ID":1,"CategoryName":"Nuts","Status":"Block"}]
-  with patch.object(masters,"execute",return_value=[[],[],categories]) as execute:
+  with patch.object(masters,"execute",return_value=[[],[],categories,[]]) as execute:
    self.assertEqual(masters.lookups(PRODUCT,"products")["categories"],categories)
    self.assertIn("dbo.ProductCategory",execute.call_args.args[0])
  def test_layout_sort_export(self):

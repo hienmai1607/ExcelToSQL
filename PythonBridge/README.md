@@ -6,7 +6,9 @@ Packaging PIC permissions: [migration 105 and deployment notes](docs/packaging-p
 
 Current user documentation: [User Guide](docs/user-guide.md)
 
-Latest VM incremental upgrade (database already through migration 104): [combined migrations 105-116 and deployment notes](docs/vm-upgrade-105-to-116.md).
+Latest VM incremental upgrade (database already through migration 116): [combined migrations 117-137 and VM move checklist](docs/vm-upgrade-117-to-137.md). AI is temporarily disabled in this release.
+
+For databases already through migration 104: [combined migrations 105-116 and deployment notes](docs/vm-upgrade-105-to-116.md).
 
 For databases through migration 96: [combined migrations 97-104 and deployment notes](docs/vm-upgrade-097-to-104.md). For older databases, apply the prerequisite [89-96 bundle](docs/vm-upgrade-089-to-096.md) first, following its documented upgrade order.
 

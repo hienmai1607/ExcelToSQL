@@ -54,6 +54,16 @@ WEB_ITEM_FIELDS += ["MaxPalletHeightMM","ProductGradeSnapshot","SecondaryRecycla
 PARENT_LOGISTICS_FIELDS.update(("MaxPalletHeightMM", "ShipmentCostInfo"))
 WEB_ITEM_FIELDS.append("ShipmentCostInfo")
 class ItemFields(BaseModel):
+    NetWeightGrams: Decimal | None = Field(None, gt=0, max_digits=10, decimal_places=2, allow_inf_nan=False)
+    RefreshProductWeight: bool = Field(False, strict=True)
+
+    @field_validator("NetWeightGrams", mode="before")
+    @classmethod
+    def numeric_weight(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("Net weight must be a number, not True/False.")
+        return value
+
     ShipmentCostInfo: ShipmentCostModel | None = None
     MaxPalletHeightMM: int | None = Field(None, ge=1, le=999999999)
     ProductGradeSnapshot: OpportunityGradeTree | None = None
@@ -98,11 +108,12 @@ PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS = ["FirstPMType","SecondPMType","UnitsP
 WEB_RESPONSE_FIELDS = ["NutDensity","ResponseLayerCount","ThirdPMType","ThirdPMMOQ","UnitsPerTertiary",
                        "LayersPerContainer","PalletsPerContainer","CartonsPerContainerFloor",
                        "ResponsePalletSize","ResponsePalletStacking","ResponseMaxPalletHeightMM","HeightMM"]
-WEB_RESPONSE_FIELDS += ["SelectedContainerType", "ContainerLoadProfiles", "SameConfig", "ApplicableNetWeightGrams"]
+WEB_RESPONSE_FIELDS += ["ResponsePalletMaterialID","SelectedContainerType", "ContainerLoadProfiles", "SameConfig", "ApplicableNetWeightGrams"]
 class ResponseFields(BaseModel):
     LoadPlanID: int | None = Field(None, ge=1)
     ContainerLoadPlanIDs: dict[int,int] | None = Field(None,max_length=100)
     PalletPricingID: int | None = Field(None, ge=1)
+    ResponsePalletMaterialID:int|None=Field(None,ge=1)
     ApplicableNetWeightGrams: Decimal | None = Field(None, max_digits=18, decimal_places=6, ge=0, allow_inf_nan=False)
     NutDensityDefaultUpdate: bool = Field(False, strict=True)
     NutDensityDefaultRowVersion: str | None = None
@@ -146,7 +157,7 @@ FIELDS = {"Product": PRODUCT_FIELDS, "Opportunity": OPPORTUNITY_FIELDS,
 
 def additional(row, kind):
     values = row.model_dump(mode="json", by_alias=True, exclude_unset=True)
-    return {k: values[k] for k in FIELDS[kind] if k in values}
+    return {k: values[k] for k in FIELDS[kind] if k in values and not (kind=="PackagingConfigurationRequestItem" and k=="ResponsePalletMaterialID")}
 
 def consume(cursor):
     results=[]
@@ -168,7 +179,7 @@ def consume(cursor):
 
 def sql_error(exc):
     message=str(exc)
-    if any(str(code) in message for code in (*range(52951,52964),52964,52996,52997,52998)):
+    if any(str(code) in message for code in (*range(52951,52964),52964,52982,52996,52997,52998)):
         match=re.search(r"\[SQL Server\](.*?)(?:\s*\(529\d+\))",message)
         return match.group(1).strip() if match else "Check required fields, exchange rate, ownership and processing locks."
     if "(547)" in message:
@@ -238,6 +249,9 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                     if kind=="OpportunityItem" and (model.command=="C" or model.MixChildren or model.MixVersionID):
                         from opportunity_mix import save_new_child_requirements
                         save_new_child_requirements(cursor, model, result, scalar_params[0])
+                    if kind=="OpportunityItem":
+                        from opportunity_item_weight import save_item_weight
+                        save_item_weight(cursor,model,result,scalar_params[0])
                     if not extra and not (kind=="Product" and model.command=="C"):
                         continue
                     cursor.execute("EXEC dbo.usp_"+kind+"_Fields_Save ?,?,?,?,?",
@@ -249,6 +263,14 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                         cursor.execute("EXEC dbo.usp_ProductGrade_Save ?,?,NULL,NULL,?,?,?",
                             result["NewID"],scalar_params[0],result["NewRowVersion"],grade.Status,
                             json.dumps([i.model_dump(mode="json") for i in grade.items]))
+                        result["NewRowVersion"]=consume(cursor)[0][0]["ProductRowVersion"]
+                    if kind=="Product" and model.command=="C" and getattr(model,"MixVersion",None) is not None:
+                        from packaging_api import rv
+                        mix=model.MixVersion
+                        items=[dict(ProductID=i.ProductID,UnitQuantity=str(i.UnitQuantity),
+                                    RowVersion="0x"+rv(i.RowVersion).hex()) for i in mix.items]
+                        cursor.execute("EXEC dbo.usp_ProductMix_Save ?,?,NULL,NULL,?,?,?",
+                            result["NewID"],scalar_params[0],result["NewRowVersion"],mix.Status,json.dumps(items))
                         result["NewRowVersion"]=consume(cursor)[0][0]["ProductRowVersion"]
             if kinds == ["Opportunity","OpportunityItem"]:
                 sets[1].extend(child_results)

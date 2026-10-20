@@ -18,7 +18,7 @@ def serial(value):
 
 def item_read(item_id, ctx):
     rows = execute(AUTH + """SELECT i.ID,i.RowVersion,i.ProductGradeSnapshot,i.TCBCostInfo,i.ProductLossSnapshot,i.ParentItemID,
-      i.Stage ItemStage,o.Stage HeaderStage,p.ProductCode,p.ProductName,CASE WHEN response.PalletPricingID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(ps.SnapshotJSON,'$.UnitUSDPrice')) FROM dbo.PalletPricingSnapshot ps WHERE ps.ID=response.PalletPricingID AND ps.ItemID=response.ID AND JSON_VALUE(ps.SnapshotJSON,'$.PalletSize')=response.ResponsePalletSize) WHEN response.LoadPlanID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(lp.Result,'$.PalletUnitUSDPrice')) FROM dbo.ContainerLoadPlan lp WHERE lp.ID=response.LoadPlanID AND lp.ItemID=response.ID) ELSE NULL END DefaultPalletUSDPerEA,
+      i.Stage ItemStage,o.Stage HeaderStage,p.ProductCode,p.ProductName,i.ProductNetWeightGrams WeightGrams,CASE WHEN response.PalletPricingID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(ps.SnapshotJSON,'$.UnitUSDPrice')) FROM dbo.PalletPricingSnapshot ps WHERE ps.ID=response.PalletPricingID AND ps.ItemID=response.ID AND JSON_VALUE(ps.SnapshotJSON,'$.PalletSize')=response.ResponsePalletSize) WHEN response.LoadPlanID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(lp.Result,'$.PalletUnitUSDPrice')) FROM dbo.ContainerLoadPlan lp WHERE lp.ID=response.LoadPlanID AND lp.ItemID=response.ID) ELSE NULL END DefaultPalletUSDPerEA,
       COALESCE(response.ResponseLayerCount,response.RequestedLayerCount,i.PackagingLayerCount,1) LossLayerCount,
       CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.OpportunityItem c WHERE c.ParentItemID=i.ID) THEN 1 ELSE 0 END AS BIT) IsMixParent,
       CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.PackagingConfigurationRequestItem active WHERE active.OpportunityItemID=i.ID AND active.IsOpen=1 AND active.Stage<>\'Canceled\') THEN 1 ELSE 0 END AS BIT) HasOpenPackagingRequest
@@ -97,9 +97,27 @@ class Save(BaseModel):
     RowVersion: str
     Inputs: Inputs
 
+def apply_formula_variables(item,inputs):
+    """Resolve master-backed names server-side; clients cannot supply their values."""
+    if inputs.ProductLossFormula and inputs.ProductLossFormula.strip():
+        from dimension_formula import _expression,_calculate
+        steps=[s for s in inputs.LossProcesses or [] if s.ProcessType in ("Sorting","Processing")]
+        values={"L"+str(i+1):s.LossPct/100 for i,s in enumerate(steps)}
+        try:
+            variables=_expression(inputs.ProductLossFormula,True,{*values,"NW"})[2]
+            if "NW" in variables:
+                weight=item.get("WeightGrams")
+                if weight is None or Decimal(str(weight))<=0:
+                    raise ValueError("NW requires a positive Opportunity Product net weight (g).")
+                values["NW"]=Decimal(str(weight))
+            inputs.LossProductPct=_calculate(inputs.ProductLossFormula,values,"Product loss",True,values,True)
+        except ValueError as exc:
+            raise HTTPException(422,str(exc).replace("D1, D2, D3","L1, L2, ..., NW")) from exc
+    return inputs
+
 def resolve_loss_assignments(item, inputs, ctx):
     """Preserve existing immutable steps; new/replaced steps must come from Master."""
-    if inputs.LossProcesses is None: return inputs
+    if inputs.LossProcesses is None: return apply_formula_variables(item,inputs)
     saved = json.loads(item.get("TCBCostInfo") or "{}").get("Inputs",{})
     previous = saved.get("LossProcesses")
     if previous is None:
@@ -133,7 +151,7 @@ def resolve_loss_assignments(item, inputs, ctx):
             raise HTTPException(409,"Loss Process Master changed or is blocked. Refresh and select a current entry.")
         resolved.append({**master,"ProcessType":step.ProcessType,"Sequence":step.Sequence,"LossPct":str(step.LossPct)})
     try:
-        return Inputs(**{**inputs.model_dump(mode="json"),"LossProcesses":resolved})
+        return apply_formula_variables(item,Inputs(**{**inputs.model_dump(mode="json"),"LossProcesses":resolved}))
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
 
@@ -143,6 +161,7 @@ def palletization_usd(item):
 
 
 def compute(item, inputs, ctx):
+    apply_formula_variables(item,inputs)
     inputs.PalletUSDPerEA=palletization_usd(item)
     if inputs.LossProcesses is not None:
         packaging = ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging"]
@@ -156,11 +175,13 @@ def compute(item, inputs, ctx):
         default = Inputs()
         product_keys = ("RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb",
                         "OilPct","ProcessingUSDPerLb","LossProductPct","ProductLossFormula")
-        if inputs.Prices or any(getattr(inputs,k)!=getattr(default,k) for k in product_keys):
+        if inputs.Prices or inputs.MaterialCosts or any(getattr(inputs,k)!=getattr(default,k) for k in product_keys):
             raise HTTPException(422,"Product costing applies to regular products and Mix children, not Mix parents.")
         return {"RMCostUSDPerLb":None,"ProductUSDPerLb":None,"PriceSnapshots":[]}
     try:
         grades = grade_leaves(item)
+        from tcb_costs import trim_process_recipes
+        trim_process_recipes(inputs,json.loads(item.get("ProductGradeSnapshot") or "{}").get("items",[]),grades)
         prices = {p["PriceID"]:p for p in current_prices(grades,ctx)}
         return calculate(inputs,grades,prices)
     except ValueError as exc:
@@ -224,8 +245,11 @@ def save_losses(body: LossSave,item_id: int = Path(ge=1),ctx: AccessContext=Depe
 @router.post("/{item_id}/loss-formula")
 def preview_loss_formula(body: LossSave,item_id: int = Path(ge=1),ctx: AccessContext=Depends(get_access_context)):
     require(ctx,"Opportunity")
-    item_read(item_id,ctx)
-    return {"LossProductPct":str(body.Inputs.LossProductPct)}
+    item=item_read(item_id,ctx)
+    if item.get("RowVersion") and item["RowVersion"]!=body.RowVersion:
+        raise HTTPException(409,"Opportunity item changed. Refresh before testing the formula.")
+    inputs=apply_formula_variables(item,body.Inputs)
+    return {"LossProductPct":str(inputs.LossProductPct)}
 
 # Opportunity workspace: grade copies and existing material quote selections.
 from product_grades import OpportunityGradeTree
@@ -256,8 +280,8 @@ def commercial_value(body,item,ctx,cursor):
     old=value.get("Inputs",{})
     new={**old}
     if body.CostInputs is not None:
-        fields=["PalletUSDPerEA"] if item["IsMixParent"] else ["RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb","OilPct","ProcessingUSDPerLb","PalletUSDPerEA"]
-        new.update({field:getattr(body.CostInputs,field) for field in fields})
+        fields=["PalletUSDPerEA"] if item["IsMixParent"] else ["MaterialCosts","RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb","OilPct","ProcessingUSDPerLb","PalletUSDPerEA"]
+        new.update({field:body.CostInputs.model_dump(mode="json")[field] for field in fields})
     if body.Inputs is not None:
         new.update(ProductLossFormula=body.Inputs.ProductLossFormula,
                    LossProcesses=[s.model_dump(mode="json") for s in body.Inputs.LossProcesses or []])
@@ -277,14 +301,18 @@ def commercial_value(body,item,ctx,cursor):
         grade_list=leaves(snapshot.get("items",[])) if snapshot.get("items") else []
         prices=current_prices(grade_list,ctx) if grade_list else []
         if inputs.Prices and not grade_list: raise HTTPException(422,"Maintain grades before selecting raw prices.")
+        from tcb_costs import trim_process_recipes,process_paths
+        trim_process_recipes(inputs,snapshot.get("items",[]),grade_list)
+        if {r.Path for r in inputs.MaterialCosts} - process_paths(grade_list):
+            raise ValueError("Material costing refers to a removed or non-leaf grade. Refresh grades.")
         # Validate every selected quote, even when some leaves remain unpriced.
         partial=Inputs(**{**inputs.model_dump(mode="json"),"RMRatio":0,"SeasoningRatio":100,
-                         "SeasoningUSDPerLb":0,"OilPct":0})
-        results=calculate(partial,grade_list,{p["PriceID"]:p for p in prices})
+                         "SeasoningUSDPerLb":0,"OilPct":0,"MaterialCosts":[]})
+        results=calculate(partial,grade_list,{p["PriceID"]:p for p in prices},allow_unpriced=True)
         if grade_list and len(inputs.Prices)==len(grade_list):
             results=calculate(inputs,grade_list,{p["PriceID"]:p for p in prices})
         else:
-            results.update(RMCostUSDPerLb=None,ProductUSDPerLb=None)
+            results.update(RMCostUSDPerLb=None,ProductUSDPerLb=None,MaterialCostSnapshots=[])
     value={**value,**results,"Inputs":inputs.model_dump(mode="json"),"GradeSnapshot":snapshot}
     return value,snapshot,grade_list,prices
 

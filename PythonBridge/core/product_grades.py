@@ -8,6 +8,7 @@ class GradeItem(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     ParentID: str = Field(pattern=r"^0(?:/[1-9][0-9]{0,3}){0,11}$", max_length=60)
     ID: int = Field(ge=1, le=9999)
+    Process: bool | None = Field(None,strict=True)
     RawGradeID: int | None = Field(None, ge=1)
     RawMaterialID: int | None = Field(None, ge=1)
     Grade: str = Field(min_length=1, max_length=100)
@@ -27,6 +28,8 @@ class GradeTree(BaseModel):
         paths = {i.path for i in self.items}
         if len(paths) != len(self.items):
             raise ValueError("Duplicate grade ID under the same parent.")
+        if any(i.Process and any(p.Process and i.path.startswith(p.path+"/") for p in self.items) for i in self.items):
+            raise ValueError("A child under a Process grade cannot also be Process.")
         totals = {}
         for item in self.items:
             if item.ParentID != "0" and item.ParentID not in paths:

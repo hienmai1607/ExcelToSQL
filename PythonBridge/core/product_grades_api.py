@@ -13,7 +13,7 @@ def raw_grade_lookups(ctx: AccessContext = Depends(get_access_context)):
     require(ctx,"Product")
     from packaging_master_api import PRODUCT_AUTH
     grades,materials=execute(PRODUCT_AUTH+"""
-      SELECT g.ID,g.GradeName,g.ParentGradeID
+      SELECT g.ID,g.GradeName,g.ParentGradeID,g.FinalGrade
       FROM dbo.RawGrade g WHERE g.Status='Active'
       ORDER BY g.GradeName,g.ID;
       SELECT m.ID,m.GradeID,m.MaterialCode,m.MaterialName,m.Status
@@ -21,6 +21,43 @@ def raw_grade_lookups(ctx: AccessContext = Depends(get_access_context)):
       ORDER BY m.MaterialCode,m.ID;
     """,[ctx.username])
     return {"rows":grades,"materials":materials}
+
+
+# These read-only copy sources are shared by Product and Opportunity drafts.
+COPY_AUTH = """IF NOT EXISTS(
+ SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID
+ WHERE u.UserName=? AND u.IsActive=1 AND a.Scope IN('Admin','Product','Opportunity'))
+ THROW 51040,'Product or Opportunity access is required.',1;
+"""
+
+@router.get("/grade-copy/sources")
+def grade_copy_sources(ctx: AccessContext = Depends(get_access_context)):
+    require(ctx, "Product", "Opportunity")
+    rows=execute(COPY_AUTH+"""
+      SELECT p.ID,p.ProductCode,p.ProductName,v.Version
+      FROM dbo.Product p JOIN dbo.ProductGradeVersion v ON v.ProductID=p.ID AND v.Status='Active'
+      WHERE p.Status='Active' AND p.IsMix=0
+       AND EXISTS(SELECT 1 FROM dbo.ProductGradeItem i WHERE i.VersionID=v.ID)
+      ORDER BY p.ProductCode,p.ID;
+    """,[ctx.username])[0]
+    return {"rows":rows}
+
+@router.get("/grade-copy/{product_id}")
+def grade_copy(product_id: int = Path(ge=1), ctx: AccessContext = Depends(get_access_context)):
+    require(ctx, "Product", "Opportunity")
+    sets=execute(COPY_AUTH+"""
+      DECLARE @Version INT;
+      SELECT @Version=v.ID FROM dbo.Product p JOIN dbo.ProductGradeVersion v ON v.ProductID=p.ID
+      WHERE p.ID=? AND p.Status='Active' AND p.IsMix=0 AND v.Status='Active';
+      SELECT p.ID,p.ProductCode,p.ProductName,v.Version
+      FROM dbo.Product p JOIN dbo.ProductGradeVersion v ON v.ProductID=p.ID WHERE v.ID=@Version;
+      SELECT ParentID,ID,RawGradeID,RawMaterialID,Grade,RatioPct,Process
+      FROM dbo.ProductGradeItem WHERE VersionID=@Version ORDER BY ParentID,ID;
+    """,[ctx.username,product_id])
+    if not sets[0] or not sets[1]:
+        from fastapi import HTTPException
+        raise HTTPException(404,"No active grade version is available for this Product.")
+    return {"product":sets[0][0],"items":sets[1]}
 
 @router.get("/{product_id}/grades")
 def read(product_id: int = Path(ge=1), ctx: AccessContext = Depends(get_access_context)):

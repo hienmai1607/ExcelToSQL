@@ -104,7 +104,7 @@ test('manager assigns an item with its RowVersion and locked items cannot be ass
  await page.getByLabel('PIC for item 101',{exact:true}).selectOption('2');
  await expect(page.getByLabel('PIC for item 102',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'Assign PIC for item 101',exact:true}).click();
- await expect(page.getByRole('status')).toContainText('Item updated.');
+ await expect(page.getByRole('status')).toContainText('Item group updated.');
  expect(payload).toEqual({PICUserID:2,ExpectedRowVersion:rv});
 });
 test('sales can read requests but cannot assign PICs',async({page})=>{

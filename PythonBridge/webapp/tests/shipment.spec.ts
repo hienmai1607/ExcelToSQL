@@ -67,7 +67,7 @@ test('all shipment costs are USD, grouped under one collapse, filtered and saved
  await item.getByLabel('Port of Entry',{exact:true}).selectOption('11');
  await expect(item.getByLabel('Container',{exact:true})).toHaveCount(0);
  for(const field of costSections.flatMap(s=>s.fields).filter(f=>f.key!=='MarginUSDPerLb')){
-  const input=item.getByLabel(field.label,{exact:true});await input.fill(field.kind==='days'?'3':'12.5');await input.blur();
+  const input=item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/container)':field.label,{exact:true});await input.fill(field.kind==='days'?'3':'12.5');await input.blur();
   await expect(input).toHaveValue(field.kind==='days'?'3':'12.50');
   await expect(input.locator('..').locator('.info-tip')).toHaveCount(0);
  }
@@ -161,8 +161,8 @@ test('revised cost controls, conditional sections, conversions and five-column a
  expect(boxes).toHaveLength(5);expect(Math.max(...boxes.map(n=>n.y))-Math.min(...boxes.map(n=>n.y))).toBeLessThan(2);
  const title=await shipment.getByRole('heading',{name:'Shipment',exact:true}).boundingBox(),first=boxes[0];
  expect(title!.x+title!.width).toBeLessThanOrEqual(first.x);
- await item.getByLabel('Import clearance (customer currency/pallet)',{exact:true}).fill('150');
- await expect(item.getByLabel('Import clearance USD per pallet',{exact:true})).toHaveText('100 USD/pallet');
+ await item.getByLabel('Import clearance (AUD/container)',{exact:true}).fill('150');
+ await expect(item.getByLabel('Import clearance USD per container',{exact:true})).toHaveText('100 USD/container');
  await item.getByLabel('Interest days',{exact:true}).fill('30');
  await item.getByLabel('Margin basis',{exact:true}).selectOption('USDPerLb');
  await expect(item.getByLabel('Margin %',{exact:true})).toHaveCount(0);
@@ -181,7 +181,7 @@ test('revised cost controls, conditional sections, conversions and five-column a
  expect(await item.locator('.shipment-sections').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
  await page.setViewportSize({width:1920,height:1080});
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(writes[0].item_rows[0].ShipmentCostInfo).toMatchObject({FloorLoadUSDPerMT:'100.00',InterestDays:30,InterestMonths:null,MarginMode:'USDPerLb',MarginUSDPerLb:'0.50',MarginPct:null,PaymentTermDays:60,PaymentTermPct:'2.00',ImportClearanceCustomerPerPallet:'150.00',ImportClearanceUSDPerContainer:null});
+ expect(writes[0].item_rows[0].ShipmentCostInfo).toMatchObject({FloorLoadUSDPerMT:'100.00',InterestDays:30,InterestMonths:null,MarginMode:'USDPerLb',MarginUSDPerLb:'0.50',MarginPct:null,PaymentTermDays:60,PaymentTermPct:'2.00',ImportClearanceCustomerPerContainer:'150.00',ImportClearanceCustomerPerPallet:null,ImportClearanceUSDPerContainer:null});
 });
 
 for(const admin of [true,false])test('Port master '+(admin?'admin maintenance':'read-only close and escape'),async({page})=>{
@@ -212,16 +212,17 @@ for(const admin of [true,false])test('Port master '+(admin?'admin maintenance':'
  await page.getByRole('button',{name:'View Port 11',exact:true}).click();await page.keyboard.press('Escape');await expect(editor).toHaveCount(0);
 });
 test('saved costs reopen and unavailable historical port is preserved',async({page})=>{
- const row={OpportunityID:1,OpportunityNumber:'OPP-SHIP',OpportunityDesc:'Saved shipment',CustomerID:1,CustomerName:'Northstar',CustomerCurrencyCode:'AUD',HeaderStage:'Draft',HeaderRowVersion:rv,BidOpen:'2026-10-01',BidClose:'2026-10-10',ExchangeRateVNDPerUSD:25000,ExchangeRateCustomerCurrencyPerUSD:1.5,ItemID:10,ProductID:2,ProductCode:'PRD-2',ProductName:'Almonds',AnnualUnit:1000,ItemStage:'Draft',ItemRowVersion:rv,PalletSize:'1200 x 1000 mm',ContainerRequest:'40HC',ConfigurationRequest:'Floor load',ShipmentCostInfo:JSON.stringify({PortOfEntryID:99,ContainerSizeFT:'40FT',Incoterm:'DDP',FreightUSDPerContainer:'1234.50',DutyPct:'5.00'})};
+ const row={OpportunityID:1,OpportunityNumber:'OPP-SHIP',OpportunityDesc:'Saved shipment',CustomerID:1,CustomerName:'Northstar',CustomerCurrencyCode:'AUD',HeaderStage:'Draft',HeaderRowVersion:rv,BidOpen:'2026-10-01',BidClose:'2026-10-10',ExchangeRateVNDPerUSD:25000,ExchangeRateCustomerCurrencyPerUSD:1.5,ItemID:10,ProductID:2,ProductCode:'PRD-2',ProductName:'Almonds',AnnualUnit:1000,ItemStage:'Draft',ItemRowVersion:rv,PalletSize:'1200 x 1000 mm',ContainerRequest:'40HC',ConfigurationRequest:'Floor load',ShipmentCostInfo:JSON.stringify({PortOfEntryID:99,ContainerSizeFT:'40FT',Incoterm:'DDP',FreightUSDPerContainer:'1234.50',DutyPct:'5.00',ImportClearanceCustomerPerPallet:'200.00'})};
  const writes=await setup(page,[row]);
  await page.getByRole('button',{name:'Edit Opportunity OPP-SHIP',exact:true}).click();
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),item=form.getByRole('region',{name:'Item 1',exact:true});
  await item.getByText(heading,{exact:true}).click();
  await expect(item.getByLabel('Freight ($/Container)',{exact:true})).toHaveValue('1234.50');
  await expect(item.getByLabel('Port of Entry',{exact:true})).toHaveValue('99');
+ await expect(item.getByText(/^Legacy:/)).toHaveCount(0);
  await item.getByLabel('Duty %',{exact:true}).fill('6');await item.getByLabel('Duty %',{exact:true}).blur();
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(writes[0].item_rows[0].ShipmentCostInfo).toMatchObject({PortOfEntryID:99,FreightUSDPerContainer:'1234.50',DutyPct:'6.00'});
+ expect(writes[0].item_rows[0].ShipmentCostInfo).toMatchObject({PortOfEntryID:99,FreightUSDPerContainer:'1234.50',DutyPct:'6.00',ImportClearanceCustomerPerPallet:'200.00'});
 });
 
 for(const mix of [false,true])test('processing '+(mix?'Mix parent':'regular item')+' keeps only shipment requirements locked and saves all other shipment fields',async({page})=>{
@@ -240,9 +241,9 @@ for(const mix of [false,true])test('processing '+(mix?'Mix parent':'regular item
  await item.getByLabel('Port of Entry',{exact:true}).selectOption('11');
  await expect(item.getByLabel('Container',{exact:true})).toHaveCount(0);
  for(const field of costSections.flatMap(section=>section.fields).filter(f=>f.key!=='MarginUSDPerLb')){
-  await expect(item.getByLabel(field.label,{exact:true})).toBeEditable();
-  await item.getByLabel(field.label,{exact:true}).fill(field.kind==='days'?'3':'12.5');
-  await item.getByLabel(field.label,{exact:true}).blur();
+  await expect(item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/container)':field.label,{exact:true})).toBeEditable();
+  await item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/container)':field.label,{exact:true}).fill(field.kind==='days'?'3':'12.5');
+  await item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/container)':field.label,{exact:true}).blur();
  }
  if(mix){
   await form.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();

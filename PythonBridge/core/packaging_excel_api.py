@@ -1,4 +1,6 @@
 """Layout-aware combined Packaging Request export; Excel updates responses only."""
+from excel_dropdowns import with_dropdowns,transaction_choices,normalize_booleans
+from excel_template_version import TemplateBatch,TEMPLATE_VERSIONS
 import io
 import json
 import os
@@ -14,7 +16,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from auth import AccessContext, get_access_context
 from request_views import RequestViews, RequestView, HEADERS, ITEMS, header_read, item_read
-from packaging_api import require, execute, ResponseBatch, response_save
+from packaging_api import require, execute, ResponseBatch, response_save,ResponseRow
 from packaging_fields import PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS
 from product_excel_api import sheet, header_styles
 
@@ -62,7 +64,7 @@ def serialize(row,ctx):
   stamp=datetime.fromisoformat(row["RequestedAt"].replace("Z","+00:00"))
   if stamp.tzinfo is None:stamp=stamp.replace(tzinfo=timezone.utc)
   row["RequestedAt"]=stamp.astimezone(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %I:%M %p")
- values={**row,"ItemCommand":"N","EditAccess":"Editable response" if can_edit(ctx,row) else "Display only",
+ values={**row,"ItemCommand":"","EditAccess":"Editable response" if can_edit(ctx,row) else "Display only",
  "_RequestID":row.get("RequestID"),"_ItemID":row.get("ItemID"),"_ItemVersion":row.get("ItemRowVersion")}
  values["_Original"]=json.dumps({k:row.get(k) for k in HEADERS|ALL_ITEMS},ensure_ascii=False,default=str)
  return values
@@ -81,7 +83,7 @@ def read_page(body,ctx):
  rows=[]
  for header in summary["rows"]:
   for item in groups[header["RequestID"]] or [{}]:rows.append(serialize({**header,**item},ctx))
- return {**summary,"rows":rows}
+ return {**summary,"rows":rows,"dropdowns":transaction_choices(ctx,EDITABLE,True)}
 
 @router.post("/page")
 def page(body:View,ctx:AccessContext=Depends(get_access_context)):
@@ -94,7 +96,7 @@ def build(body,data,base):
  hidden=[n+1 for n,k in enumerate(keys) if k in META or (k in HEADERS|ALL_ITEMS and k not in visible)]
  labels=[]
  for k in keys:
-  if k=="ItemCommand":label="Item Command (N/U)"
+  if k=="ItemCommand":label="Item Action (U)"
   elif k=="EditAccess":label="Response access"
   elif k.startswith("_"):label={"_Result":"Result","_Message":"Message"}.get(k,k)
   else:
@@ -103,7 +105,7 @@ def build(body,data,base):
    if k not in EDITABLE:label+=" [display]"
   labels.append(label)
  rows=[labels,keys]+[[r.get(k) for k in keys] for r in data["rows"]]
- config=[["Version","1"],["API",base.rstrip("/")],["Layout",body.model_dump_json()],["Pending","0"],["LoadedPage",body.page],
+ config=[["Version",TEMPLATE_VERSIONS["requests"]],["API",base.rstrip("/")],["Layout",body.model_dump_json()],["Pending","0"],["LoadedPage",body.page],
  ["Editable","|".join(sorted(EDITABLE))],["Required","|".join(HEADER_REQUIRED+ITEM_REQUIRED)]]
  with zipfile.ZipFile(TEMPLATE) as z:
   styles,blue=header_styles(z.read("xl/styles.xml").decode())
@@ -126,7 +128,7 @@ def build(body,data,base):
   out=io.BytesIO()
   with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as target:
    for entry in z.infolist():target.writestr(entry,replacements.get(entry.filename,z.read(entry.filename)))
- return out.getvalue()
+ return with_dropdowns(out.getvalue(),data.get("dropdowns",{"ItemCommand":["U"]}))
 
 @router.post("/download")
 def download(body:View,request:Request,ctx:AccessContext=Depends(get_access_context)):
@@ -161,7 +163,8 @@ class Edit(BaseModel):
    changes[key]=str(value)
   self.changes=changes
   return self
-class Batch(BaseModel):
+class Batch(TemplateBatch):
+ template_kind="requests"
  model_config=ConfigDict(extra="forbid")
  rows:list[Edit]=Field(min_length=1,max_length=500)
  @model_validator(mode="after")
@@ -186,7 +189,7 @@ def prepare(edit,source,ctx):
  if base["Cost"] is not None and (not base["CurrencyID"] or not str(base["CostBasis"] or "").strip()):raise ValueError("Cost currency and cost basis are required when entering PM cost.")
  base.update({k:v for k,v in edit.changes.items() if k in PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS})
  base.update(RowNum=edit.row,ID=edit.item_id,RowVersion=edit.version)
- return ResponseBatch(rows=[base])
+ return ResponseBatch(rows=[normalize_booleans(base,ResponseRow)])
 
 @router.post("/save")
 def save(body:Batch,ctx:AccessContext=Depends(get_access_context)):

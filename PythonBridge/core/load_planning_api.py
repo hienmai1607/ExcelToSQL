@@ -83,16 +83,16 @@ def pallet_prices(ctx:AccessContext=Depends(get_access_context)):
 def pallet_prices_from_cursor(cur):
     rows=select(cur,"""SELECT p.ID,p.MaterialID,p.RowVersion,m.MaterialCode,m.MaterialName,
         p.QuantityFrom,p.QuantityTo,p.UnitUSDPrice,p.PriceBasis,m.UnitOfMeasure,m.TareWeight,m.TareWeightBasis,m.RowVersion MaterialRowVersion,
-        p.MaterialDimensionRowVersion,d.RowVersion DimensionRowVersion,
-        p.MaterialD1,p.MaterialD2,p.MaterialD3,d.D1Name,d.D2Name,d.D3Name,
+        m.MaterialDimensionRowVersion,d.RowVersion DimensionRowVersion,
+        m.MaterialD1,m.MaterialD2,m.MaterialD3,d.D1Name,d.D2Name,d.D3Name,
         u1.UoMCode D1Unit,u2.UoMCode D2Unit,u3.UoMCode D3Unit,
         CASE WHEN u1.UoMCode='MM' THEN 1 ELSE c1.Factor END D1Factor,
         CASE WHEN u2.UoMCode='MM' THEN 1 ELSE c2.Factor END D2Factor,
         CASE WHEN u3.UoMCode='MM' THEN 1 ELSE c3.Factor END D3Factor,
         v.VendorName
         FROM dbo.PackagingPrice p JOIN dbo.PackagingMaterial m ON m.ID=p.MaterialID AND m.Status='Active'
-        JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID AND t.PackagingOrder='Pallet' AND t.Status='Active'
-        JOIN dbo.PackagingDimension d ON d.ID=p.MaterialDimensionID AND d.PackagingTypeID=t.ID AND d.Status='Active'
+        JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID AND t.PackagingOrder='Pallet' AND t.PackagingType='Pallet' AND t.Status='Active'
+        JOIN dbo.PackagingDimension d ON d.ID=m.MaterialDimensionID AND d.PackagingTypeID=t.ID AND d.Status='Active'
         JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID AND u1.Status='Active'
         JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID AND u2.Status='Active'
         JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID AND u3.Status='Active'
@@ -100,7 +100,7 @@ def pallet_prices_from_cursor(cur):
         OUTER APPLY dbo.fn_UnitConversion(u2.UoMCode,N'MM',NULL,NULL,NULL) c2
         OUTER APPLY dbo.fn_UnitConversion(u3.UoMCode,N'MM',NULL,NULL,NULL) c3
         LEFT JOIN dbo.Vendor v ON v.ID=p.VendorID
-        WHERE p.Status='Active' AND p.EffectiveFrom<=CONVERT(DATE,SYSUTCDATETIME())
+        WHERE p.Status='Active' AND (v.ID IS NULL OR v.Status='Active') AND p.EffectiveFrom<=CONVERT(DATE,SYSUTCDATETIME())
         AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=CONVERT(DATE,SYSUTCDATETIME()))
         ORDER BY m.MaterialCode,p.ID""")[0]
     result=[]
@@ -146,6 +146,16 @@ def response_dimensions(cur,item_id):
         measured={key:row.get(field) for key,field in [('length','LengthMM'),('width','WidthMM'),('height','HeightMM')]}
     try:return Dimensions.model_validate(measured).model_dump(mode='json')
     except ValueError:return None
+
+
+def net_load_kg(snapshot,cartons):
+    """Goods only, using the confirmed final packaging layer, never gross/tare."""
+    if snapshot is None:return None
+    order="Tertiary" if snapshot.get("NoOfTertiaryUnit") is not None else "Secondary" if snapshot.get("NoOfSecondaryUnit") is not None else "Primary"
+    grams=snapshot.get(order+"NetWeightGrams")
+    if grams is None:return None
+    weight=Decimal(str(grams))
+    return float(weight*int(cartons)/1000) if weight.is_finite() and weight>=0 else None
 
 
 def calculate(cur,body,item_id=None):
@@ -212,6 +222,7 @@ def calculate(cur,body,item_id=None):
         inputs=PlanInput.model_validate(data)
         result=plan(inputs)
         result["ContainerCode"]=row["Code"]
+        result["net_kg"]=net_load_kg(weight_snapshot,result["cartons"])
         if weight_snapshot is not None:result['WeightSnapshot']=weight_snapshot
         if price:result.update(PalletPriceID=price["ID"],PalletPriceRowVersion=price["RowVersion"],PalletMaterialCode=price["MaterialCode"],PalletMaterialRowVersion=price["MaterialRowVersion"],PalletUnitUSDPrice=str(price["UnitUSDPrice"]) if price["UnitUSDPrice"] is not None and str(price["PriceBasis"]).upper()=="EA" else None)
         if assembly:

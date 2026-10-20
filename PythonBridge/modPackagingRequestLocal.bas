@@ -42,7 +42,8 @@ Private Function Editable(ByVal key As String) As Boolean
 End Function
 Private Function Api(ByVal endpoint As String, ByVal body As Object) As Object
     Dim http As Object, base As String
-    If S(Config.Range("B1").Value2) <> "1" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
+    If S(Config.Range("B1").Value2) <> "request-2" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
+    If endpoint = "save" Then body("template_version") = S(Config.Range("B1").Value2)
     base = S(Config.Range("B2").Value2)
     If Left$(base, 7) <> "http://" And Left$(base, 8) <> "https://" Then Err.Raise vbObjectError + 3101, , "Invalid API URL."
     Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
@@ -135,6 +136,7 @@ Private Sub LoadPage(ByVal target As Long)
     filters("status") = S(Controls.Range("B4").Value2)
     Set header("values") = filters
     Set response = Api("page", body)
+    RefreshLocalDropdowns WS, response
     If LastRow() >= 3 Then WS.Range(WS.Cells(3, 1), WS.Cells(LastRow(), LastFieldColumn())).ClearContents
     r = 3
     For Each row In response("rows")
@@ -199,7 +201,7 @@ Public Sub PackagingRequestSave()
     For r = 3 To LastRow()
         cmd = UCase$(Trim$(S(WS.Cells(r, FieldColumn("ItemCommand")).Value2)))
         If cmd = "" Or cmd = "N" Then cmd = "U"
-        If cmd <> "U" Then Err.Raise 5, , "Row " & r & ": use N or U only. Create, assign, submit, approve and cancel in the app."
+        If cmd <> "U" Then Err.Raise 5, , "Row " & r & ": use U or blank only. Create, assign, submit, approve and cancel in the app."
         Set delta = Changes(r, cmd)
         If delta.Count > 0 Then
             Set entry = CreateObject("Scripting.Dictionary")
@@ -225,7 +227,7 @@ Public Sub PackagingRequestSave()
         WS.Cells(r, FieldColumn("_Message")).NumberFormat = "@"
         WS.Cells(r, FieldColumn("_Message")).Value2 = x("message")
         If x("status") = "OK" Then
-            WS.Cells(r, FieldColumn("ItemCommand")).Value2 = "N"
+            WS.Cells(r, FieldColumn("ItemCommand")).Value2 = ""
             WS.Cells(r, FieldColumn("_ItemVersion")).Value2 = x("version")
             Set entry = CurrentValues(r)
             WS.Cells(r, FieldColumn("_Original")).Value2 = JsonConverter.ConvertToJson(entry)

@@ -44,7 +44,8 @@ Private Function Editable(ByVal key As String, ByVal level As String) As Boolean
 End Function
 Private Function Api(ByVal endpoint As String, ByVal body As Object) As Object
     Dim http As Object, base As String
-    If S(Config.Range("B1").Value2) <> "2" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
+    If S(Config.Range("B1").Value2) <> "opportunity-4" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
+    If endpoint = "save" Then body("template_version") = S(Config.Range("B1").Value2)
     base = S(Config.Range("B2").Value2)
     If Left$(base, 7) <> "http://" And Left$(base, 8) <> "https://" Then Err.Raise vbObjectError + 3101, , "Invalid API URL."
     Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
@@ -62,7 +63,7 @@ End Function
 Private Function Command(ByVal r As Long, ByVal level As String) As String
     Command = UCase$(Trim$(S(WS.Cells(r, FieldColumn(level & "Command")).Value2)))
     If Command = "" Then Command = "N"
-    If InStr("|N|C|U|D|", "|" & Command & "|") = 0 Then Err.Raise 5, , "Invalid " & level & " command at row " & r
+    If InStr("|N|C|U|", "|" & Command & "|") = 0 Then Err.Raise 5, , "Invalid " & level & " command at row " & r
 End Function
 Private Function Original(ByVal r As Long) As Object
     Set Original = CreateObject("Scripting.Dictionary")
@@ -263,6 +264,7 @@ Private Sub LoadPage(ByVal target As Long)
     values("bid_open_to") = S(Controls.Range("B10").Value2)
     Set header("values") = values
     Set response = Api("page", body)
+    RefreshLocalDropdowns WS, response
     If LastRow() >= 5 Then WS.Range(WS.Cells(5, 1), WS.Cells(LastRow(), LastFieldColumn())).ClearContents
     r = 5
     For Each row In response("rows")
@@ -350,7 +352,7 @@ Public Sub OpportunityAddItem()
         If originalRow.Exists(key) Then snapshot(key) = originalRow(key)
     Next c
     WS.Cells(r, FieldColumn("_Original")).Value2 = JsonConverter.ConvertToJson(snapshot)
-    WS.Cells(r, FieldColumn("HeaderCommand")).Value2 = IIf(Len(S(WS.Cells(r, FieldColumn("_OpportunityID")).Value2)) = 0, "C", "N")
+    WS.Cells(r, FieldColumn("HeaderCommand")).Value2 = IIf(Len(S(WS.Cells(r, FieldColumn("_OpportunityID")).Value2)) = 0, "C", "")
     WS.Cells(r, FieldColumn("ItemCommand")).Value2 = "C"
     FormatPermissions r
     WS.Cells(r, FieldColumn("ProductCode")).Select

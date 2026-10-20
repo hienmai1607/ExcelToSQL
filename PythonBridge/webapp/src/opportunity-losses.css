@@ -1,4 +1,32 @@
 .opportunity-loss-dialog{width:min(1250px,96vw);max-width:96vw}
+.opportunity-loss-dialog.tcb-review-dialog{width:min(1850px,96vw)}
+
+
+.dialog.tcb-version-dialog[open]{display:flex;flex-direction:column;width:min(480px,calc(100vw - 32px));max-width:480px;height:fit-content;min-height:0;max-height:calc(100dvh - 32px);padding:0;overflow:auto;box-sizing:border-box}
+.dialog.tcb-version-dialog[open]>.customer-editor-heading{position:static;top:auto;flex:none;margin:0;padding:16px 20px;border-bottom:1px solid var(--border)}
+.dialog.tcb-version-dialog[open] h2{font-size:20px;margin:0}
+.tcb-version-dialog>.view-trail{display:none}
+.tcb-version-dialog form{margin:0}
+.tcb-version-fields{display:grid;gap:16px;padding:20px}
+.tcb-version-fields>label{display:flex;flex-direction:column;gap:6px;margin:0;min-width:0}
+.tcb-version-fields input,.tcb-version-fields select{width:100%;min-width:0;box-sizing:border-box}
+.tcb-version-fields p{margin:0;font-size:12px}
+.tcb-version-fields [role=alert]{color:var(--error,#a33024)}
+.tcb-version-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--border)}
+.tcb-version-actions button{width:auto;flex:none}
+
+/* TCB approaches and side-by-side comparisons */
+.tcb-version-controls{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:12px 0}
+.tcb-version-controls>label{display:flex;flex-direction:column;gap:4px;min-width:220px}
+.tcb-version-state{padding:7px 10px;font-size:12px;color:var(--muted)}
+.tcb-version-state.active,.tcb-active-badge{background:var(--surface-muted,#edf6f1);color:var(--accent,#176d68);border-radius:4px}
+.tcb-active-badge{display:inline-block;margin-left:8px;padding:2px 6px;font-size:11px;white-space:nowrap}
+.tcb-analysis-table .tcb-active-version{background:var(--surface-muted,#edf6f1);border-left:2px solid var(--accent,#176d68)}
+.tcb-analysis-table tbody td{font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.tcb-comparison-column{display:flex;align-items:start;justify-content:space-between;gap:10px}
+.tcb-comparison-picker{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:12px 0}
+.tcb-comparison-picker>label{display:flex;flex-direction:column;gap:4px;min-width:200px;flex:1}
+
 .opportunity-loss-dialog [role=tablist]{display:flex;gap:8px;margin:16px 0}
 .opportunity-loss-dialog [role=tab][aria-selected=true]{background:var(--accent,#176d68);color:white}
 .opportunity-loss-copy{display:flex;align-items:end;gap:12px;margin:16px 0;flex-wrap:wrap}

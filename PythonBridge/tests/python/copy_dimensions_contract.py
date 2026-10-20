@@ -3,7 +3,7 @@ from pathlib import Path
 from decimal import Decimal as D
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/"core"))
 from fastapi import HTTPException
-from copy_dimensions import copied_geometry
+from copy_dimensions import copied_geometry,uses_copy
 from pkg_pricing import Calculation
 from packaging_type_api import PackagingTypeRow
 from pydantic import ValidationError
@@ -14,7 +14,7 @@ from db import bytes_to_b64
 class CopyDimensions(unittest.TestCase):
  def setUp(self):
   self.version=b"12345678"
-  self.root=dict(ID=1,CopyDim=True)
+  self.root=dict(ID=1,CopyDim=True,Shipping=True)
   self.dim=dict(ID=2,PackagingTypeID=1,ParentDimensionID=None,RowVersion=self.version,D1Name="Length",D2Name="Width",D3Name=None,D1UoMID=1,D2UoMID=1)
   self.price=dict(PriceID=3,PriceRowVersion=self.version,PackagingTypeID=1,MaterialDimensionID=2,MaterialDimensionRowVersion=self.version,MaterialD1=D(250),MaterialD2=D(150),CopyDim=True)
   self.units={1:dict(ID=1,UoMCode="mm"),2:dict(ID=2,UoMCode="cm")}
@@ -42,13 +42,25 @@ class CopyDimensions(unittest.TestCase):
    dict(PriceID=id,PriceRowVersion=bytes_to_b64(self.version),Quantity=1) for id in (3,4)])
   with self.assertRaisesRegex(HTTPException,""):api.hydrate_copy(None,payload,self.root,[self.price],{2:self.dim},self.units)
   self.assertIs(api.hydrate_copy(None,payload,{"CopyDim":False},[{**self.price,"CopyDim":False}],{},{}),payload)
+ def test_nonshipping_single_copies_its_own_material_geometry(self):
+  root={**self.root,"Shipping":False}
+  self.assertTrue(uses_copy(root,[self.price]))
+  payload=Calculation(PackagingOrder="Secondary",PackagingTypeID=1,D1=999,components=[dict(PriceID=3,PriceRowVersion=bytes_to_b64(self.version),Quantity=1)])
+  result=api.hydrate_copy(None,payload,root,[self.price],{2:self.dim},self.units)
+  self.assertEqual(result.DimensionID,2);self.assertEqual(result.D1,250)
+  with self.assertRaisesRegex(HTTPException,""):
+   api.hydrate_copy(None,payload,root,[self.price],{},self.units)
+ def test_assembled_parent_keeps_manual_dimensions(self):
+  root={**self.root,"CopyDim":False,"Shipping":False}
+  price={**self.price,"CopyDim":False}
+  payload=Calculation(PackagingOrder="Secondary",PackagingTypeID=1,D1=999,components=[dict(PriceID=3,PriceRowVersion=bytes_to_b64(self.version),Quantity=1)])
+  self.assertIs(api.hydrate_copy(None,payload,root,[price],{},{}),payload)
  def test_copy_requires_single(self):
-  with self.assertRaises(ValidationError):PackagingTypeRow(RowNum=1,Command="C",PackagingType="Box",PackagingOrders=["Primary"],FinalComponent=False,CopyDim=True)
+  self.assertFalse(PackagingTypeRow(RowNum=1,Command="C",PackagingType="Box",PackagingOrders=["Primary"],FinalComponent=False,CopyDim=True).CopyDim)
 
 
 class CopyDimRootOnly(unittest.TestCase):
  def test_child_cannot_enable_copy_dim(self):
-  with self.assertRaises(ValidationError):
-   PackagingTypeRow(RowNum=1,Command="C",PackagingType="Child",ParentTypeID=9,FinalComponent=True,CopyDim=True)
+  self.assertFalse(PackagingTypeRow(RowNum=1,Command="C",PackagingType="Child",ParentTypeID=9,FinalComponent=True,CopyDim=True).CopyDim)
 
 if __name__=="__main__":unittest.main()

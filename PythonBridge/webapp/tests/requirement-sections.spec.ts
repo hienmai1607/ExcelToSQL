@@ -41,7 +41,7 @@ async function setup(page:Page,lookupTypes=types){
  await form.getByLabel('Description *',{exact:true}).fill('Packaging launch');
  await form.getByLabel('Exchange rate VND per USD *',{exact:true}).fill('25000');
  await form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true}).fill('1');
- await form.getByLabel('Bid open *').fill('2026-10-01');await form.getByLabel('Bid close *').fill('2026-10-10');
+ await form.getByLabel('Bid open',{exact:true}).fill('10/01/2026');await form.getByLabel('Bid close',{exact:true}).fill('10/10/2026');
  const item=form.getByRole('region',{name:'Item 1',exact:true});
  await item.getByLabel('Product *').selectOption('2');
  await item.getByLabel('Annual units *').fill('1000');await item.getByText('Packaging requirements',{exact:true}).click();await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
@@ -193,6 +193,9 @@ test('Opportunity grade icon edits an item snapshot without any Product Master w
  await item.getByRole('button',{name:'Edit Opportunity grade snapshot',exact:true}).click();
  const grades=page.getByRole('dialog',{name:'Product grades',exact:true});
  await expect(grades.getByText('Opportunity grade snapshot',{exact:true})).toBeVisible();
+ await expect(grades.locator('.customer-editor-heading').getByLabel('Grade summary')).toBeVisible();
+ await expect(grades.locator('.grade-controls')).toHaveCount(0);
+ await expect(grades.getByRole('region',{name:'Raw Material',exact:true})).toBeVisible();
  await expect(grades.getByLabel('Grade status')).toHaveCount(0);
  await grades.getByLabel('Grade 0/1',{exact:true}).selectOption('72');
  await grades.getByRole('button',{name:'Use grades',exact:true}).click();expect(masterWrites).toEqual([]);

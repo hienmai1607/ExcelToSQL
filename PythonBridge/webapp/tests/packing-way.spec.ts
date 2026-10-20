@@ -53,8 +53,8 @@ test('request layer count is inline and response packing labels and symbols shar
 test('mix response slots exclude Primary-only master types and save cross-order packaging',async({page})=>{
  const types=[
   {ID:11,PackagingOrder:'Primary',PackagingType:'Pouch',Shipping:false},
-  {ID:12,PackagingOrder:'Secondary',PackagingType:'Tray',Shipping:false},
-  {ID:13,PackagingOrder:'Tertiary',PackagingType:'Shipping case',Shipping:true}
+  {ID:12,PackagingOrder:'Secondary',PackagingOrders:['Secondary','Primary Mix','Secondary Mix'],PackagingType:'Tray',Shipping:false},
+  {ID:13,PackagingOrder:'Tertiary',PackagingOrders:['Tertiary','Primary Mix','Secondary Mix','Tertiary Mix'],PackagingType:'Shipping case',Shipping:true}
  ].map(t=>({...t,ParentTypeID:null,Status:'Active'}));
  const {editor,writes}=await setup(page,3,{IsMixParent:true},types);
  for(const layer of ['Primary','Secondary'])await expect(editor.getByLabel(layer+' Type',{exact:true}).locator('option')).toHaveText(['Choose '+layer.toLowerCase()+' type','Tray','Shipping case']);
@@ -173,6 +173,37 @@ test('mix missing child density keeps volume and relative blank, not a partial t
  await expect(editor.getByLabel('Mix Carton Efficiency (kg/m3)',{exact:true})).toHaveValue('375');
 });
 
+
+test('packaging type gets priority and currency stays beside the numeric price',async({page},info)=>{
+ const {editor}=await setup(page,3,{FirstPMType:'Glass jar - Formed',SecondPMType:'Short Folding tray + Partition',ThirdPMType:'Inner+Outer Tray',
+  PrimaryPricePerUnit:'21140',PrimaryPriceCurrencyCode:'VND',SecondaryPricePerUnit:'5000',SecondaryPriceCurrencyCode:'VND',TertiaryPricePerUnit:'16000',TertiaryPriceCurrencyCode:'VND'});
+ for(const width of [1920,1366,390]){
+  await page.setViewportSize({width,height:width===390?844:1080});
+  for(const layer of ['Primary','Secondary','Tertiary']){
+   const section=editor.getByRole('region',{name:layer+' packaging response',exact:true});
+   await expect(section.locator('.response-price-currency')).toHaveText('VND');
+   expect(await section.locator('.packaging-entry-grid>label').evaluateAll(labels=>labels.map(label=>label.firstChild?.textContent))).toEqual([layer+' Type','MOQ Unit','Price per Unit']);
+   const geometry=await section.evaluate(section=>{
+    const labels=Array.from(section.querySelectorAll('.packaging-entry-grid>label'));
+    const [type,moq,price]=labels.map(el=>el.getBoundingClientRect());
+    const input=section.querySelector('.response-price-field input') as HTMLInputElement;
+    const currency=section.querySelector('.response-price-currency')!.getBoundingClientRect();
+    const s=getComputedStyle(input),canvas=document.createElement('canvas'),ctx=canvas.getContext('2d')!;
+    ctx.font=s.fontWeight+" "+s.fontSize+" "+s.fontFamily;
+    const numberRight=input.getBoundingClientRect().left+ctx.measureText(input.value).width;
+    return {type:type.width,moq:moq.width,price:price.width,gap:currency.left-numberRight,
+     overflow:section.scrollWidth>section.clientWidth+1};
+   });
+   expect(geometry.type).toBeGreaterThan(geometry.moq);
+   expect(geometry.type).toBeGreaterThan(geometry.price);
+   expect(geometry.gap,JSON.stringify({width,layer,geometry})).toBeGreaterThanOrEqual(0);
+   expect(geometry.gap).toBeLessThan(14);
+   expect(geometry.overflow).toBe(false);
+  }
+  await editor.locator('.packaging-layer-sections').screenshot({path:info.outputPath('type-price-'+width+'.png')});
+ }
+});
+
 async function setup(page:Page,layers=3,overrides:Record<string,unknown>={},packagingTypes:unknown[]=[],childRows:Record<string,unknown>[]=[]){
  const writes:any[]=[];
  let row:any={RequestID:1,ItemID:1,ProductCode:'PRD-1',ProductName:'Nut product',ItemDescription:'Item 1',ItemStage:'Assigned',PIC:'Admin',PICUserID:1,ItemRowVersion:'AAAAAAAAAAE=',WeightGrams:'10.00',RequestedLayerCount:2,ResponseLayerCount:layers,...overrides};
@@ -183,6 +214,7 @@ async function setup(page:Page,layers=3,overrides:Record<string,unknown>={},pack
   if(p==='/api/workbench/requests')return route.fulfill({json:{rows:[{RequestID:1,RequestNumber:'PCR-1',CustomerName:'Customer',OpportunityNumber:'OPP-1',RequestStatus:'Open',ItemCount:1}],total:1}});
   if(p==='/api/packaging/requests')return route.fulfill({json:{rows:[row,...childRows],total:1+childRows.length,page:1}});
   if(p==='/api/packaging/lookups')return route.fulfill({json:{currencies:[],packagingTypes,pallets:[{ID:1,PalletSize:'3000x2000mm',PalletAreaMM2:'6000000'},{ID:2,PalletSize:'1000x1000mm',PalletAreaMM2:'1000000'}]}});
+  if(p==='/api/pallet-pricing/pallets')return route.fulfill({json:{rows:[{ID:1,PalletSize:'3000x2000mm',MaterialName:'Large pallet'},{ID:2,PalletSize:'1000x1000mm',MaterialName:'Small pallet'}]}});
   if(p==='/api/workbench/pics')return route.fulfill({json:{rows:[{ID:1,UserName:'Admin'}]}});
   if(p==='/api/packaging/response/batch'){const data=route.request().postDataJSON();writes.push(data);const saved=data.rows[0];if(saved.ID===row.ItemID){row={...row,...saved};const n=Number(row.ResponseLayerCount);if(n<2)row.UnitsPerCarton=null;if(n<3)row.UnitsPerTertiary=null}else{const index=childRows.findIndex(child=>child.ItemID===saved.ID);if(index>=0){childRows[index]={...childRows[index],...saved};row.MixResponseChildren=JSON.stringify(JSON.parse(row.MixResponseChildren).map((child:any)=>child.ItemID===saved.ID?{...child,NutDensity:saved.NutDensity}:child))}}return route.fulfill({json:{results:[{RowNum:1,Status:'OK',NewRowVersion:'AAAAAAAAAAI='}]}})}
   return route.fulfill({json:{rows:[],total:0,page:1}});
@@ -416,7 +448,7 @@ test('efficiency uses last parent geometry, updates counts and pallet area, and 
  await editor.getByLabel('No of Secondary Unit',{exact:true}).fill('2');
  await expect(section.getByLabel('Carton Efficiency (kg/m3)',{exact:true})).toHaveValue('0.666667');
  await expect(section.getByLabel('Relative carton efficiency %',{exact:true})).toHaveValue('0.13');
- await editor.getByLabel('Pallet size',{exact:true}).selectOption('1000x1000mm');
+ await editor.getByLabel('Pallet',{exact:true}).selectOption('2');
  await expect(section.getByLabel('Pallet Utilization %',{exact:true})).toHaveValue('1,500.00');
  await editor.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
@@ -483,4 +515,24 @@ test('response field help stays next to label text in both themes and on mobile'
  const efficiency=editor.getByRole('region',{name:'Efficiency response',exact:true});
  await efficiency.scrollIntoViewIfNeeded();
  await efficiency.screenshot({path:info.outputPath('efficiency-label-info.png')});
+});
+
+test('PCR-33168 decimal Shipping captures calculate pallet totals before saving',async({page})=>{
+ const {editor,writes}=await setup(page,2,{WeightGrams:400,UnitsPerCarton:6,CartonsPerLayer:20,ResponseMaxPalletHeightMM:900,
+ ResponseDefaultsInitialized:true,ResponsePalletSize:'1000x1000mm',SecondPMType:'RSC',
+ LayerTareJSON:JSON.stringify({Primary:{KG:'0.4766'},Secondary:{KG:'0.15'}}),
+ PalletPricingJSON:JSON.stringify({ID:7,PalletSize:'1000x1000mm',TareKG:'20',Dimensions:{height:'150'}}),
+ LayerDimensionCaptures:{Secondary:{PackagingTypeName:'RSC',LayerCount:2,Dimensions:[{Name:'Height',Unit:'mm',Value:'147.000000'}]}}});
+ await expect(editor.getByLabel('Layers / pallet',{exact:true})).toHaveValue('5');
+ await expect(editor.getByLabel('Units / pallet',{exact:true})).toHaveValue('600');
+ await expect(editor.getByLabel('Pallet height (mm)',{exact:true})).toHaveValue('885');
+ await expect(editor.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue('560.96');
+ await expect(editor.getByLabel('Net weight / Pallet (kg)',{exact:true})).toHaveValue('240');
+
+ await editor.getByLabel('Max pallet height (mm)',{exact:true}).fill('750');
+ await expect(editor.getByLabel('Layers / pallet',{exact:true})).toHaveValue('4');
+ await expect(editor.getByLabel('Units / pallet',{exact:true})).toHaveValue('480');
+ await expect(editor.getByLabel('Net weight / Pallet (kg)',{exact:true})).toHaveValue('192');
+ await expect(editor.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue('452.768');
+ expect(writes).toHaveLength(0);
 });

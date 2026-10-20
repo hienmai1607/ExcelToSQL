@@ -50,6 +50,13 @@ test('response formats volume and gross weights and exposes response pallet gros
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
  await expect(dialog.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue(responseGross);
+ for(const width of [984,390]){
+  await page.setViewportSize({width,height:844});
+  const close=dialog.getByRole('button',{name:'Close',exact:true});
+  const action=await close.boundingBox(),trail=await dialog.getByRole('navigation',{name:'Open views',exact:true}).boundingBox();
+  expect(action!.y+action!.height).toBeLessThanOrEqual(trail!.y);
+  await close.click({trial:true});
+ }
 });
 
 test('container weights show Net then Gross without an incomplete placeholder',async({page})=>{
@@ -62,7 +69,7 @@ test('container weights show Net then Gross without an incomplete placeholder',a
 });
 
 test('pallet pricing adds matching pallet and accessories and calculates gross weight',async({page},info)=>{
- const price=(ID:number,MaterialCode:string,order:string,weight:string)=>({ID,MaterialCode,MaterialName:MaterialCode,PackagingOrder:order,RowVersion:'AAAAAAAAAAE=',MaterialRowVersion:'AAAAAAAAAAI=',CurrencyCode:'USD',UnitPrice:ID===1?'10':'2',QuantityFrom:1,TareWeight:weight,TareWeightBasis:'kg/EA',Dimensions:order==='Pallet'?{length:'1100',width:'1100',height:'150'}:null});
+ const price=(ID:number,MaterialCode:string,order:string,weight:string)=>({ID,MaterialCode,MaterialName:MaterialCode,PackagingOrder:order,IsPallet:order==='Pallet',RowVersion:'AAAAAAAAAAE=',MaterialRowVersion:'AAAAAAAAAAI=',CurrencyCode:'USD',UnitPrice:ID===1?'10':'2',QuantityFrom:1,TareWeight:weight,TareWeightBasis:'kg/EA',Dimensions:order==='Pallet'?{length:'1100',width:'1100',height:'150'}:null});
  const pallet=price(1,'PALLET','Pallet','20'),corner=price(2,'CORNER','Primary','.5'),other={...price(3,'WRONG-SIZE','Pallet','10'),Dimensions:{length:'1200',width:'800',height:'140'}};
  let saved:any;
  const {editor}=await setup(page,'Pallet load',{ResponsePalletSize:'1100x1100mm',ResponseLayerCount:2,WeightGrams:100,LayerTareJSON:JSON.stringify({Primary:{KG:'.1'},Secondary:{KG:'3'}})});
@@ -79,6 +86,14 @@ test('pallet pricing adds matching pallet and accessories and calculates gross w
  await calculator.getByLabel('Quantity CORNER',{exact:true}).fill('4');
  await calculator.getByRole('button',{name:'Calculate pallet',exact:true}).click();
  await expect(calculator.getByRole('status')).toContainText('22 kg');
+ for(const width of [984,390]){
+  await page.setViewportSize({width,height:844});
+  const action=calculator.getByRole('button',{name:'Apply pallet pricing',exact:true});
+  const box=await action.boundingBox(),trail=await calculator.getByRole('navigation',{name:'Open views',exact:true}).boundingBox();
+  expect(box!.y+box!.height).toBeLessThanOrEqual(trail!.y);
+  await action.click({trial:true});
+ }
+ await page.setViewportSize({width:1920,height:1080});
  await calculator.getByRole('button',{name:'Apply pallet pricing',exact:true}).click();
  await expect(calculator).toHaveCount(0);
  expect(saved.components.map((c:any)=>c.Quantity)).toEqual(['1','4']);
@@ -277,7 +292,8 @@ test('Invalid manual counts never save',async({page})=>{
 });
 test('Approved response fields are locked',async({page})=>{
  const {editor}=await setup(page,'Both',{ItemStage:'Approved',SelectedContainerType:'20DC',CartonsPerContainer:1200});
- for(const label of ['Applicable Net weight (g)','Carton / Container','Container type'])await expect(editor.getByLabel(label,{exact:true})).toBeDisabled();
+ for(const label of ['Applicable Net weight (g)','Carton / Container'])await expect(editor.getByLabel(label,{exact:true})).toHaveAttribute('readonly','');
+ await expect(editor.getByLabel('Container type',{exact:true})).toBeEnabled(); // view selection, not a response edit
  await expect(editor.getByRole('button',{name:'Review & save',exact:true})).toBeDisabled();
 });
 test('Container and density controls fit desktop and mobile',async({page})=>{
@@ -291,4 +307,22 @@ test('Container and density controls fit desktop and mobile',async({page})=>{
   }
   expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
  }
+});
+
+test('captured Shipping height calculates pallet totals live before save',async({page})=>{
+ const {editor,writes}=await setup(page,'Pallet load',{ResponseLayerCount:2,HeightMM:null,LayersPerPallet:null,ResponseMaxPalletHeightMM:1130,WeightGrams:400,UnitsPerCarton:6,CartonsPerLayer:20,SecondPMType:'Tray',PalletPricingJSON:JSON.stringify({ID:9,PalletSize:'1.1x1.1m',Dimensions:{length:'1100',width:'1100',height:'150'},TareKG:'22',MissingTare:[],components:[]}),LayerTareJSON:JSON.stringify({Primary:{KG:'.01'},Secondary:{KG:'.1'}}),LayerDimensionCaptures:{Secondary:{PackagingTypeName:'Tray',LayerCount:2,Dimensions:[{Name:'Length',Unit:'mm',Value:'296'},{Name:'Width',Unit:'mm',Value:'195'},{Name:'Height',Unit:'mm',Value:'147'}]}}});
+ await expect(editor.getByLabel('Layers / pallet',{exact:true})).toHaveValue('6');
+ await expect(editor.getByLabel('Units / pallet',{exact:true})).toHaveValue('720');
+ await expect(editor.getByLabel('Net weight / Pallet (kg)',{exact:true})).toHaveValue('288');
+ await expect(editor.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue('329.2');
+ const maximum=editor.getByLabel('Max pallet height (mm)',{exact:true});
+ await maximum.focus();await expect(maximum).toHaveValue('1130');await maximum.fill('1420');
+ await expect(editor.getByLabel('Layers / pallet',{exact:true})).toHaveValue('8');
+ await expect(editor.getByLabel('Units / pallet',{exact:true})).toHaveValue('960');
+ await expect(editor.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue('431.6');
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('3');
+ await expect(editor.getByLabel('Layers / pallet',{exact:true})).toHaveValue('');
+ await editor.getByLabel('Confirmed packaging layers',{exact:true}).selectOption('2');
+ await expect(editor.getByLabel('Layers / pallet',{exact:true})).toHaveValue('8');
+ expect(writes).toHaveLength(0);
 });

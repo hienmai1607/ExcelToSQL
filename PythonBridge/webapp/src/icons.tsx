@@ -1,5 +1,8 @@
 import type {ButtonHTMLAttributes} from 'react';
 const paths={
+ list:'M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01',
+ settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM10 2h4l1 3 3-1 2 3-2 3 2 3-2 3-3-1-1 3h-4l-1-3-3 1-2-3 2-3-2-3 2-3 3 1 1-3Z',
+ chat:'M21 11a8 8 0 0 1-8 8H7l-5 3 2-6a8 8 0 1 1 17-5 M8 10h.01 M12 10h.01 M16 10h.01',
  cube:'m3 7 9-5 9 5v10l-9 5-9-5z M3 7l9 5 9-5 M12 12v10',
  zoomIn:'M10 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12 M14 14l7 7 M7 10h6 M10 7v6',
  zoomOut:'M10 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12 M14 14l7 7 M7 10h6',
@@ -16,6 +19,7 @@ const paths={
  history:'M3 11a9 9 0 1 1 2 7 M3 4v7h7 M12 7v5l3 2',
  price:'M3 3h8l10 10-8 8L3 11z M7 7h.01',
  sort:'M4 5h16 M4 12h11 M4 19h6 m9-7 0 9 m-3-3 3 3 3-3',
+ trash:'M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7',
  edit:'m16 3 5 5-12 12-6 1 1-6z M14 5l5 5',
  layout:'M3 4h18v16H3z M9 4v16 M15 4v16',
  export:'M12 3v12 m-4-4 4 4 4-4 M4 16v5h16v-5',

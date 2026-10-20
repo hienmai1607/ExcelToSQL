@@ -1,3 +1,4 @@
+import {formatDate} from './date-format';
 export type Row = Record<string, string | number | boolean | null>;
 export interface Page { rows: Row[]; total: number; page: number; page_size?: number }
 export interface Session { username: string; scopes: string[]; is_admin: boolean; can_assign_packaging?:boolean; user_id?:number; permissions?:Record<string,"none"|"display"|"edit">|null }
@@ -7,13 +8,13 @@ export interface RequestPayload {
  items: {OpportunityItemID:number; ExpectedRowVersion:string; PackagingRequirement:string|null}[];
 }
 export class ApiError extends Error { constructor(public status:number, message:string){super(message)} }
-export async function call<T>(path:string, body?:unknown):Promise<T> {
+export async function call<T>(path:string, body?:unknown, method?:'DELETE'):Promise<T> {
  const headers:Record<string,string>={Accept:'application/json'};
  const testUser=sessionStorage.getItem('bridge.testUser');
  if(testUser) headers['X-User-Name']=testUser;
  if(body) headers['Content-Type']='application/json';
  let response:Response;
- try { response=await fetch(path,{method:body?'POST':'GET',headers,credentials:'same-origin',cache:'no-store',body:body?JSON.stringify(body):undefined}); }
+ try { response=await fetch(path,{method:method||(body?'POST':'GET'),headers,credentials:'same-origin',cache:'no-store',body:body?JSON.stringify(body):undefined}); }
  catch {throw new ApiError(0,'Cannot reach the API. Check the connection, then retry.');}
  const data=await response.json().catch(()=>null);
  if(!response.ok) {
@@ -41,4 +42,4 @@ export const api={
  assign:(item:Row,pic:number)=>call<{result:Row}>('/api/packaging/items/'+item.ItemID+'/assign',{PICUserID:pic,ExpectedRowVersion:item.ItemRowVersion}),
 };
 export const text=(v:unknown)=>v===null||v===undefined||v===''?'—':String(v);
-export const date=(v:unknown)=>v?String(v).slice(0,10):'—';
+export const date=(v:unknown)=>formatDate(v);

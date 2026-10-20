@@ -8,7 +8,7 @@ async function setup(page:Page){
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Tester',user_id:1,scopes:['Product'],is_admin:false}});
   if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,masters:{}},version:0}});
-  if(path.endsWith('/lookups'))return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:'Northstar',Status:'Active'}],materials:[],currencies:[],creators:[]}});
+  if(path.endsWith('/lookups'))return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:'Northstar',Status:'Active'}],products:[{ID:2,CustomerID:1,ProductCode:'CHILD',ProductName:'Child',Status:'Active',WeightGrams:100,RowVersion:rv}],materials:[],currencies:[],creators:[]}});
   if(path.endsWith('/masters/products'))return route.fulfill({json:{rows:[product],total:1,page:1}});
   if(path.endsWith('/products/7/mix')){
    if(route.request().method()==='POST'){const b=route.request().postDataJSON();writes.push(b);versions=[{ID:4,Version:1,Status:b.Status,RowVersion:rv}];items=b.items.map((i:any)=>({...i,VersionID:4,ProductCode:'CHILD',ProductName:'Child',WeightGrams:100}));return route.fulfill({json:{ID:4}})}
@@ -62,6 +62,7 @@ test('new Product Mix needs no manually entered net weight',async({page})=>{
  await form.getByLabel('Product name',{exact:true}).fill('New mixed pack');
  await form.getByLabel('Category',{exact:true}).selectOption('Nuts');
  await expect(form.getByLabel('Weight',{exact:true})).toHaveAttribute('readonly','');
+ await form.getByRole('button',{name:'Add child Product',exact:true}).click();await form.getByLabel('Child Product 1',{exact:true}).selectOption('2');
  await form.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  expect(writes[0].rows[0]).toMatchObject({IsMix:true,CustomerID:1,WeightValue:0,WeightUnit:'g'});

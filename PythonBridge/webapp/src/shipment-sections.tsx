@@ -1,4 +1,5 @@
 import {Fragment} from 'react';
+import {AddMasterButton} from './add-master-button';
 import type {Row} from './api';
 import {FieldLabel} from './ui';
 import {quantity,divide,quantityDisplay} from './packaging-summary-model';
@@ -17,7 +18,7 @@ export const costSections:{title:string;fields:CostField[]}[]=[
  {title:'Logistics',fields:[
   {key:'FreightUSDPerContainer',label:'Freight ($/Container)',kind:'usd'},
   {key:'DutyPct',label:'Duty %',kind:'pct'},
-  {key:'ImportClearanceCustomerPerPallet',label:'Import clearance (customer currency/pallet)',kind:'usd'},
+  {key:'ImportClearanceCustomerPerContainer',label:'Import clearance (customer currency/container)',kind:'usd'},
   {key:'PortToWHUSDPerContainer',label:'Port - WH ($/cont)',kind:'usd'},
   {key:'WHCostUSDPerPallet',label:'WH Cost ($/pallet)',kind:'usd'},
   {key:'OverageShortageDamagePct',label:'Overage, Shortage & Damage %',kind:'pct'}]},
@@ -41,7 +42,7 @@ export const costSections:{title:string;fields:CostField[]}[]=[
   {key:'PaymentTermDays',label:'Payment term (days)',kind:'days'}]}
 ];
 const fields=costSections.flatMap(s=>s.fields);
-const keys=['Incoterm','PortOfEntryID','ContainerSizeFT','FloorLoadUSDPerMT','MarginMode','ImportClearanceUSDPerContainer','InterestMonths',...fields.map(f=>f.key)];
+const keys=['Incoterm','PortOfEntryID','ContainerSizeFT','FloorLoadUSDPerMT','MarginMode','ImportClearanceUSDPerContainer','ImportClearanceCustomerPerPallet','InterestMonths',...fields.map(f=>f.key)];
 export function shipmentValues(raw?:unknown):Record<string,string>{
  let data:Row={};
  try{const parsed=typeof raw==='string'?JSON.parse(raw):raw;if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))data=parsed as Row}catch{}
@@ -69,21 +70,22 @@ export function shipmentError(values:Record<string,string>,original:Record<strin
  }
  return '';
 }
-export function ShipmentSections({values,requirements,customer,currency='',exchangeRate='',ports=[],child=false,requirementsLocked=false,onChange,onRequirementChange}:{values:Record<string,string>;requirements:Record<string,string>;customer?:Row;currency?:string;exchangeRate?:string;ports?:Row[];child?:boolean;requirementsLocked?:boolean;onChange:(key:string,value:string)=>void;onRequirementChange:(key:string,value:string)=>void}){
+export function ShipmentSections({values,requirements,customer,currency='',exchangeRate='',ports=[],child=false,requirementsLocked=false,onAddPort,onChange,onRequirementChange}:{onAddPort?:()=>void;values:Record<string,string>;requirements:Record<string,string>;customer?:Row;currency?:string;exchangeRate?:string;ports?:Row[];child?:boolean;requirementsLocked?:boolean;onChange:(key:string,value:string)=>void;onRequirementChange:(key:string,value:string)=>void}){
  const available=ports.filter(p=>String(p.CustomerID)===String(customer?.ID)&&String(p.MarketID)===String(customer?.MarketID));
  function select(key:string,label:string,options:{id:string;label:string}[],value:string,help?:string,requirement=false){
   const known=options.some(o=>o.id===value);
-  return <label key={key} className={requirement&&requirementsLocked?'display-only-fields':undefined}><FieldLabel help={requirement&&requirementsLocked?(help||'')+' Locked while a Packaging Request is processing.':help}>{label}</FieldLabel>{child?<input aria-label={label} readOnly value={options.find(o=>o.id===value)?.label||value}/>:<select aria-label={label} disabled={requirement&&requirementsLocked} value={value} onChange={event=>(requirement?onRequirementChange:onChange)(key,event.target.value)}><option value="">Choose {label.toLowerCase()}</option>{value&&!known&&<option value={value} disabled>Existing {key==='PortOfEntryID'?'port #':''}{value} (unavailable)</option>}{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select>}</label>;
+  return <label key={key} className={requirement&&requirementsLocked?'display-only-fields':undefined}><FieldLabel help={requirement&&requirementsLocked?(help||'')+' Locked while a Packaging Request is processing.':help}>{label}</FieldLabel><span className="inline-master-field">{child?<input aria-label={label} readOnly value={options.find(o=>o.id===value)?.label||value}/>:<select aria-label={label} disabled={requirement&&requirementsLocked} value={value} onChange={event=>(requirement?onRequirementChange:onChange)(key,event.target.value)}><option value="">Choose {label.toLowerCase()}</option>{value&&!known&&<option value={value} disabled>Existing {key==='PortOfEntryID'?'port #':''}{value} (unavailable)</option>}{options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</select>}{key==='PortOfEntryID'&&!child&&onAddPort&&<AddMasterButton entity="ports" label="Add new Port of Entry master" onClick={onAddPort}/>}</span></label>;
  }
  const options=(values:string[])=>values.map(value=>({id:value,label:value}));
  function costInput(field:CostField){
   const value=values[field.key]||'';
-  return <input aria-label={field.label} inputMode={field.kind==='days'?'numeric':'decimal'} readOnly={child} value={child&&field.kind!=='days'?fixedCost(value):value} onChange={event=>{onChange(field.key,event.target.value);if(field.key==='ImportClearanceCustomerPerPallet')onChange('ImportClearanceUSDPerContainer','')}} onBlur={()=>{if(!child&&field.kind!=='days')onChange(field.key,fixedCost(value))}}/>;
+  const label=field.key==='ImportClearanceCustomerPerContainer'?'Import clearance ('+(currency||'customer currency')+'/container)':field.label;
+  return <input aria-label={label} inputMode={field.kind==='days'?'numeric':'decimal'} readOnly={child} value={child&&field.kind!=='days'?fixedCost(value):value} onChange={event=>{onChange(field.key,event.target.value);if(field.key==='ImportClearanceCustomerPerContainer'){onChange('ImportClearanceUSDPerContainer','');onChange('ImportClearanceCustomerPerPallet','')}}} onBlur={()=>{if(!child&&field.kind!=='days')onChange(field.key,fixedCost(value))}}/>;
  }
  function cost(field:CostField){
   const value=values[field.key]||'',amount=quantity(value,true),fx=currency==='USD'?quantity('1'):quantity(exchangeRate);
-  const conversion=field.key==='ImportClearanceCustomerPerPallet'&&value?(amount&&fx?quantityDisplay(divide(amount,fx),2)+' USD/pallet':'USD: enter exchange rate'):'';
-  return <label key={field.key}><FieldLabel>{field.label}</FieldLabel><span className="shipment-cost-input">{costInput(field)}{conversion&&<output aria-label="Import clearance USD per pallet">{conversion}</output>}</span>{field.key==='ImportClearanceCustomerPerPallet'&&!value&&values.ImportClearanceUSDPerContainer&&<small>Legacy: {values.ImportClearanceUSDPerContainer} USD/container. Enter a pallet amount to replace.</small>}</label>;
+  const conversion=field.key==='ImportClearanceCustomerPerContainer'&&value?(amount&&fx?quantityDisplay(divide(amount,fx),2)+' USD/container':'USD: enter exchange rate'):'';
+  return <label key={field.key}><FieldLabel>{field.key==='ImportClearanceCustomerPerContainer'?'Import clearance ('+(currency||'customer currency')+'/container)':field.label}</FieldLabel><span className="shipment-cost-input">{costInput(field)}{conversion&&<output aria-label="Import clearance USD per container">{conversion}</output>}</span></label>;
  }
  function margin(){
   const dollar=values.MarginMode==='USDPerLb',field=fields.find(f=>f.key===(dollar?'MarginUSDPerLb':'MarginPct'))!;

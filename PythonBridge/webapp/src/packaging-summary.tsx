@@ -6,6 +6,7 @@ import {dimensionDisplay} from './response-dimensions';
 import {decimalDisplay} from './number-format';
 import {allowedContainerTypes,parseContainerProfiles} from './container-loading';
 import {loadSections} from './packing-way';
+import {containerPlans,savedLoadPlan} from './load-plan-values';
 import {opportunityCurrency,costDisplay,quantityDisplay,quantity,multiply,divide,scaleCost,objectValue,loadPackagingSummary,type Cost,type ProductSummary,type PackagingSummary as Summary,type SummaryRow,type OpportunityCurrency} from './packaging-summary-model';
 import './packaging-summary.css';
 
@@ -36,19 +37,24 @@ function Layers({product,title,exchange,focus=false,allocated,label='Total packa
 function Logistics({summary,exchange}:{summary:Summary;exchange:OpportunityCurrency}){
  const price=(cost:Cost)=>costDisplay(cost,exchange);
  const root=summary.root.row,load=loadSections(root.ConfigurationRequest),profiles=parseContainerProfiles(root.ContainerLoadProfiles),results=objectValue(root.ContainerLoadResults);
+ const plans=containerPlans(root.ContainerPlansJSON),selected=savedLoadPlan(root.LoadPlanJSON);
+ if(selected?.Code&&!plans[selected.Code])plans[selected.Code]=selected;
  const cartons=quantity(root.CartonsPerLayer),layers=quantity(root.LayersPerPallet,true),cartonsPerPallet=cartons&&layers?multiply(cartons,layers):null;
  const containers=allowedContainerTypes(root.ResponseContainerFamily??root.ContainerRequest,root.ShipmentContainerSizeFT);
  const branches=(floor:boolean)=><div className="summary-container-branches">{containers.map(kind=>{
+  const plan=plans[kind],matchingPlan=plan?.Inputs.mode===(floor?'floor':'pallet')?plan:null;
   const profile=profiles[kind]??(root.SelectedContainerType===kind?{PalletsPerContainer:root.PalletsPerContainer==null?null:String(root.PalletsPerContainer),CartonsPerContainer:root.CalculatedCartonsPerContainer==null?null:String(root.CalculatedCartonsPerContainer)}:{});
   const result:SummaryRow={...(root.SelectedContainerType===kind?{LayersPerContainer:root.LayersPerContainer,NetWeightPerContainerKG:root.NetWeightPerContainerKG,NetWeightPerContainerFloorKG:root.NetWeightPerContainerFloorKG}:{}),...objectValue(results[kind])},cartonCount=floor?(profile.CartonsPerContainer??result.CalculatedCartonsPerContainer??(root.SelectedContainerType===kind?root.CalculatedCartonsPerContainer:null)):(result.CalculatedCartonsPerContainer??(root.SelectedContainerType===kind?root.CalculatedCartonsPerContainer:null));
   const weight=floor?(result.NetWeightPerContainerFloorKG??result.NetWeightPerContainerKG):result.NetWeightPerContainerKG;
-  const complete=profiles[kind]!=null||root.SelectedContainerType===kind;
+  const complete=!!matchingPlan||profiles[kind]!=null||root.SelectedContainerType===kind;
+  const displayedCartons=matchingPlan?.Result.cartons??cartonCount;
+  const displayedPallets=matchingPlan?.Result.loaded_units??profile.PalletsPerContainer;
   return <article className="summary-node summary-container" key={kind} aria-label={'Container Load '+kind}>
    <h4>{kind}</h4>{!complete&&<small>Not configured</small>}
-   <table className="summary-details" aria-label={kind+' '+(floor?'floor':'pallet')+' load details'}><tbody>{!floor&&<><Detail label="Pallet / Container" value={shown(profile.PalletsPerContainer)}/></>}
-    <Detail label="Carton / Container" value={shown(cartonCount)}/>
+   <table className="summary-details" aria-label={kind+' '+(floor?'floor':'pallet')+' load details'}><tbody>{!floor&&<><Detail label="Pallet / Container" value={shown(displayedPallets)}/></>}
+    <Detail label="Carton / Container" value={shown(displayedCartons)}/>
     <Detail label="Net weight / Container (kg)" value={shown(weight)}/>
-    <Detail label="Packaging subtotal / Container" value={price(scaleCost(summary.root.total,quantity(cartonCount,true)))}/>
+    <Detail label="Packaging subtotal / Container" value={price(scaleCost(summary.root.total,quantity(displayedCartons,true)))}/>
    </tbody></table>
   </article>;
  })}</div>;

@@ -1,14 +1,15 @@
+import {palletDimensionLabel} from './pallet-label';
 import {PalletCalculator,readPalletPricing} from './pallet-calculator';
 import {savedLoadPlan,containerPlans} from './load-plan-values';
 import {LoadPlanner} from './load-planner';
 import {FieldLabel,InfoTip} from './ui';
 import {layerTares,packagingGross,mixContentsGross} from './packaging-weight';
-import {useEffect,useState} from 'react';
+import {useEffect,useState,type CSSProperties} from 'react';
 import {call,text,type Row} from './api';
 import {IconButton} from './icons';
-import {PkgPricing,type PricingCalculation,type PricingResult} from './pkg-pricing';
+import {PkgPricing,PricingHistory,type PricingCalculation,type PricingResult} from './pkg-pricing';
 import {webResponseFields} from './packaging-fields';
-import {ResponseInput} from './response-input';
+import {ResponseInput,ResponseEditable} from './response-input';
 import {usedVolumeDisplay} from './response-volume';
 import {packingWeights,loadSections} from './packing-way';
 import {decimalDisplay,numberDisplay} from './number-format';
@@ -27,8 +28,9 @@ const sections=[
 
 export function responseChange(values:Record<string,string>,pricing:Record<string,PricingCalculation>,key:string,value:string,pallets:Row[]=[],configuration?:unknown,source?:Row){
  const next=containerChange(values,key,value,pallets,configuration),calculations={...pricing};if(key==='NutDensity')next.NutDensityDefaultUpdate='0';
+ if(key==='ResponsePalletMaterialID'){let selected:any=null;try{selected=JSON.parse(value)}catch{}next.ResponsePalletMaterialID=selected?.ID?String(selected.ID):'';next.ResponsePalletSize=selected?.PalletSize||'';next.PalletPricingJSON='';next.LoadPlanJSON='';next.ContainerPlansJSON='{}';}
  if(key==='ResponsePalletSize'&&value!==values[key])next.PalletPricingJSON='';
- if(key==='PalletPricingJSON')next.LoadPlanJSON='';
+ if(key==='PalletPricingJSON'){next.LoadPlanJSON='';try{const p=JSON.parse(value);if(p?.PalletMaterialID)next.ResponsePalletMaterialID=String(p.PalletMaterialID)}catch{}}
  if(key==='LoadPlanJSON'){const plan=savedLoadPlan(value);if(plan&&['Floor load','Both'].includes(String(configuration))){next.CartonsPerContainer=String(plan.Result.cartons)}}
  if(['ApplicableNetWeightGrams','ResponsePalletSize','ResponsePalletStacking','ResponseMaxPalletHeightMM','HeightMM','CartonsPerLayer','SelectedContainerType','ResponseLayerCount','FirstPMType','SecondPMType','ThirdPMType','UnitsPerCarton','UnitsPerTertiary'].includes(key)&&value!==values[key])next.LoadPlanJSON='';
  const changed=responseOrderFields.find(f=>f.type===key||f.moq===key);
@@ -56,9 +58,12 @@ export function responseChange(values:Record<string,string>,pricing:Record<strin
  return {values:next,pricing:calculations};
 }
 
-export function ResponseSections({values,requestedLayers,netWeight,configuration,product,sameConfigControl,configHelp,configReadOnly=false,onChange,types,pallets=[],loading,itemID,pricing,pricingResults,onPricingApply}:{values:Record<string,string>;requestedLayers?:unknown;netWeight:unknown;configuration?:unknown;product?:Row;sameConfigControl?:React.ReactNode;configHelp?:string;configReadOnly?:boolean;onChange:(key:string,value:string)=>void;types:Row[];pallets?:Row[];loading:boolean;itemID?:number;pricing?:Record<string,PricingCalculation>;pricingResults?:Record<string,PricingResult>;onPricingApply?:(input:PricingCalculation,result:PricingResult)=>void}){
+export function ResponseSections({values,requestedLayers,netWeight,configuration,product,sameConfigControl,configHelp,configReadOnly=false,editable=true,onChange,types,pallets=[],loading,itemID,pricing,pricingResults,onPricingApply}:{values:Record<string,string>;requestedLayers?:unknown;netWeight:unknown;configuration?:unknown;product?:Row;sameConfigControl?:React.ReactNode;configHelp?:string;configReadOnly?:boolean;editable?:boolean;onChange:(key:string,value:string)=>void;types:Row[];pallets?:Row[];loading:boolean;itemID?:number;pricing?:Record<string,PricingCalculation>;pricingResults?:Record<string,PricingResult>;onPricingApply?:(input:PricingCalculation,result:PricingResult)=>void}){
+ const [palletMaterials,setPalletMaterials]=useState<Row[]>([]);
+ useEffect(()=>{if(!product?.ParentItemID)call<{rows:Row[]}>('/api/pallet-pricing/pallets').then(x=>setPalletMaterials(x.rows)).catch(()=>setPalletMaterials([]))},[product?.ParentItemID]);
  const [feedbackContainers,setFeedbackContainers]=useState<Row[]>([]);
  useEffect(()=>{if(!product?.ParentItemID)call<{rows:Row[]}>('/api/load-planning/containers').then(x=>setFeedbackContainers(x.rows.filter(r=>r.Status==='Active'))).catch(()=>setFeedbackContainers([]))},[product?.ParentItemID]);
+ const [reviewContainer,setReviewContainer]=useState('');
  const [palletCalculator,setPalletCalculator]=useState(false);
  const [loadPlanner,setLoadPlanner]=useState<'pallet'|'container'|null>(null);
  const [calculator,setCalculator]=useState<{order:PackagingOrder;typeID:number}|null>(null);
@@ -67,15 +72,23 @@ export function ResponseSections({values,requestedLayers,netWeight,configuration
  const mixParent=isMixParent(product);const mixChild=!!product?.ParentItemID,mix=mixChild?null:parseMixStructure(product?.ProductMixSnapshot),unitHelp=mixFormula(mix),unitLabel=(layer:string)=>'No of '+layer+(mix?' Mix':'');const layers=layerCount(values.ResponseLayerCount),layerField=webResponseFields.find(f=>f.key==='ResponseLayerCount')!;
  const totals=mixParent&&product?.ProductMixSnapshot?mixTotals(product?.ProductMixSnapshot,product?.MixResponseChildren):undefined;
  const applicable=mixParent&&totals?mixWeightDisplay(totals):values.ApplicableNetWeightGrams||String(netWeight??'');
+ const displayValues=(!editable||configReadOnly)&&reviewContainer?responseChange(values,{},'SelectedContainerType',reviewContainer,pallets,configuration).values:values;
+ values=displayValues;
  const activePlan=savedLoadPlan(values.LoadPlanJSON);
- const weights=packingWeights(applicable,{...values,ApplicableNetWeightGrams:applicable},configuration),load=activePlan?{pallet:activePlan.Inputs.mode==='pallet',floor:activePlan.Inputs.mode==='floor'}:loadSections(configuration);
  const finalOrder=responseOrderFields[layers-1];
  const applied=pricing?.[finalOrder.order]?.LayerCount===layers&&pricing?.[finalOrder.order]?.Fingerprint===results[finalOrder.order]?.Fingerprint?results[finalOrder.order]:undefined;
+ const finalDims=applied?capturedDimensions(applied.ParentDimension,pricing?.[finalOrder.order] as unknown as Row):savedLayerDimensions(product?.LayerDimensionCaptures,finalOrder.order,values[finalOrder.type]||'',layers);
+ // Preview from the same matched final-layer geometry that is displayed. Do not
+ // mutate the draft or persist derived totals merely because the screen renders.
+ const capturedHeight=finalDims.find(d=>d.Name.trim().toLowerCase()==='height'&&d.Unit.toLowerCase()==='mm');
+ const height=applied?.FinalLayerHeightMM??(values.HeightMM||(capturedHeight&&Number(capturedHeight.Value)>0?capturedHeight.Value:''));
+ const previewValues={...values,HeightMM:String(height??''),ApplicableNetWeightGrams:applicable};
+ const weights=packingWeights(applicable,previewValues,configuration),load=activePlan?{pallet:activePlan.Inputs.mode==='pallet',floor:activePlan.Inputs.mode==='floor'}:loadSections(configuration);
  useEffect(()=>{
   // Returning to an applied layer restores its trusted server-converted height,
   // never the height from a different final packaging layer.
-  if(!mixChild&&!values.HeightMM&&applied?.FinalLayerHeightMM!=null)onChange('HeightMM',applied.FinalLayerHeightMM);
- },[layers,values[finalOrder.type],values.HeightMM,applied?.FinalLayerHeightMM,mixChild]);
+  if(editable&&!configReadOnly&&!mixChild&&!values.HeightMM&&applied?.FinalLayerHeightMM!=null)onChange('HeightMM',applied.FinalLayerHeightMM);
+ },[layers,values[finalOrder.type],values.HeightMM,applied?.FinalLayerHeightMM,mixChild,editable,configReadOnly]);
  const savedGeometry=Number(product?.EfficiencyLayerCount)===layers&&product?.EfficiencyTypeName===values[finalOrder.type]
   ?{AreaM2:product?.FinalLayerAreaM2,VolumeM3:product?.FinalLayerVolumeM3}:{};
  const loadPlan=savedLoadPlan(values.LoadPlanJSON);
@@ -88,7 +101,7 @@ export function ResponseSections({values,requestedLayers,netWeight,configuration
  const grossDisplay=(v:number|null|undefined)=>decimalDisplay(v,3)??'';
  const selectedPallet=pallets.find(p=>p.PalletSize===values.ResponsePalletSize);
  const palletArea=selectedPallet?.PalletAreaMM2??(product?.ResponsePalletSize===values.ResponsePalletSize?product?.ResponsePalletAreaMM2:null);
- const efficiency=responseEfficiency(applicable,{...values,ApplicableNetWeightGrams:applicable},applied?.ParentGeometryMetrics??savedGeometry,palletArea,totals);
+ const efficiency=responseEfficiency(applicable,previewValues,applied?.ParentGeometryMetrics??savedGeometry,palletArea,totals);
  const unitInput=(key:string,fixed:boolean)=><ResponseInput field={{...webResponseFields.find(f=>f.key===key)!,label:unitLabel(key==='UnitsPerCarton'?'Primary':'Secondary')+' Unit',readOnly:fixed}} value={fixed?'1':values[key]||''} onChange={value=>onChange(key,value)} types={types} pallets={pallets} loading={loading} layers={layers} mixChild={mixChild} mixParent={mixParent}/>;
  const loadInput=(key:string)=>{const base=webResponseFields.find(f=>f.key===key)!,field={...base,readOnly:base.readOnly||!values.SelectedContainerType&&['CartonsPerContainer'].includes(key)};return <label><FieldLabel help={key==='HeightMM'?'From D3 Height in the last confirmed Shipping layer Pricing Calculator. Apply pricing to update it.':undefined}>{field.label}</FieldLabel><span className="pricing-type-field"><ResponseInput field={field} value={values[key]||''} onChange={value=>onChange(key,value)} types={types} pallets={pallets} loading={loading} layers={layers} mixChild={mixChild} mixParent={mixParent}/>{key==='ResponsePalletSize'&&itemID&&<IconButton icon="calculator" label="Pallet Pricing Calculator" disabled={loading||!values.ResponsePalletSize} onClick={()=>setPalletCalculator(true)}/>}</span></label>};
  const density=webResponseFields.find(f=>f.key==='NutDensity')!;
@@ -102,21 +115,21 @@ export function ResponseSections({values,requestedLayers,netWeight,configuration
   const display=dimensionDisplay(dimensions),measured=dimensions.filter(d=>d.Name&&d.Unit&&Number.isFinite(Number(d.Value))&&Number(d.Value)>0);
   return <label className="captured-dimensions" aria-label={order+' captured dimensions'}><span title={display.label}>Dimension</span><span className="captured-dimensions-value">{measured.length?measured.map((d,i)=><span key={i}>{i>0&&String.fromCharCode(32,215,32)}{!mixChild&&order===finalOrder.order&&/height/i.test(d.Name)?<mark className="dimension-height" aria-label={order+" dimension height"}>{decimalDisplay(d.Value,6)}{d.Unit}</mark>:<span>{decimalDisplay(d.Value,6)}{d.Unit}</span>}</span>):display.value}</span></label>;
  };
- const finalDims=applied?capturedDimensions(applied.ParentDimension,pricing?.[finalOrder.order] as unknown as Row):savedLayerDimensions(product?.LayerDimensionCaptures,finalOrder.order,values[finalOrder.type]||'',layers);
+
  const measuredMM=(name:string)=>{const d=finalDims.find(d=>d.Name.toLowerCase()===name&&d.Unit.toLowerCase()==='mm');return d?Number(d.Value):0};
- const plannerCarton={length:measuredMM('length'),width:measuredMM('width'),height:measuredMM('height')||Number(values.HeightMM)||0};
- const containerSelector=<label><FieldLabel>Container type</FieldLabel><select aria-label="Container type" value={values.SelectedContainerType||''} disabled={loading} onChange={e=>onChange('SelectedContainerType',e.target.value)}><option value="">Choose container type</option>{(feedbackContainers.length?feedbackContainers.map(r=>String(r.Code)):allowedContainerTypes('Both')).map(kind=><option key={kind} value={kind}>{kind}</option>)}</select></label>;
- return <div className="requirement-sections response-sections">
+ const plannerCarton={length:measuredMM('length'),width:measuredMM('width'),height:measuredMM('height')||Number(previewValues.HeightMM)||0};
+ const containerSelector=<label><FieldLabel>Container type</FieldLabel><select aria-label="Container type" value={values.SelectedContainerType||''} disabled={loading} onChange={e=>editable&&!configReadOnly?onChange('SelectedContainerType',e.target.value):setReviewContainer(e.target.value)}><option value="">Choose container type</option>{(feedbackContainers.length?feedbackContainers.map(r=>String(r.Code)):allowedContainerTypes('Both')).map(kind=><option key={kind} value={kind}>{kind}</option>)}</select></label>;
+ return <ResponseEditable.Provider value={editable}><div className="requirement-sections response-sections">
  <section aria-label="Product Info response"><h4>Product Info</h4><div className="packaging-entry-grid">
   <div className="response-product-summary"><strong>{text(product?.ProductCode)} · {text(product?.ProductName)}</strong><span>Net weight: {numberDisplay('WeightGrams',netWeight)??'—'} g · Annual units: {numberDisplay('AnnualUnit',product?.AnnualUnit)??'—'}</span></div>
   <label><FieldLabel help={mixParent?"Sum of each child applicable weight multiplied by its Mix quantity.":"Defaults to the captured Product weight. This weight is used throughout the response calculations."}>Applicable Net weight (g)</FieldLabel><ResponseInput field={{...webResponseFields.find(f=>f.key==='ApplicableNetWeightGrams')!,readOnly:mixParent}} value={applicable} onChange={value=>onChange('ApplicableNetWeightGrams',value)} types={types} loading={loading}/></label>
   <label>Shelf life (days)<input aria-label="Shelf life (days)" readOnly value={decimalDisplay(product?.ShelfLifeDays,0)||''}/></label>
   <GradeSnapshotIcon mix={mix} value={parseGradeSnapshot(product?.ProductGradeSnapshot)}/>
-  {!mixParent&&<label><FieldLabel help="Density defaults match the exact Nuts grade, nut type and final ratio. Changing this response does not overwrite an existing shared default unless you select Update.">{density.label}</FieldLabel><span className="response-density-input"><ResponseInput field={density} value={values.NutDensity||''} onChange={value=>onChange('NutDensity',value)} types={types} pallets={pallets} loading={loading} layers={layers} mixChild={mixChild} mixParent={mixParent}/>{product?.NutDensityDefault!=null&&values.NutDensity&&decimalDisplay(values.NutDensity,6)!==decimalDisplay(product.NutDensityDefault,6)&&<IconButton icon={values.NutDensityDefaultUpdate==='1'?'check':'refresh'} label={values.NutDensityDefaultUpdate==='1'?'Cancel grade density default update':'Update grade density default'} aria-pressed={values.NutDensityDefaultUpdate==='1'} onClick={()=>onChange('NutDensityDefaultUpdate',values.NutDensityDefaultUpdate==='1'?'0':'1')}/>}</span>{product?.NutDensityDefault!=null&&<small>Grade default: {decimalDisplay(product.NutDensityDefault,6)} g/ml{values.NutDensityDefaultUpdate==='1'?' - will update on Confirm save':''}</small>}{product?.NutDensityCombinationAvailable&&product.NutDensityDefault==null&&<small>New grade combination: default created on save.</small>}</label>}
+  {!mixParent&&<label><FieldLabel help="Density defaults match the exact Nuts grade, nut type and final ratio. Changing this response does not overwrite an existing shared default unless you select Update.">{density.label}</FieldLabel><span className="response-density-input"><ResponseInput field={density} value={values.NutDensity||''} onChange={value=>onChange('NutDensity',value)} types={types} pallets={pallets} loading={loading} layers={layers} mixChild={mixChild} mixParent={mixParent}/>{editable&&product?.NutDensityDefault!=null&&values.NutDensity&&decimalDisplay(values.NutDensity,6)!==decimalDisplay(product.NutDensityDefault,6)&&<IconButton icon={values.NutDensityDefaultUpdate==='1'?'check':'refresh'} label={values.NutDensityDefaultUpdate==='1'?'Cancel grade density default update':'Update grade density default'} aria-pressed={values.NutDensityDefaultUpdate==='1'} onClick={()=>onChange('NutDensityDefaultUpdate',values.NutDensityDefaultUpdate==='1'?'0':'1')}/>}</span>{product?.NutDensityDefault!=null&&<small>Grade default: {decimalDisplay(product.NutDensityDefault,6)} g/ml{values.NutDensityDefaultUpdate==='1'?' - will update on Confirm save':''}</small>}{product?.NutDensityCombinationAvailable&&product.NutDensityDefault==null&&<small>New grade combination: default created on save.</small>}</label>}
   <label><FieldLabel help={mixParent?'Sum of each captured child quantity × child net weight (g) / child density (g/ml), from responses in this request. All child densities must be available.':undefined}>{mixParent?'Total Used volume (ml)':'Used volume (ml)'}</FieldLabel><input aria-label={mixParent?'Total Used volume (ml)':'Used volume (ml)'} readOnly value={decimalDisplay((totals?mixVolumeDisplay(totals):usedVolumeDisplay(applicable,values.NutDensity||'')).replaceAll(',',''),3)??''} placeholder={mixParent?'Awaiting child densities':'Net weight / density'}/></label>
   {mixParent&&sameConfigControl}
  </div></section>
- <fieldset className={'response-configuration-fields'+(configReadOnly?' display-only-fields':'')} disabled={configReadOnly}>
+ <fieldset className={'response-configuration-fields'+(configReadOnly?' display-only-fields':'')} ><ResponseEditable.Provider value={editable&&!configReadOnly}>
  <section aria-label="Packing Way response"><div className="response-section-heading"><h4>Packing Way<InfoTip text="Primary units per Secondary · Secondary units per Tertiary · Final layer = 1"/><small className="response-requested-layers">Requested layers: {layerCount(requestedLayers)}.</small></h4><label><FieldLabel help={configHelp}>{layerField.label}</FieldLabel><ResponseInput field={layerField} value={String(layers)} onChange={v=>onChange(layerField.key,v)} types={types} pallets={pallets} loading={loading} layers={layers} mixChild={mixChild} mixParent={mixParent}/></label></div><div className="packing-way-grid" data-layers={layers}>
   <div className="packing-way-layer" data-shipping={layers===1}><label className="packing-layer-quantity"><FieldLabel help={unitHelp}>{unitLabel('Primary')}</FieldLabel>{unitInput('UnitsPerCarton',layers===1)}</label>{layerWeights('Primary',weights.primary)}{dimensionCapture('Primary')}</div>
   {layers>=2&&<div className="packing-way-layer" data-shipping={layers===2}><label className="packing-layer-quantity"><FieldLabel help={unitHelp}>{unitLabel('Secondary')}</FieldLabel>{unitInput('UnitsPerTertiary',layers===2)}</label>{layerWeights('Secondary',weights.secondary)}{dimensionCapture('Secondary')}</div>}
@@ -128,11 +141,11 @@ export function ResponseSections({values,requestedLayers,netWeight,configuration
    const order=responseOrderFields.find(f=>f.type===key)?.order;
    const selected=types.find(t=>!!order&&selectableType(t,order,layers,mixChild,mixParent)&&t.PackagingType===values[key]);
    const priceField=responseOrderFields.find(f=>f.price===key);
-   return <label key={key}>{field.label}<span className={order?'pricing-type-field':priceField?'response-price-field':''}><ResponseInput field={field} value={values[key]||''} onChange={value=>onChange(key,value)} types={types} pallets={pallets} loading={loading} layers={layers} mixChild={mixChild} mixParent={mixParent}/>{priceField&&values[key]&&<span className="response-price-currency">{values[priceField.currency]}</span>}{order&&itemID&&<IconButton icon="calculator" label={order+' Pricing Calculator'} disabled={loading||!selected} onClick={()=>setCalculator({order,typeID:Number(selected!.ID)})}/>}</span></label>;
+   return <label key={key}>{order?field.label:priceField?'Price per Unit':'MOQ Unit'}<span className={order?'pricing-type-field':priceField?'response-price-field':''} style={priceField?{'--price-width':(decimalDisplay(values[key],9)?.length||1)+'ch'} as CSSProperties:undefined}><ResponseInput field={field} value={values[key]||''} onChange={value=>onChange(key,value)} types={types} pallets={pallets} loading={loading} layers={layers} mixChild={mixChild} mixParent={mixParent}/>{priceField&&values[key]&&<span className="response-price-currency">{values[priceField.currency]}</span>}{order&&itemID&&<IconButton icon="calculator" label={order+' Pricing Calculator'} disabled={loading||editable&&!configReadOnly&&!selected} onClick={()=>setCalculator({order,typeID:Number(selected?.ID)||0})}/>}</span></label>;
   })}</div>
  </section>)}</div>
  {!mixChild&&<><section aria-label="Palletization response"><h4>Palletization</h4>
- <div className="response-palletization-grid"><div className="packaging-entry-grid response-pallet-specs">{loadInput('ResponsePalletSize')}{loadInput('ResponsePalletStacking')}{loadInput('ResponseMaxPalletHeightMM')}</div>
+ <div className="response-palletization-grid"><div className="packaging-entry-grid response-pallet-specs"><label>Pallet<span className="pricing-type-field"><select aria-label="Pallet" disabled={!editable||configReadOnly} value={values.ResponsePalletMaterialID|| (values.ResponsePalletSize?'legacy':'')} onChange={e=>onChange('ResponsePalletMaterialID',JSON.stringify(palletMaterials.find(m=>String(m.ID)===e.target.value)||null))}><option value="">Choose pallet material</option>{!values.ResponsePalletMaterialID&&values.ResponsePalletSize&&<option value="legacy" disabled>{palletDimensionLabel({PalletSize:values.ResponsePalletSize})}</option>}{values.ResponsePalletMaterialID&&!palletMaterials.some(m=>String(m.ID)===values.ResponsePalletMaterialID)&&<option value={values.ResponsePalletMaterialID} disabled>{palletDimensionLabel({PalletSize:values.ResponsePalletSize})||'Unavailable pallet'} — material #{values.ResponsePalletMaterialID}</option>}{palletMaterials.map(m=><option key={String(m.ID)} value={String(m.ID)}>{palletDimensionLabel(m)} — {String(m.MaterialName)}</option>)}</select>{itemID&&<IconButton icon="calculator" label="Pallet Pricing Calculator" disabled={loading||!values.ResponsePalletSize} onClick={()=>setPalletCalculator(true)}/>}</span></label>{loadInput('ResponsePalletStacking')}{loadInput('ResponseMaxPalletHeightMM')}</div>
  <div className="packaging-entry-grid response-pallet-loading">{loadInput('CartonsPerLayer')}
  <label><FieldLabel help="Whole Shipping layers fitting within maximum height after subtracting pallet base height.">Layers / pallet</FieldLabel><input aria-label="Layers / pallet" readOnly value={weights.layersPerPallet}/></label>
  <label>Units / pallet<input aria-label="Units / pallet" readOnly value={weights.unitsPerPallet}/></label>
@@ -153,8 +166,9 @@ export function ResponseSections({values,requestedLayers,netWeight,configuration
   <label>Net weight / Container (kg)<input aria-label="Net weight / Container (kg)" readOnly value={weights.containerKG}/></label>
   <label>Gross weight / Container (kg)<input aria-label="Gross weight / Container (kg)" readOnly value={loadPlan?grossDisplay(loadPlan.Result.gross_kg):!load.pallet&&gross[finalOrder.order]!=null&&Number(values.CartonsPerContainer)>0?grossDisplay(gross[finalOrder.order]!*Number(values.CartonsPerContainer)):''}/></label>
  </div></section>}
- </fieldset>
- {palletCalculator&&itemID&&<PalletCalculator itemID={itemID} itemVersion={String(product?.ItemRowVersion??product?.RowVersion??'')} size={values.ResponsePalletSize} initial={palletPricing} onApply={p=>onChange('PalletPricingJSON',JSON.stringify(p))} onClose={()=>setPalletCalculator(false)}/>}
- {loadPlanner&&itemID&&<LoadPlanner itemID={itemID} itemVersion={String(product?.ItemRowVersion??product?.RowVersion??'')} configuration={configuration} initialCode={values.SelectedContainerType||loadPlan?.Code} responsePallet={cartonsOnPallet>0?{cartons:cartonsOnPallet,grossKG:palletGross===''?null:Number(palletGross),loadedHeight:efficiency.palletHeight?Number(efficiency.palletHeight.replaceAll(',','')):null}:undefined} palletAssembly={palletPricing} onClear={loadPlan?()=>{onChange('LoadPlanJSON','');setLoadPlanner(null)}:undefined} onConfirm={plan=>onChange('LoadPlanJSON',JSON.stringify(plan))} initial={{cartons_per_layer:Number(values.CartonsPerLayer)||null,mode:load.pallet?'pallet':'floor',max_pallet_height:Number(values.ResponseMaxPalletHeightMM)||null,double_stack:values.ResponsePalletStacking==='Double',stackable:values.ResponsePalletStacking==='Double',carton:plannerCarton}} onClose={()=>setLoadPlanner(null)}/>}
- {calculator&&!configReadOnly&&itemID&&<PkgPricing itemID={itemID} order={calculator.order} layerCount={layers} typeID={calculator.typeID} initial={pricing?.[calculator.order]} initialResult={pricing?.[calculator.order]?.Fingerprint===appliedResults[calculator.order]?.Fingerprint?appliedResults[calculator.order]:undefined} onClose={()=>setCalculator(null)} onApply={(input,result)=>{onPricingApply?.(input,result);setAppliedResults(xs=>({...xs,[input.PackagingOrder]:result}));setCalculator(null)}}/>}</div>;
+ </ResponseEditable.Provider></fieldset>
+ {palletCalculator&&itemID&&<PalletCalculator editable={editable&&!configReadOnly} itemID={itemID} itemVersion={String(product?.ItemRowVersion??product?.RowVersion??'')} size={values.ResponsePalletSize} materialID={Number(values.ResponsePalletMaterialID)||undefined} initial={palletPricing} onApply={p=>onChange('PalletPricingJSON',JSON.stringify(p))} onClose={()=>setPalletCalculator(false)}/>}
+ {loadPlanner&&itemID&&<LoadPlanner itemID={itemID} itemVersion={String(product?.ItemRowVersion??product?.RowVersion??'')} configuration={configuration} initialCode={values.SelectedContainerType||loadPlan?.Code} responsePallet={cartonsOnPallet>0?{cartons:cartonsOnPallet,grossKG:palletGross===''?null:Number(palletGross),loadedHeight:efficiency.palletHeight?Number(efficiency.palletHeight.replaceAll(',','')):null}:undefined} palletAssembly={palletPricing} onClear={editable&&!configReadOnly&&loadPlan?()=>{onChange('LoadPlanJSON','');setLoadPlanner(null)}:undefined} onConfirm={editable&&!configReadOnly?plan=>onChange('LoadPlanJSON',JSON.stringify(plan)):undefined} initial={{cartons_per_layer:Number(values.CartonsPerLayer)||null,mode:load.pallet?'pallet':'floor',max_pallet_height:Number(values.ResponseMaxPalletHeightMM)||null,double_stack:values.ResponsePalletStacking==='Double',stackable:values.ResponsePalletStacking==='Double',carton:plannerCarton}} onClose={()=>setLoadPlanner(null)}/>}
+ {calculator&&(!editable||configReadOnly)&&itemID&&<PricingHistory itemID={itemID} order={calculator.order} onClose={()=>setCalculator(null)}/>}
+ {calculator&&editable&&!configReadOnly&&itemID&&<PkgPricing itemID={itemID} order={calculator.order} layerCount={layers} typeID={calculator.typeID} initial={pricing?.[calculator.order]} initialResult={pricing?.[calculator.order]?.Fingerprint===appliedResults[calculator.order]?.Fingerprint?appliedResults[calculator.order]:undefined} onClose={()=>setCalculator(null)} onApply={(input,result)=>{onPricingApply?.(input,result);setAppliedResults(xs=>({...xs,[input.PackagingOrder]:result}));setCalculator(null)}}/>}</div></ResponseEditable.Provider>;
 }

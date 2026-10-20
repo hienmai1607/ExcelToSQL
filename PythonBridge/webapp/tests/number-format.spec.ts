@@ -1,6 +1,17 @@
 import {displayValue,exportValue} from '../src/master-config';
 import {test,expect} from '@playwright/test';
-import {numberDisplay,opportunityDisplay} from '../src/number-format';
+import {rawPriceOption,numberDisplay,opportunityDisplay} from '../src/number-format';
+
+test('raw price options use consistent currency decimals and clean quantity tiers',()=>{
+ const raw={MaterialCode:'RAW-1',VendorName:'Vendor',QuantityFrom:'0.0000',QuantityTo:'1000.0000',PriceBasis:'lbs',USDPerLb:'1.500000000'};
+ expect(rawPriceOption(raw)).toBe('RAW-1 · Vendor · 0–1,000 lbs · 1.50 USD/lb');
+ expect(rawPriceOption({...raw,QuantityTo:null,USDPerLb:'2.070000000'})).toBe('RAW-1 · Vendor · 0–∞ lbs · 2.07 USD/lb');
+ expect(rawPriceOption({...raw,USDPerLb:'12345678901234.125'})).toContain('12,345,678,901,234.13 USD/lb');
+ expect(rawPriceOption({...raw,USDPerLb:null})).toContain('— (conversion missing)');
+ expect(rawPriceOption({...raw,USDPerLb:'0.000000000'})).toContain('0.00 USD/lb');
+ expect(raw.USDPerLb).toBe('1.500000000');expect(raw.QuantityFrom).toBe('0.0000');
+});
+
 test('money uses two decimals without losing large decimal precision',()=>{
  expect(numberDisplay('UnitPrice','12345678901234.1250')).toBe('12,345,678,901,234.13');
  expect(numberDisplay('UnitUSDPrice','1.00000000')).toBe('1.00');

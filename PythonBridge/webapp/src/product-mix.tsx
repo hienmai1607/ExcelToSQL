@@ -38,7 +38,7 @@ function MixChildGrades({product,tabs,onClose}:{product:Row;tabs:ReactNode;onClo
  </Modal>;
 }
 
-function ProductMix({product,tabs,onClose,onSaved}:{product:Row;tabs:ReactNode;onClose:()=>void;onSaved:()=>void}){
+export function ProductMix({product,tabs,onClose,onSaved}:{product:Row;tabs?:ReactNode;onClose:()=>void;onSaved:()=>void}){
  const [data,setData]=useState<MixData|null>(null),[version,setVersion]=useState<Version|null>(null),[lines,setLines]=useState<Line[]>([]),[status,setStatus]=useState('Draft');
  const [busy,setBusy]=useState(true),[error,setError]=useState(''),[confirm,setConfirm]=useState(false),[uncertain,setUncertain]=useState(false);
  const baseline=useRef(''),lock=useRef(false),dirty=baseline.current!==JSON.stringify({lines,status}),readonly=!!version&&version.Status!=='Draft';
@@ -68,7 +68,7 @@ function ProductMix({product,tabs,onClose,onSaved}:{product:Row;tabs:ReactNode;o
   finally{lock.current=false;setBusy(false);setConfirm(false)}
  }
  return <Modal label="Product Mix" className="dialog grade-dialog" onClose={close}>
-  <div className="customer-editor-heading"><div><h2>Product structure</h2><p>{String(product.ProductCode)} · {String(product.ProductName)}</p></div><IconButton icon="close" label="Close mix" disabled={busy} onClick={close}/></div>
+  <div className="customer-editor-heading"><div><h2>Product structure</h2><p>{String(data?.product.ProductCode??product.ProductCode??'')} · {String(data?.product.ProductName??product.ProductName)}</p></div><IconButton icon="close" label="Close mix" disabled={busy} onClick={close}/></div>
   {tabs}<ErrorNote value={error}/>
   <div className="grade-controls"><div className="grade-version-bar">
    <label>Version<select aria-label="Mix version" value={version?.ID||''} disabled={busy||!data} onChange={e=>{if(dirty&&!window.confirm('Discard unsaved mix changes?'))return;select(data!.versions.find(v=>String(v.ID)===e.target.value)||null,data!)}}><option value="">New version</option>{data?.versions.map(v=><option key={v.ID} value={v.ID}>Version {v.Version} · {v.Status}</option>)}</select></label>

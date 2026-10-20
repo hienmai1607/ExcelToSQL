@@ -1,5 +1,8 @@
+from excel_dropdowns import with_dropdowns,master_choices
+from packaging_orders import TYPE_FLAGS
 from workspace_access import require_page_edit
 """Shared Material/Pricing workbook adapter. Existing SQL owns master validation."""
+from excel_template_version import TemplateBatch,TEMPLATE_VERSIONS
 import io
 import json
 import os
@@ -29,9 +32,9 @@ Entity=Literal["materials","prices","raw-materials","raw-prices","vendors","uoms
 router=APIRouter(prefix="/api/workbench/master-excel",tags=["Packaging Master Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Packaging_Master_Local_Update.xlsm"
 CONFIG={
- "packaging-types":dict(table="PackagingType",filename="Packaging_Type_Local_Update.xlsm",title="Packaging Type Master",editable={"ParentType","PackagingOrder","PackagingType","Shipping","FinalComponent","CopyDim","Status"}),
+ "packaging-types":dict(table="v_PackagingTypeWeb",filename="Packaging_Type_Local_Update.xlsm",title="Packaging Type Master",editable={"ParentType","PackagingType","Shipping","FinalComponent","Status",*TYPE_FLAGS}),
  "pallets":dict(table="v_PalletMaster",filename="Pallet_Master_Local_Update.xlsm",title="Pallet Master",editable={"UnitOfMeasure","Width","Length","PalletPriceUSDPerEA","Status",*PALLET_CAPACITY_LABELS}),
- "uoms":dict(table="UoM",filename="UoM_Local_Update.xlsm",title="UoM",editable={"UoMCode","UoMName","Status"}),
+ "uoms":dict(table="UoM",filename="UoM_Local_Update.xlsm",title="UoM",editable={"UoMCode","UoMName","Category","BaseFactor","Status"}),
  "vendors":dict(table="Vendor",filename="Vendor_Local_Update.xlsm",title="Vendor",editable={"VendorName","Address","Status","CurrencyCode"}),
  "materials":dict(table="PackagingMaterial",filename="Packaging_Material_Local_Update.xlsm",title="Packaging Material",
   editable={"MaterialName","UnitOfMeasure","Status","PackagingType","TareWeight","TareWeightBasis"}),
@@ -39,9 +42,9 @@ CONFIG={
   editable={"ExchangeRateToUSD","VendorName","MaterialCode","CurrencyCode","BaseUoM","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"})
 }
 CONFIG["raw-materials"]={**CONFIG["materials"],"table":"RawMaterial","filename":"Raw_Material_Local_Update.xlsm","title":"Raw Material",
- "editable":{*(CONFIG["materials"]["editable"]-{"PackagingType","TareWeight","TareWeightBasis"}),"Description","GradeName"}}
+ "editable":{*(CONFIG["materials"]["editable"]-{"PackagingType","TareWeight","TareWeightBasis"}),"Origin","GradeName"}}
 CONFIG["raw-prices"]={**CONFIG["prices"],"table":"RawMaterialPrice","filename":"Raw_Material_Pricing_Local_Update.xlsm","title":"Raw Material Pricing"}
-CONFIG["prices"]["editable"] = CONFIG["prices"]["editable"] | set(SUPPLIER_FIELDS)
+CONFIG["materials"]["editable"] |= {"MaterialDimensionID","MaterialD1","MaterialD2","MaterialD3"}
 AUTH="DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'MasterRead',@Actor OUTPUT; "
 META=["_ID","_RowVersion","_Original"]
 class View(BaseModel):
@@ -69,8 +72,11 @@ def normalize_row(entity,row):
    value=value.astimezone(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %I:%M %p")
   elif isinstance(value,(date,Decimal)):value=str(value)
   result[key]=value
+ if entity=='packaging-types' and row.get('ParentTypeNamesJSON'):
+  names=[value['Name'] for value in json.loads(row['ParentTypeNamesJSON'])]
+  result['ParentType']=json.dumps(names,ensure_ascii=False) if any(';' in name for name in names) else '; '.join(names)
  if entity=='packaging-types':result['CopyDim']='True' if row.get('CopyDim') else 'False';result['FinalComponent']='True' if row.get('FinalComponent') else 'False';result['Shipping']=None if row.get('ParentTypeID') is not None else 'True' if row.get('Shipping') else 'False'
- result.update(Command="N",_ID=row["ID"],_RowVersion=row["RowVersion"])
+ result.update(Command="",_ID=row["ID"],_RowVersion=row["RowVersion"])
  result["_Original"]=json.dumps({k:result.get(k) for k in COLUMNS[entity]},ensure_ascii=False)
  return result
 
@@ -94,7 +100,7 @@ def page_data(entity,body,ctx,override=False):
    material_id=material,currency_id=currency,as_of=effective,created_by=creator,
    sort=json.dumps([r.model_dump() for r in body.layout.sort]),ctx=ctx)
  except ValueError as exc:raise HTTPException(422,str(exc)) from exc
- return {**data,"rows":[normalize_row(entity,r) for r in data["rows"]]}
+ return {**data,"rows":[normalize_row(entity,r) for r in data["rows"]],"dropdowns":master_choices(entity,ctx)}
 
 @router.post("/{entity}/page")
 def page(entity:Entity,body:PageInput,ctx:AccessContext=Depends(get_access_context)):
@@ -113,11 +119,11 @@ def build(entity,body,data,base,labels=None):
  selected=check_layout(entity,body.layout).columns
  spec=CONFIG[entity];required=MASTER_REQUIRED_COLUMNS[entity];labels=labels or {}
  keys=["Command",*selected,*[k for k in COLUMNS[entity] if k not in selected],"_Result","_Message",*META]
- friendly={"Command":"Command (C/U/D)","_Result":"Result","_Message":"Message",**COLUMNS[entity]}
+ friendly={"Command":"Action (C/U)","_Result":"Result","_Message":"Message",**COLUMNS[entity]}
  headers=[friendly.get(k,k)+(" *" if k in required else " [display]" if k in COLUMNS[entity] and k not in spec["editable"] else "") for k in keys]
  rows=[headers,keys]+[[r.get(k) for k in keys] for r in data["rows"]]
  hidden=[n+1 for n,k in enumerate(keys) if k in META or k in COLUMNS[entity] and k not in selected]
- config=[["Version","1"],["API",base.rstrip("/")],["Layout",body.layout.model_dump_json()],["Pending","0"],
+ config=[["Version",TEMPLATE_VERSIONS["masters"]],["API",base.rstrip("/")],["Layout",body.layout.model_dump_json()],["Pending","0"],
  ["LoadedPage",body.page],["Entity",entity],["Editable","|".join(sorted(spec["editable"]))],["Required","|".join(required)],["Title",spec["title"]]]
  with zipfile.ZipFile(TEMPLATE) as z:
   styles,colors=header_styles(z.read("xl/styles.xml").decode())
@@ -134,7 +140,7 @@ def build(entity,body,data,base,labels=None):
   out=io.BytesIO()
   with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as target:
    for entry in z.infolist():target.writestr(entry,replacements.get(entry.filename,z.read(entry.filename)))
- return out.getvalue()
+ return with_dropdowns(out.getvalue(),data.get("dropdowns",{"Command":["C","U"],"Status":["Active","Block"]}))
 
 @router.post("/{entity}/download")
 def download(entity:Entity,body:View,request:Request,ctx:AccessContext=Depends(get_access_context)):
@@ -149,7 +155,7 @@ def download(entity:Entity,body:View,request:Request,ctx:AccessContext=Depends(g
 class Edit(BaseModel):
  model_config=ConfigDict(extra="forbid")
  row:int=Field(ge=3,le=1048576)
- command:Literal["C","U","D"]
+ command:Literal["C","U"]
  id:int|None=Field(None,ge=1)
  version:str|None=None
  changes:dict=Field(default_factory=dict)
@@ -158,7 +164,8 @@ class Edit(BaseModel):
   if self.command=="C" and (self.id or self.version):raise ValueError("Create cannot have an ID or RowVersion.")
   if self.command!="C" and (not self.id or not self.version):raise ValueError("ID and RowVersion are required.")
   return self
-class Batch(BaseModel):
+class Batch(TemplateBatch):
+ template_kind="masters"
  model_config=ConfigDict(extra="forbid")
  rows:list[Edit]=Field(min_length=1,max_length=500)
  @model_validator(mode="after")
@@ -183,15 +190,11 @@ def prepare(entity,edit,source,ctx):
  values={**source,**edit.changes}
  fields=CONFIG[entity]["editable"] if entity not in ("prices","raw-prices") else {"ExchangeRateToUSD","VendorID","MaterialID","CurrencyID","PriceBasis","QuantityFrom","QuantityTo","UnitPrice","EffectiveFrom","EffectiveTo","Status"}
  data={k:values.get(k) for k in fields}
- if entity=="prices":
-  data.update({k:values.get(k) for k in SUPPLIER_FIELDS})
-  definition_id=data.get("SupplierDimensionID")
-  if definition_id:
-   definition=execute(master_auth(entity)+"SELECT RowVersion FROM dbo.PackagingDimension WHERE ID=?",[ctx.username,int(definition_id)])[0]
-   data["SupplierDimensionRowVersion"]=definition[0]["RowVersion"] if definition else None
-  # Old workbooks editing unrelated fields must not reinterpret supplier formulas.
-  if not set(SUPPLIER_FIELDS).intersection(edit.changes) and edit.command!="C":
-   for k in (*SUPPLIER_FIELDS,"SupplierDimensionRowVersion"): data.pop(k,None)
+ if entity=="materials" and data.get("MaterialDimensionID"):
+  data["MaterialDimensionRowVersion"]=source.get("MaterialDimensionRowVersion")
+  if edit.command=="C" or "MaterialDimensionID" in edit.changes:
+   definition=execute(master_auth(entity)+"SELECT RowVersion FROM dbo.PackagingDimension WHERE ID=?",[ctx.username,int(data["MaterialDimensionID"])])[0]
+   data["MaterialDimensionRowVersion"]=definition[0]["RowVersion"] if definition else None
  if entity=="packaging-types":
   data.pop("ParentType",None)
   shipping=values.get('Shipping',False)
@@ -207,16 +210,43 @@ def prepare(entity,edit,source,ctx):
   if not isinstance(copy,bool):raise ValueError("Copy Dim. must be True or False.")
   data["CopyDim"]=copy
   if edit.command!="D" and ("ParentType" in edit.changes or edit.command=="C"):
-   name=str(values.get("ParentType") or "").strip()
-   if name:
+   names=str(values.get("ParentType") or "").strip()
+   names=json.loads(names) if names.startswith("[") else [v.strip() for v in names.split(";") if v.strip()]
+   if not isinstance(names,list) or any(not isinstance(name,str) or not name.strip() for name in names):
+    raise ValueError("Parent Types must be names separated by semicolons, or a JSON list of names.")
+   ids=[]
+   for name in names:
     matches=execute(master_auth(entity)+"""SELECT ID FROM dbo.PackagingType
      WHERE (CONCAT(PackagingOrder,N' / ',PackagingType)=? OR PackagingType=?) AND Status='Active'""",[ctx.username,name,name])[0]
-    if len(matches)!=1:raise ValueError("Choose an active Parent Type using Order / Packaging Type; the value is missing or ambiguous.")
-    data["ParentTypeID"]=matches[0]["ID"]
-   else:data["ParentTypeID"]=None
-  if data.get('ParentTypeID',source.get('ParentTypeID')) is not None:
+    if len(matches)!=1:raise ValueError("Choose existing active Parent Types; a value is missing or ambiguous.")
+    ids.append(matches[0]["ID"])
+   if len(set(ids))!=len(ids):raise ValueError("Choose each Parent Type only once.")
+   data["ParentTypeIDs"]=ids
+   data["ParentTypeID"]=ids[0] if ids else None
+  elif source.get("ParentTypeIDsJSON"):
+   data["ParentTypeIDs"]=json.loads(source["ParentTypeIDsJSON"])
+  elif source.get("ParentTypeID") is not None:
+   data["ParentTypeIDs"]=[source["ParentTypeID"]]
+  # API derives the legacy first link from ParentTypeIDs.
+  if "ParentTypeIDs" in data:
+   data.pop("ParentTypeID",None)
+  parent=(data['ParentTypeIDs'][0] if data['ParentTypeIDs'] else None) if 'ParentTypeIDs' in data else data.get('ParentTypeID',source.get('ParentTypeID'))
+  if parent is not None:
    if 'Shipping' in edit.changes and shipping:raise ValueError('Shipping applies only to root Packaging Types.')
    data['Shipping']=False
+  orders=[]
+  for key,order in TYPE_FLAGS.items():
+   data.pop(key,None)
+   flag=values.get(key,False)
+   if flag is None or flag=="":flag=False
+   if isinstance(flag,str) and flag.strip().lower() in ("true","false"):flag=flag.strip().lower()=="true"
+   if not isinstance(flag,bool):raise ValueError(key+" must be True or False.")
+   if flag:orders.append(order)
+   if parent is not None and key in edit.changes and flag:raise ValueError("Layer flags apply only to standalone/root Packaging Types.")
+  if parent is None:
+   data["PackagingOrders"]=orders
+   data["PackagingOrder"]=orders[0].replace(" Mix","") if orders else None
+  data["CopyDim"]=final and parent is None
  if entity=="materials":
   data.pop("PackagingType",None)
   if "PackagingType" in edit.changes or edit.command=="C":
@@ -242,8 +272,8 @@ def prepare(entity,edit,source,ctx):
    name=str(values.get("GradeName") or "").strip()
    if name:
     matches=execute(master_auth(entity)+"""SELECT g.ID FROM dbo.RawGrade g WHERE g.GradeName=?
-     AND g.Status='Active' AND NOT EXISTS(SELECT 1 FROM dbo.RawGrade child WHERE child.ParentGradeID=g.ID)""",[ctx.username,name])[0]
-    if len(matches)!=1:raise ValueError("Grade name was not found, is a parent grade, or is ambiguous.")
+     AND g.Status='Active' AND g.FinalGrade=1""",[ctx.username,name])[0]
+    if len(matches)!=1:raise ValueError("Grade name was not found, is not a final grade, or is ambiguous.")
     data["GradeID"]=matches[0]["ID"]
    else:data["GradeID"]=None
  if edit.command!="D":

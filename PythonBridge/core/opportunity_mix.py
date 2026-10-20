@@ -47,8 +47,10 @@ def split_child_edits(cursor, models, username):
         cursor.execute("EXEC dbo.usp_OpportunityItem_Fields_Save ?,?,?,?,0",
                        username, row.id, current.RowVersion, json.dumps(extra))
         version = consume(cursor)[0][0]["RowVersion"]
-        results.append(dict(RowNum=row.row_num, Status="OK", Message="Updated mix child",
-                            NewID=row.id, NewRowVersion=version))
+        result=dict(RowNum=row.row_num, Status="OK", Message="Updated mix child",NewID=row.id,NewRowVersion=version)
+        from opportunity_item_weight import save_item_weight
+        save_item_weight(cursor,row,result,username)
+        results.append(result)
     return normal, results
 
 
@@ -76,4 +78,6 @@ def save_new_child_requirements(cursor, model, result, username):
             validate_snapshot(cursor,extra["ProductGradeSnapshot"])
         cursor.execute("EXEC dbo.usp_OpportunityItem_Fields_Save ?,?,?,?,0",
                        username, saved.ID, saved.RowVersion, json.dumps(extra))
-        consume(cursor)
+        version=consume(cursor)[0][0]["RowVersion"]
+        from opportunity_item_weight import save_item_weight
+        save_item_weight(cursor,child,dict(NewID=saved.ID,NewRowVersion=version),username)

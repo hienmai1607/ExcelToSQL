@@ -16,27 +16,43 @@ async function fill(page:Page){
  await page.getByRole('button',{name:'New Opportunity',exact:true}).click();
  const form=page.getByRole('dialog',{name:'New Opportunity',exact:true});
  await form.getByLabel('Customer *',{exact:true}).selectOption('1');
- await expect(form.getByLabel('Customer currency',{exact:true})).toHaveValue('USD');
- await expect(form.getByLabel('Customer currency',{exact:true})).toHaveAttribute('readonly','');
+ await expect(form.getByLabel('Customer currency',{exact:true})).toHaveCount(0);
  await expect(form.getByLabel('Currency *',{exact:true})).toHaveCount(0);
  await form.getByLabel('Exchange rate VND per USD *',{exact:true}).fill('25000');
  await form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true}).fill('1');
  await form.getByLabel('Description *',{exact:true}).fill('Retail launch');
- await form.getByLabel('Bid open *').fill('2026-09-01');
- await form.getByLabel('Bid close *').fill('2026-10-01');
+ await form.getByLabel('Bid open',{exact:true}).fill('2026-09-01');
+ await form.getByLabel('Bid close',{exact:true}).fill('2026-10-01');
  const item=form.getByRole('region',{name:'Item 1',exact:true});
  await item.getByLabel('Product *').selectOption('2');
  await item.getByLabel('Annual units *').fill('1000');await item.getByText('Packaging requirements',{exact:true}).click();const pallet=item.getByLabel('Pallet size',{exact:true});if(await pallet.locator('option').count()>1)await pallet.selectOption({index:1});await item.getByText('Packaging requirements',{exact:true}).click();await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await item.getByLabel('Container Type',{exact:true}).selectOption('20DC');await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  return form;
 }
-test('Product Info replaces item description with read-only master net weight',async({page})=>{
+test('new Opportunity weight can be overridden and reset from Master before save',async({page})=>{
+ await setup(page);let payload:any,masterWeight=395;
+ await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,CustomerID:1,ProductCode:'Almonds',ProductName:'Almonds',WeightGrams:masterWeight}],pallets:[]}}));
+ await page.route('**/api/opportunity/batch',r=>{payload=r.request().postDataJSON();return r.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-NEW'}],item_results:payload.item_rows.map((x:any)=>({RowNum:x.RowNum,Status:'OK'}))}})});
+ const form=await fill(page),item=form.getByRole('region',{name:'Item 1',exact:true}),weight=item.getByLabel('Net weight (g)',{exact:true});
+ await expect(weight).toHaveValue('395');await weight.fill('420');
+ masterWeight=400;
+ await item.getByRole('button',{name:'Refresh Product weight for item 1',exact:true}).click();
+ await expect(weight).toHaveValue('400');
+ expect(payload).toBeUndefined();
+ await weight.fill('410.50');
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(payload.item_rows[0]).toMatchObject({Command:'C',NetWeightGrams:'410.50'});
+ expect(payload.item_rows[0]).not.toHaveProperty('RefreshProductWeight');
+});
+
+test('Product Info defaults editable net weight from the selected Product',async({page})=>{
  await setup(page);let payload:any;
  await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{pallets:[{ID:1,PalletSize:'1100x1100mm'}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1,WeightGrams:150.25},{ID:3,ProductCode:'Cashews',ProductName:'Cashew mix',CustomerID:1,WeightGrams:450}]}}));
  await page.route('**/api/opportunity/batch',r=>{payload=r.request().postDataJSON();return r.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-NEW'}],item_results:payload.item_rows.map((x:any)=>({RowNum:x.RowNum,Status:'OK'}))}})});
  const form=await fill(page),item=form.getByRole('region',{name:'Item 1',exact:true});
  await expect(item.getByLabel('Item description *')).toHaveCount(0);
  await expect(item.getByLabel('Net weight (g)',{exact:true})).toHaveValue('150.25');
- await expect(item.getByLabel('Net weight (g)',{exact:true})).toHaveAttribute('readonly','');
+ await expect(item.getByLabel('Net weight (g)',{exact:true})).toBeEditable();
  await item.getByLabel('Product *',{exact:true}).selectOption('3');
  await expect(item.getByLabel('Net weight (g)',{exact:true})).toHaveValue('450');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
@@ -50,7 +66,7 @@ test('pallet size uses material Length x Width labels and saves the dimension sn
  await item.getByText('Packaging requirements',{exact:true}).click();await item.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  await item.getByLabel('Loading request',{exact:true}).selectOption('Pallet load');
  const select=item.getByRole('combobox',{name:'Pallet size',exact:true});
- await expect(select.locator('option')).toHaveText(['Choose pallet size','1100 × 1100 mm','1200 × 1000 mm']);
+ await expect(select.locator('option')).toHaveText(['Not specified (optional)','1100 × 1100 mm','1200 × 1000 mm']);
  await expect(item.getByRole('textbox',{name:'Pallet size',exact:true})).toHaveCount(0);
  await select.selectOption('1100x1100mm');await expect(select).toHaveValue('1100x1100mm');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
@@ -66,7 +82,7 @@ test('compact heading and header align in one desktop row and estimated award un
  expect(Math.abs(title!.y+title!.height/2-refresh!.y-refresh!.height/2)).toBeLessThan(6);
  await expect(page.getByRole('button',{name:'Excel local template',exact:true})).toHaveCount(1);
  const form=await fill(page);
- const names=['Customer *','Description *','Bid open *','Bid close *','Customer currency','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
+ const names=['Customer *','Description *','Bid open','Bid close','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
  const boxes=await Promise.all(names.map(name=>form.getByLabel(name,{exact:true}).boundingBox()));
  expect(Math.max(...boxes.map(b=>b!.y))-Math.min(...boxes.map(b=>b!.y))).toBeLessThan(3);
  expect(boxes[2]!.width).toBeLessThan(boxes[1]!.width);
@@ -102,7 +118,7 @@ test('opening item sections smoothly reveals their bottom, while closing does no
  expect(await page.evaluate(()=>(window as any).expansionScrolls.at(-1).options.behavior)).toBe('auto');
 });
 
-test('empty pallet dimensions show guidance and blocks saving the required size',async({page})=>{
+test('empty pallet dimensions show guidance while pallet size stays optional',async({page})=>{
  await setup(page);
  await page.route('**/api/opportunity/lookups',r=>r.fulfill({json:{customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:2,ProductCode:'Almonds',ProductName:'Roasted almonds',CustomerID:1}],pallets:[]}}));
  const form=await fill(page);await form.getByText('Packaging requirements',{exact:true}).click();await form.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
@@ -110,7 +126,7 @@ test('empty pallet dimensions show guidance and blocks saving the required size'
  await expect(form.getByLabel('Pallet size',{exact:true}).locator('option')).toHaveCount(1);
  await expect(form.getByText('No active pallet dimensions. Maintain Length and Width for a Pallet material in Packaging Pricing.')).toBeVisible();
  await form.getByRole('button',{name:'Review & save'}).click();
- await expect(page.getByRole('dialog',{name:'Confirm Opportunity save'})).toHaveCount(0);await expect(page.getByRole('alert')).toContainText('Pallet size is required.');
+ await expect(page.getByRole('dialog',{name:'Confirm Opportunity save'})).toBeVisible();
 });
 
 test('creates one header with multiple items only after confirmation',async({page})=>{
@@ -151,7 +167,7 @@ test('creates one header with multiple items only after confirmation',async({pag
 test('entry controls align and packaging fields use a compact grid',async({page})=>{
  await page.setViewportSize({width:1800,height:1100});
  await setup(page);const form=await fill(page);
- const selectors=['Customer *','Bid open *','Bid close *','Customer currency','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
+ const selectors=['Customer *','Bid open','Bid close','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
  const boxes=await Promise.all(selectors.map(name=>form.getByLabel(name,{exact:true}).boundingBox()));
  for(const box of boxes)expect(box!.height).toBe(32);
  await form.getByText('Packaging requirements',{exact:true}).click();await form.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
@@ -187,7 +203,7 @@ test('validates numeric limits, dates and keeps at least one item',async({page})
  await expect(form.getByRole('alert')).toContainText('0 to 100');
  await expect(page.getByRole('dialog',{name:'Confirm Opportunity save'})).toHaveCount(0);
  await form.getByLabel('Annual units *').fill('1');await form.getByLabel('Estimated award %').fill('');
- await form.getByLabel('Bid close *').fill('2026-08-01');
+ await form.getByLabel('Bid close',{exact:true}).fill('2026-08-01');
  await form.getByRole('button',{name:'Review & save'}).click();
  await expect(page.getByRole('dialog',{name:'Confirm Opportunity save'})).toHaveCount(0);
 });

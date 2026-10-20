@@ -9,7 +9,7 @@ import {LoadScene,type Box3D} from './load-scene';
 import type {ContainerRecord} from './container-master';
 type D={length:number;width:number;height:number};
 type Position={x:number;y:number;length:number;width:number};
-type Result={pallet_layer:Position[];pallet_layers:number;cartons_per_pallet:number;container_layer:Position[];loaded_units:number;floor_positions:number;cartons:number;loaded_unit_height:number;gross_kg:number|null;volume_percent:number;warnings:string[]};
+type Result={net_kg?:number|null;pallet_layer_capacity?:number;pallet_layer_upper_bound?:number;pallet_layout_optimal?:boolean;container_layer_capacity?:number;container_layer_upper_bound?:number;container_layout_optimal?:boolean;pallet_layer:Position[];pallet_layers:number;cartons_per_pallet:number;container_layer:Position[];loaded_units:number;floor_positions:number;cartons:number;loaded_unit_height:number;gross_kg:number|null;volume_percent:number;warnings:string[]};
 type Inputs={cartons_per_layer?:number|null;weight_source?:'manual'|'response';mode:'pallet'|'floor';carton:D;carton_kg:number|null;pallet:D|null;pallet_kg:number|null;max_pallet_height:number|null;pallet_payload_kg:number|null;container:D;rotate:boolean;double_stack:boolean;stackable:boolean};
 type Preview={Inputs:Inputs;Result:Result};
 type CachedPreview={data?:Preview;error?:string};
@@ -25,7 +25,8 @@ export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCod
  const [containers,setContainers]=useState<ContainerRecord[]>([]),[containerID,setContainerID]=useState('');
  const [previews,setPreviews]=useState<Record<string,CachedPreview>>({}),[retry,setRetry]=useState(0);
  const [error,setError]=useState(''),[lookupErrors,setLookupErrors]=useState<string[]>([]),[weightsLoaded,setWeightsLoaded]=useState(false),[busy,setBusy]=useState(false);
- const requestPending=useRef(false);
+ const requestPending=useRef(false),attempted=useRef(new Set<string>()),capturedPlans=useRef<Record<string,unknown>>({}),lastApplied=useRef('');
+ const onCapture=useRef(onConfirm);onCapture.current=onConfirm;
  const container=containers.find(c=>String(c.ID)===containerID);
  const key=mode+':'+containerID,entry=previews[key];
  const inputs=useMemo(()=>entry?.data?normalized(entry.data.Inputs):{...base,mode,container:container?{length:Number(container.Specifications.length),width:Number(container.Specifications.width),height:Number(container.Specifications.height)}:base.container},[entry?.data,base,mode,container]);
@@ -72,7 +73,7 @@ export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCod
   return()=>{active=false;window.clearTimeout(timer)}
  },[containers,base,mode,ready,retry,itemID]);
  function selectContainer(id:string){setContainerID(id);setError('')}
- function retryPreview(c:ContainerRecord){setPreviews(v=>{const next={...v};delete next[mode+':'+c.ID];return next});setRetry(v=>v+1);setError('')}
+ function retryPreview(c:ContainerRecord){attempted.current.delete(mode+':'+c.ID);setPreviews(v=>{const next={...v};delete next[mode+':'+c.ID];return next});setRetry(v=>v+1);setError('')}
  async function confirmPreview(){
   if(!container||!result||requestPending.current)return;
   requestPending.current=true;setBusy(true);setError('');
@@ -80,11 +81,21 @@ export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCod
    const response=await call<Preview & {ID:number}>('/api/load-planning/items/'+itemID+'/save',{ContainerID:container.ID,ContainerRowVersion:container.RowVersion,Inputs:inputs,ItemRowVersion:itemVersion});
    if(response.Inputs.mode!==mode)throw new Error('Loading mode does not match the request requirement. Refresh the viewer.');
    if(!response.ID)throw new Error('Confirmation returned no saved setup. Reopen the viewer before retrying.');
-   onConfirm?.({...response,ContainerID:container.ID,Code:container.Code});onClose();
+   const captured={...response,ContainerID:container.ID,Code:container.Code};
+   capturedPlans.current[key]=captured;lastApplied.current=key;onCapture.current?.(captured);
   }catch(e){
    const message=(e as Error).message;setError(message);setPreviews(v=>({...v,[key]:{error:message}}));
   }finally{requestPending.current=false;setBusy(false)}
  }
+
+ useEffect(()=>{
+  if(!onConfirm||busy||!container||!entry?.data||!result||result.cartons<=0)return;
+  const captured=capturedPlans.current[key];
+  if(captured){if(lastApplied.current!==key){lastApplied.current=key;onConfirm(captured)}return}
+  if(attempted.current.has(key))return;
+  attempted.current.add(key);
+  void confirmPreview();
+ },[key,entry?.data,busy,onConfirm]);
  const boxes=useMemo(()=>{
   if(!result)return [];const all:Box3D[]=[];
   for(let n=0;n<Math.min(result.loaded_units,2501);n++){
@@ -112,10 +123,10 @@ export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCod
  <fieldset><legend>Final carton — from saved response</legend>{dimensions()}<label>Carton gross weight (kg)<input aria-label="Carton gross weight (kg)" readOnly value={decimalDisplay(inputs.carton_kg,3)??''}/></label>{weightsLoaded&&inputs.carton_kg==null&&<small role="status">Carton gross weight is unavailable. Save response quantities and material tare for every layer and child item.</small>}</fieldset>
  {inputs.mode==='pallet'&&<fieldset><legend>Palletization</legend><label>Gross weight / Pallet (kg)<input aria-label="Gross weight / Pallet (kg)" readOnly value={decimalDisplay(palletGross,3)??''}/></label><label>Cartons / Pallet<input aria-label="Cartons / Pallet" readOnly value={decimalDisplay(palletCartons,0)??''}/></label><label>Loaded pallet dimension (mm)<input aria-label="Loaded pallet dimension (mm)" readOnly value={loadedDimensions}/></label>{!palletAssembly&&<small role="status">Save pallet pricing in the response before viewing a pallet load.</small>}</fieldset>}
  </fieldset><div className="load-planner-preview">{result?<><LoadScene boxes={boxes} bounds={inputs.container} label="3D container load layout"/>
- {!!result.warnings.length&&<details className="load-warnings"><summary>{result.warnings.length} loading notice(s)</summary>{result.warnings.map(w=><p className="load-warning" key={w}>{w}</p>)}</details>}<small>Best tested rectangular layout; maximum capacity is not guaranteed.</small></>:<p aria-live="polite">{entry?.error?'Preview unavailable. Retry this container below.':ready&&container?'Calculating container load…':'Complete the saved response data to view the container load.'}</p>}
- <div className="load-container-table"><table aria-label="Container load summary"><caption>Container summary · {mode==='pallet'?'Pallet loaded':'Floor-loaded cartons'}</caption><thead><tr><th>Container</th><th>Pallets</th><th>Cartons</th><th>Gross (kg)</th><th>Payload (kg)</th><th>Volume %</th></tr></thead><tbody>{containers.map(c=>{
+ {!!result.warnings.length&&<details className="load-warnings"><summary>{result.warnings.length} loading notice(s)</summary>{result.warnings.map(w=><p className="load-warning" key={w}>{w}</p>)}</details>}{inputs.mode==='pallet'&&result.pallet_layer_capacity!=null&&<small>Pallet layer: {result.pallet_layout_optimal?'verified maximum':'best found'} {result.pallet_layer_capacity} cartons{!result.pallet_layout_optimal&&result.pallet_layer_upper_bound!=null?'; upper bound '+result.pallet_layer_upper_bound:''}. Upright cartons, 90° rotation, no overhang.</small>}<small>{result.container_layer_capacity!=null?'Container floor: '+(result.container_layout_optimal?'verified maximum ':'best found ')+result.container_layer_capacity+' positions. ':''}Overall 3D maximum is not guaranteed; saved response quantities, height and weight limits still apply.</small></>:<p aria-live="polite">{entry?.error?'Preview unavailable. Retry this container below.':ready&&container?'Calculating container load…':'Complete the saved response data to view the container load.'}</p>}
+ </div><div className="load-container-table"><table aria-label="Container load summary"><caption>Container summary · {mode==='pallet'?'Pallet loaded':'Floor-loaded cartons'}</caption><thead><tr><th>Container</th><th>Dimensions (mm)<small>L × W × H</small></th><th>Pallets</th><th>Cartons</th><th>Net (kg)</th><th>Gross (kg)</th><th>Payload (kg)</th><th>Volume %</th></tr></thead><tbody>{containers.map(c=>{
  const row=previews[mode+':'+c.ID],r=row?.data?.Result;
- return <tr key={c.ID} className={String(c.ID)===containerID?'selected':''}><td><button type="button" aria-label={'View '+c.Code} aria-pressed={String(c.ID)===containerID} disabled={busy} onClick={()=>selectContainer(String(c.ID))}>{c.Code}</button></td>{r?<><td>{mode==='pallet'?decimalDisplay(r.loaded_units,0):'—'}</td><td>{decimalDisplay(r.cartons,0)}</td><td>{decimalDisplay(r.gross_kg,3)??'Unknown'}</td><td>{decimalDisplay(c.Specifications.payload_kg,3)??'—'}</td><td>{decimalDisplay(r.volume_percent,1)}%</td></>:<td colSpan={5}>{row?.error?<span title={row.error}>Unavailable <button type="button" disabled={busy} onClick={()=>retryPreview(c)} aria-label={'Retry '+c.Code}>Retry</button></span>:ready?'Calculating…':'—'}</td>}</tr>
+ return <tr key={c.ID} className={String(c.ID)===containerID?'selected':''}><td><button type="button" aria-label={'View '+c.Code} aria-pressed={String(c.ID)===containerID} disabled={busy} onClick={()=>selectContainer(String(c.ID))}>{c.Code}</button></td><td className="load-container-dimensions">{[c.Specifications.length,c.Specifications.width,c.Specifications.height].map(v=>decimalDisplay(v,3)).join(' × ')}</td>{r?<><td>{mode==='pallet'?decimalDisplay(r.loaded_units,0):'—'}</td><td>{decimalDisplay(r.cartons,0)}</td><td>{decimalDisplay(r.net_kg,3)??'Unknown'}</td><td>{decimalDisplay(r.gross_kg,3)??'Unknown'}</td><td>{decimalDisplay(c.Specifications.payload_kg,3)??'—'}</td><td>{decimalDisplay(r.volume_percent,1)}%</td></>:<td colSpan={6}>{row?.error?<span title={row.error}>Unavailable <button type="button" disabled={busy} onClick={()=>retryPreview(c)} aria-label={'Retry '+c.Code}>Retry</button></span>:ready?'Calculating…':'—'}</td>}</tr>
  })}</tbody></table></div>
- </div></div><div className="actions record-action-bar">{onClear&&<IconButton icon="refresh" label="Clear load plan" disabled={busy} onClick={onClear}/>}<button type="button" disabled={busy} onClick={onClose}>Close</button>{onConfirm&&<button type="button" className="primary" disabled={busy||!container||!result||result.cartons<=0} onClick={confirmPreview}>Preview confirm</button>}</div></Modal>
+ </div><div className="actions record-action-bar">{onClear&&<IconButton icon="refresh" label="Clear load plan" disabled={busy} onClick={onClear}/>}<button type="button" disabled={busy} onClick={onClose}>Close</button>{busy&&<span role="status">Capturing container load…</span>}</div></Modal>
 }

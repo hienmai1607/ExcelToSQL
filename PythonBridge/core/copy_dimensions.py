@@ -7,11 +7,11 @@ SLOTS=("D1","D2","D3")
 def copied_geometry(root,price,dimensions,units,conversion):
  source=dimensions.get(price.get("MaterialDimensionID"))
  if not source or source["PackagingTypeID"]!=price["PackagingTypeID"]:
-  raise HTTPException(422,"Maintain material dimensions in Packaging Pricing before using Copy Dim.")
+  raise HTTPException(422,"Maintain material dimensions in Packaging Material before using Copy Dim.")
  raw=price.get("MaterialDimensionRowVersion")
  raw=rv(raw) if isinstance(raw,str) else raw
  if raw is None or bytes(raw)!=bytes(source["RowVersion"]):
-  raise HTTPException(409,"Material dimension definition changed. Refresh and update Packaging Pricing.")
+  raise HTTPException(409,"Material dimension definition changed. Refresh and update Packaging Material.")
  target=dimensions.get(source.get("ParentDimensionID") or source["ID"])
  if not target or target["PackagingTypeID"]!=root["ID"] or target.get("ParentDimensionID") is not None:
   raise HTTPException(422,"Material dimensions must link to the selected final type's dimension definition.")

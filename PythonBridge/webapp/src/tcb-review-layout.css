@@ -1,0 +1,70 @@
+/* One page scroll, compact header controls, and a quiet always-open grade workspace. */
+.tcb-review-dialog .tcb-item{position:relative}
+.tcb-review-dialog .tcb-item-title::before{content:"›";display:inline-block;margin-right:7px;color:var(--muted)}
+.tcb-review-dialog .tcb-item[open]>.tcb-item-title::before{transform:rotate(90deg)}
+.tcb-review-dialog .tcb-item-title{min-height:38px;padding-right:440px;display:flex;align-items:center;font-size:14px;line-height:1.4}
+.tcb-review-dialog .tcb-item>.tcb-version-controls{position:absolute;right:12px;top:10px;margin:0;gap:8px;align-items:center;max-width:430px}
+.tcb-review-dialog .tcb-item:not([open])>.tcb-version-controls{display:none}
+.tcb-review-dialog .tcb-version-controls>label{min-width:0;width:220px;margin:0}
+.tcb-review-dialog .tcb-version-controls select{height:32px;min-width:0;width:100%;padding:5px 8px;font-size:12px}
+.tcb-review-dialog .tcb-version-state{padding:4px 7px;white-space:nowrap;font-size:11px}
+.tcb-review-dialog .tcb-version-controls>button{height:32px;min-height:32px}
+.tcb-review-dialog .tcb-version-controls>[role=alert]{flex-basis:100%;margin:0}
+.tcb-review-dialog .tcb-item:has(.tcb-version-controls>[role=alert])>.tcb-item-title{min-height:70px}
+.tcb-review-dialog .tcb-grade-editor{margin:0;padding:0;border:0;container-type:inline-size}
+.tcb-review-dialog .tcb-grade-editor .grade-tree-scroll{max-height:none;overflow:visible;padding:0}
+.tcb-review-dialog .grade-tree-canvas{--grade-card-width:calc((100cqw - (var(--grade-columns) - 1)*16px)/var(--grade-columns));--grade-tree-gap:16px;gap:16px;width:100%;min-width:0}
+.tcb-review-dialog .grade-pricing-section{flex:none;width:var(--grade-card-width);min-width:0}
+.tcb-review-dialog .grade-material-section{flex:none}
+.tcb-review-dialog .grade-tree-node,.tcb-review-dialog .grade-material-card,.tcb-review-dialog .grade-pricing-card{box-sizing:border-box;min-height:var(--grade-card-height)}
+.tcb-review-dialog .grade-tree-canvas{position:relative}
+.grade-tree-links{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.grade-tree-links path{fill:none;stroke:var(--grade-line,#91aaa0);stroke-width:1.2}
+.tcb-review-dialog .grade-tree-hierarchy,.tcb-review-dialog .grade-material-section,.tcb-review-dialog .grade-pricing-section{position:relative}
+.tcb-product-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px}
+.tcb-product-heading>h3{margin:0}
+.tcb-product-heading>.icon-button{width:28px;height:28px;min-height:28px;padding:4px}
+.tcb-review-dialog .grade-material-label{flex-wrap:wrap}
+.tcb-review-dialog .grade-tree-levels{gap:var(--grade-tree-gap)}
+.tcb-review-dialog .grade-tree-node-summary small{font-size:10px}
+.tcb-review-dialog .grade-pricing-card{padding:8px}
+.tcb-review-dialog .grade-pricing-heading{gap:4px}
+.tcb-review-dialog .grade-direct-price{gap:4px;font-size:12px}
+.tcb-review-dialog .grade-direct-price input[type=number]{width:64px}
+.tcb-review-dialog .grade-direct-price>label{font-size:11px}
+.tcb-review-dialog .tcb-grade-price{gap:5px}
+.tcb-review-dialog .tcb-grade-price>label{font-size:11px;gap:4px}
+.tcb-review-dialog .tcb-grade-price select{height:32px;padding:4px 6px;font-size:12px}
+.tcb-review-dialog .tcb-product-totals{display:flex;gap:32px;margin:10px 0 0}
+.tcb-review-dialog .tcb-product-totals output{min-height:0;padding:2px 0}
+.tcb-review-dialog [aria-label="TCB Review items"]>.tcb-item>section{margin-top:10px;padding-top:10px}
+.tcb-review-dialog [aria-label="Product"]>h3{margin:0 0 8px}
+.tcb-review-dialog .tcb-process-info .table-scroll{overflow:visible}
+@media(max-width:1100px){
+ .tcb-review-dialog .tcb-item-title{padding-right:0}
+ .tcb-review-dialog .tcb-item>.tcb-version-controls{position:static;max-width:none;margin:8px 0}
+ .tcb-review-dialog .grade-tree-canvas{--grade-card-width:210px}
+}
+/* Deep trees preserve their relationships and stay accessible via the page scroll. */
+.tcb-review-dialog [aria-label="TCB Review items"]{min-width:0}
+@media(max-width:1200px){
+ .tcb-review-dialog .grade-tree-links{display:none}
+ .tcb-review-dialog .grade-tree-canvas{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .tcb-review-dialog .grade-tree-hierarchy{grid-column:1/-1;min-width:0}
+ .tcb-review-dialog .grade-tree-level-heading:not(:first-child){display:none}
+ .tcb-review-dialog .grade-tree-level-heading{width:100%}
+ .tcb-review-dialog .grade-tree-branches li{display:block}
+ .tcb-review-dialog .grade-tree-node{width:100%}
+ .tcb-review-dialog .grade-tree-branches .grade-tree-branches{margin-left:16px}
+ .tcb-review-dialog .grade-tree-branches li::before,.tcb-review-dialog .grade-tree-branches li::after,.tcb-review-dialog .grade-tree-branches .grade-tree-branches::before{display:none}
+ .tcb-review-dialog .grade-material-section,.tcb-review-dialog .grade-pricing-section{width:100%!important;min-width:0}
+ .tcb-review-dialog .grade-material-list,.tcb-review-dialog .grade-pricing-list{display:grid;gap:8px;height:auto!important}
+ .tcb-review-dialog .grade-material-card,.tcb-review-dialog .grade-pricing-card{position:static;width:100%;min-width:0;box-sizing:border-box}
+}
+@media(max-width:650px){
+ .tcb-review-dialog .grade-tree-canvas{grid-template-columns:minmax(0,1fr)}
+ .tcb-review-dialog .tcb-item>.tcb-version-controls{max-width:100%}
+ .tcb-review-dialog .tcb-version-controls>label{width:180px}
+ .tcb-review-dialog .grade-pricing-heading{flex-wrap:wrap}
+ .tcb-review-dialog .grade-direct-price{flex-wrap:wrap}
+}

@@ -1,6 +1,6 @@
 """Packaging Type Master batch writes; SQL owns roles and concurrency."""
 import json
-from typing import Literal
+from typing import Literal, Annotated
 from fastapi import APIRouter, Depends
 from pydantic import Field, field_validator, model_validator
 from auth import AccessContext, get_access_context
@@ -11,11 +11,12 @@ router = APIRouter(prefix="/api/packaging/type", tags=["Packaging Type Master"])
 
 class PackagingTypeRow(MasterRow):
     ParentTypeID: int | None = Field(None, ge=1, le=2147483647)
+    ParentTypeIDs: list[Annotated[int, Field(strict=True, ge=1, le=2147483647)]] | None = Field(None, max_length=100)
     Shipping: bool = Field(False, strict=True)
     FinalComponent: bool = Field(False, strict=True)
     CopyDim: bool = Field(False, strict=True)
     PackagingOrder: Literal["Primary", "Secondary", "Tertiary", "Pallet"] | None = None
-    PackagingOrders: list[Literal["Primary", "Secondary", "Tertiary", "Pallet"]] | None = Field(None,max_length=3)
+    PackagingOrders: list[Literal["Primary", "Secondary", "Tertiary", "Primary Mix", "Secondary Mix", "Tertiary Mix", "Pallet"]] | None = Field(None,max_length=7)
     PackagingType: str | None = Field(None, max_length=100)
     PriceBasis: Literal["Count", "Square meter", "Volume"] | None = None
     Status: Literal["Active", "Block"] | None = None
@@ -27,6 +28,15 @@ class PackagingTypeRow(MasterRow):
 
     @model_validator(mode="after")
     def identity(self):
+        if "ParentTypeIDs" in self.model_fields_set:
+            if self.ParentTypeIDs is None or len(set(self.ParentTypeIDs)) != len(self.ParentTypeIDs):
+                raise ValueError("Choose distinct Parent Types, or an empty list for a root type.")
+            if self.ID in self.ParentTypeIDs:
+                raise ValueError("A Packaging Type cannot be its own parent.")
+            if "ParentTypeID" in self.model_fields_set and self.ParentTypeID != (self.ParentTypeIDs[0] if self.ParentTypeIDs else None):
+                raise ValueError("Use ParentTypeIDs without a conflicting legacy ParentTypeID.")
+            self.ParentTypeID = self.ParentTypeIDs[0] if self.ParentTypeIDs else None
+            self.model_fields_set.add("ParentTypeID")
         if self.Command == "C" and (self.ID is not None or self.RowVersion is not None):
             raise ValueError("Create cannot have an ID or RowVersion.")
         if self.Command != "C" and self.ID is None:
@@ -35,20 +45,19 @@ class PackagingTypeRow(MasterRow):
             raise ValueError("Select each packaging order only once.")
         if self.ParentTypeID is not None and self.Shipping:
             raise ValueError("Shipping applies only to root Packaging Types.")
-        if self.CopyDim and (self.Command == "C" or "FinalComponent" in self.model_fields_set) and not self.FinalComponent:
-            raise ValueError("Copy Dim. requires Single.")
-        if self.CopyDim and self.ParentTypeID is not None:
-            raise ValueError("Copy Dim. requires a Single type with no parent.")
+        if self.Command == "C" or "FinalComponent" in self.model_fields_set and "ParentTypeID" in self.model_fields_set:
+            self.CopyDim = self.FinalComponent and self.ParentTypeID is None
+            self.model_fields_set.add("CopyDim")
         known_root = self.ParentTypeID is None and (self.Command == "C" or "ParentTypeID" in self.model_fields_set)
         if known_root and "PackagingOrders" in self.model_fields_set and not self.PackagingOrders and self.Command!="D":
             raise ValueError("Select at least one packaging order.")
-        if known_root and self.PackagingOrders and self.PackagingOrder and self.PackagingOrder not in self.PackagingOrders:
+        if known_root and self.PackagingOrders and self.PackagingOrder and self.PackagingOrder not in [order.replace(" Mix","") for order in self.PackagingOrders]:
             raise ValueError("Legacy Order must belong to the selected packaging orders.")
         if self.Command != "D" and ((known_root and not (self.PackagingOrder or self.PackagingOrders)) or not self.PackagingType):
             raise ValueError("Packaging layer selection and Packaging Type are required.")
         if self.PackagingOrder == "Pallet" or "Pallet" in (self.PackagingOrders or []):
-            if self.ParentTypeID or not self.FinalComponent or not self.CopyDim or self.Shipping or any(o != "Pallet" for o in self.PackagingOrders or []):
-                raise ValueError("Pallet requires Single and Copy Dim., no parent, no Shipping or other orders.")
+            if self.ParentTypeID or not self.FinalComponent or (self.PackagingType=='Pallet' and not self.CopyDim) or self.Shipping or any(o != "Pallet" for o in self.PackagingOrders or []):
+                raise ValueError("Palletization requires root Single types without Shipping or other orders; Type Pallet also requires Copy Dim.")
         rv(self.RowVersion, self.Command != "C")
         return self
 

@@ -28,6 +28,7 @@ export function numericEntryError(field:string,value:string){
  if(field==='NutDensity')return /^\d{1,12}(\.\d{0,6})?$/.test(value)&&Number(value)>0?'':'Use a positive density with up to 12 whole digits and 6 decimal places.';
  if(field==='Width'||field==='Length')return /^\d{1,8}(\.\d{0,4})?$/.test(value)&&Number(value)>0?'':'Use a positive number with up to 8 whole digits and 4 decimal places.';
  if(field==='ShelfLifeDays')return /^\d+$/.test(value)&&Number(value)<=2147483647?'':'Use whole days from 0 to 2,147,483,647.';
+ if(field==='BaseFactor')return /^\d{1,12}(\.\d{0,12})?$/.test(value)&&Number(value)>0?'':'Use a positive factor with up to 12 decimal places.';
  const places=field==='TareWeight'||field==='Factor'||field==='ConversionFactor'?9:field==='UnitPrice'?2:3;
  if(!new RegExp('^\\d+(\\.\\d{0,'+places+'})?$').test(value))return 'Use a non-negative number with up to '+places+' decimal places.';
  return '';

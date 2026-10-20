@@ -8,7 +8,7 @@
  .customers-page>.opportunity-view-tools .layout-panel{max-width:100%}
 }
 @media(min-width:1400px){
- .opportunity-entry-dialog .opportunity-header-fields{grid-template-columns:minmax(140px,1.3fr) minmax(180px,2fr) repeat(2,minmax(128px,.75fr)) minmax(78px,.5fr) minmax(120px,.85fr) minmax(150px,1.1fr);align-items:end}
+ .opportunity-entry-dialog .opportunity-header-fields{grid-template-columns:minmax(140px,1.3fr) minmax(180px,2fr) repeat(2,minmax(128px,.75fr)) minmax(120px,.85fr) minmax(150px,1.1fr);align-items:end}
  .opportunity-entry-dialog .opportunity-header-fields>label,.opportunity-entry-dialog .opportunity-header-fields>label:nth-child(2),.opportunity-entry-dialog .opportunity-bid-dates>label,.opportunity-entry-dialog .opportunity-header-fields>.opportunity-currency,.opportunity-entry-dialog .opportunity-header-fields>.opportunity-rate,.opportunity-entry-dialog .opportunity-header-fields>.opportunity-rate:nth-of-type(5){grid-column:auto}
  .opportunity-entry-dialog .opportunity-entry-summary{grid-column:1/-1;display:flex;justify-content:flex-end;gap:24px;border:0;padding:4px 0 0}
  .opportunity-entry-summary>div{display:flex;align-items:center;gap:8px}.opportunity-entry-summary span{margin:0}
@@ -66,9 +66,12 @@
 .response-sections .captured-dimensions-value>span{display:inline;white-space:normal;max-width:none}
 .response-sections .packaging-layer-sections>section{min-width:0;container-type:inline-size}
 .response-sections .packaging-layer-sections .packaging-entry-grid>label{font-size:clamp(10px,2.6cqw,12px);white-space:normal}
-.response-sections .packaging-layer-sections .packaging-entry-grid{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr) minmax(0,1.45fr);column-gap:8px}
+.response-sections .packaging-layer-sections .packaging-entry-grid{grid-template-columns:minmax(0,1.8fr) minmax(0,.7fr) minmax(0,1.05fr);column-gap:8px}
 .response-sections .packaging-layer-sections .packaging-entry-grid>label:last-child{padding-right:12px;white-space:nowrap}
-.response-sections .packaging-layer-sections .response-price-field input{width:0;min-width:0;flex:1 1 0}
+.response-sections .packaging-layer-sections .response-price-field input{width:calc(var(--price-width,1ch) + 2px);min-width:0;max-width:calc(100% - 4ch);flex:0 1 auto;font-variant-numeric:tabular-nums}
+@supports(field-sizing:content){
+ .response-sections .packaging-layer-sections .response-price-field input{field-sizing:content;width:auto}
+}
 .response-sections .packaging-layer-sections>section+section::before{inset:0 auto 0 -6px;border-left:1px solid var(--border);border-top:0}
 @media(max-width:900px){
  .response-sections .packing-way-grid[data-layers],
@@ -76,6 +79,9 @@
  .response-sections .packaging-layer-sections>section+section::before{inset:-6px 0 auto;border-left:0;border-top:1px solid var(--border)}
 }
 @media(max-width:700px){
+ .response-sections .packaging-layer-sections .packaging-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .response-sections .packaging-layer-sections .packaging-entry-grid>label:first-child{grid-column:1/-1}
+ .response-sections .packaging-layer-sections .packaging-entry-grid>label:last-child{white-space:normal}
  .response-sections .packing-way-layer,
  .response-sections .packing-way-layer[data-shipping="true"]{grid-template-columns:repeat(3,minmax(0,1fr))}
  .response-sections .packing-way-layer>label{white-space:normal}
@@ -122,3 +128,16 @@ dialog .add-section{scroll-margin-block-end:80px}
 .request-family-children li+li{margin-top:8px}
 .request-editor-item .item-review{min-width:240px}
 @media(max-width:700px){.request-editor-family{padding:8px}.request-editor-family>.request-editor-child{margin-left:8px}.request-editor-item .item-review{min-width:0}}
+/* Opportunity header controls share the same sizing, including formatted date inputs. */
+.opportunity-entry-dialog .opportunity-header-fields{align-items:start}
+.opportunity-entry-dialog .opportunity-header-fields label{margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}
+.opportunity-entry-dialog .opportunity-header-fields input:not(.date-native-picker),
+.opportunity-entry-dialog .opportunity-header-fields select{height:32px;min-height:32px;max-height:32px;font-size:12px;padding:5px 9px;line-height:20px;box-sizing:border-box;width:100%!important;max-width:100%!important}
+.opportunity-entry-dialog .opportunity-header-fields .field-label{height:18px;min-height:18px;line-height:18px}
+.opportunity-entry-dialog .opportunity-header-fields .date-field{height:32px}
+.opportunity-entry-dialog .opportunity-header-fields .date-field>input[type="text"]{padding-right:32px}
+.opportunity-entry-dialog .opportunity-header-fields .date-picker-button{height:28px;min-height:28px;width:28px;top:2px;bottom:2px;right:2px;padding:4px}
+.packaging-parent-options{display:grid;gap:6px;max-height:170px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px}
+.packaging-parent-options>label{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;margin:0!important;font-size:12px}
+.packaging-parent-options input[type=checkbox]{flex:none;width:16px;height:16px}
+.packaging-parent-options>small{font-size:11px}

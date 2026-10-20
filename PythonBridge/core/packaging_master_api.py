@@ -42,15 +42,15 @@ def order_by(entity,raw):
 def lookups(ctx:AccessContext=Depends(get_access_context),entity:Entity="materials"):
  if entity=="products":
   require(ctx,"Product")
-  sets=execute(PRODUCT_AUTH+"""SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.Product p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID; SELECT ID,CustomerName,Status FROM dbo.Customer ORDER BY CustomerName,ID; SELECT ID,CategoryName,Status FROM dbo.ProductCategory ORDER BY CategoryName,ID;""",[ctx.username])
-  return dict(materials=[],currencies=[],creators=sets[0],customers=sets[1],categories=sets[2])
+  sets=execute(PRODUCT_AUTH+"""SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.Product p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID; SELECT ID,CustomerName,Status FROM dbo.Customer ORDER BY CustomerName,ID; SELECT ID,CategoryName,Status FROM dbo.ProductCategory ORDER BY CategoryName,ID; SELECT p.ID,p.CustomerID,p.ProductCode,p.ProductName,p.WeightGrams,p.Status,p.RowVersion FROM dbo.Product p JOIN dbo.Customer c ON c.ID=p.CustomerID WHERE p.IsMix=0 AND p.Status='Active' AND c.Status='Active' ORDER BY p.ProductCode,p.ID; SELECT ID,UoMCode,UoMName,Category,BaseFactor,Status FROM dbo.UoM ORDER BY UoMCode,ID;""",[ctx.username])
+  return dict(materials=[],currencies=[],creators=sets[0],customers=sets[1],categories=sets[2],products=sets[3],uoms=sets[4])
  require_entity(ctx,entity)
  if entity=="packaging-types":
   sets=execute(master_auth(entity)+"""
    SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.PackagingType p WHERE p.CreatedBy=u.ID) ORDER BY u.UserName,u.ID;
   """,[ctx.username])
   types=execute(master_auth(entity)+"""
-   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,CopyDim,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
+   SELECT ID,ParentTypeID,ParentTypeIDsJSON,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,CopyDim,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
   """,[ctx.username])[0]
   return dict(materials=[],currencies=[],creators=sets[0],packagingTypes=decode_orders(types))
  if entity=="pallets":
@@ -66,36 +66,27 @@ def lookups(ctx:AccessContext=Depends(get_access_context),entity:Entity="materia
  material="RawMaterial" if raw else "PackagingMaterial"
  price="RawGrade" if entity=="raw-grades" else "RawMaterialPrice" if raw else "PackagingPrice"
  sets=execute(master_auth(entity)+f"""
- SELECT ID,MaterialCode,MaterialName,Status FROM dbo.{material} ORDER BY MaterialCode,ID;
+ SELECT ID,MaterialCode,MaterialName,UnitOfMeasure,Status FROM dbo.{material} ORDER BY MaterialCode,ID;
  SELECT ID,CurrencyCode,CurrencyName FROM dbo.Currency ORDER BY CurrencyCode,ID;
  SELECT u.ID,u.UserName FROM dbo.Users u WHERE EXISTS(SELECT 1 FROM dbo.{material} m WHERE m.CreatedBy=u.ID)
  OR EXISTS(SELECT 1 FROM dbo.{price} p WHERE p.CreatedBy=u.ID) OR EXISTS(SELECT 1 FROM dbo.Vendor v WHERE v.CreatedBy=u.ID) ORDER BY u.UserName,u.ID;
  SELECT ID,VendorName,Status,CurrencyID FROM dbo.Vendor ORDER BY VendorName,ID;
- SELECT ID,UoMCode,UoMName,Status FROM dbo.UoM ORDER BY UoMCode,ID;
+ SELECT ID,UoMCode,UoMName,Category,BaseFactor,Status FROM dbo.UoM ORDER BY UoMCode,ID;
  """,[ctx.username])
  result=dict(materials=sets[0],currencies=sets[1],creators=sets[2],vendors=sets[3],uoms=sets[4])
- if entity=="prices":
-  result["materials"]=execute(master_auth(entity)+"""SELECT m.ID,m.MaterialCode,m.MaterialName,m.Status,m.PackagingTypeID,t.PriceBasis,t.CopyDim
-   FROM dbo.PackagingMaterial m LEFT JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID ORDER BY m.MaterialCode,m.ID;""",[ctx.username])[0]
-  result["supplierDimensions"]=execute(master_auth(entity)+"""SELECT d.ID,d.PackagingTypeID,d.D1Name,d.D2Name,d.D3Name,
-   u1.UoMCode AS D1Unit,u2.UoMCode AS D2Unit,u3.UoMCode AS D3Unit,
-   d.ConvertFromSupplierFormula,d.ConvertFromParentFormula,d.ConversionOutputUoMID,(SELECT UoMCode FROM dbo.UoM WHERE ID=d.ConversionOutputUoMID) AS ConversionOutputUnit,d.RowVersion,d.Status,t.PackagingType
-   FROM dbo.v_PackagingDimensionWeb d JOIN dbo.PackagingType t ON t.ID=d.PackagingTypeID
-   JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID LEFT JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID
-   WHERE t.ParentTypeID IS NOT NULL AND t.Status='Active' AND d.Status='Active' ORDER BY d.ID;""",[ctx.username])[0]
- if entity=="prices":
+ if entity=="materials":
   result["materialDimensions"]=execute(master_auth(entity)+"""SELECT d.ID,d.PackagingTypeID,d.ParentDimensionID,d.D1Name,d.D2Name,d.D3Name,d.RowVersion,d.Status,
    u1.UoMCode D1Unit,u2.UoMCode D2Unit,u3.UoMCode D3Unit FROM dbo.PackagingDimension d
    JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID LEFT JOIN dbo.UoM u2 ON u2.ID=d.D2UoMID LEFT JOIN dbo.UoM u3 ON u3.ID=d.D3UoMID
    WHERE d.Status='Active' ORDER BY d.ID""",[ctx.username])[0]
  if entity=="materials":
   result["packagingTypes"]=execute(master_auth(entity)+"""
-   SELECT ID,ParentTypeID,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,CopyDim,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
+   SELECT ID,ParentTypeID,ParentTypeIDsJSON,PackagingOrder,PackagingOrdersJSON,PackagingType,Shipping,FinalComponent,CopyDim,Status,HasChildren FROM dbo.v_PackagingTypeWeb ORDER BY PackagingOrder,PackagingType,ID;
   """,[ctx.username])[0]
   result["packagingTypes"]=decode_orders(result["packagingTypes"])
  if entity in ("raw-grades","raw-materials"):
   result["rawGrades"]=execute(master_auth(entity)+"""
-   SELECT g.ID,g.GradeName,g.ParentGradeID,parent.GradeName AS ParentGradeName,g.Status,
+   SELECT g.ID,g.GradeName,g.FinalGrade,g.ParentGradeID,parent.GradeName AS ParentGradeName,g.Status,
     CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.RawGrade child WHERE child.ParentGradeID=g.ID) THEN 1 ELSE 0 END AS BIT) AS HasChildren
    FROM dbo.RawGrade g LEFT JOIN dbo.RawGrade parent ON parent.ID=g.ParentGradeID
    ORDER BY parent.GradeName,g.GradeName,g.ID;
@@ -115,8 +106,8 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
   where="(?='' OR p.ProductCode LIKE ? OR p.ProductName LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="packaging-types":
-  source="dbo.PackagingType p LEFT JOIN dbo.PackagingType parent ON parent.ID=p.ParentTypeID"
-  select="p.ID,p.ParentTypeID,p.PackagingOrder,(SELECT PackagingOrdersJSON FROM dbo.v_PackagingTypeWeb WHERE ID=p.ID) AS PackagingOrdersJSON,p.PackagingType,p.PriceBasis,p.Shipping,p.FinalComponent,p.CopyDim,p.Status,p.CreatedAt,p.CreatedBy,p.UpdatedAt,p.UpdatedBy,p.RowVersion,parent.PackagingType AS ParentType"
+  source="dbo.v_PackagingTypeWeb p LEFT JOIN dbo.PackagingType parent ON parent.ID=p.ParentTypeID"
+  select="p.*,p.ParentTypes AS ParentType"
   where="(?='' OR p.PackagingType LIKE ? OR p.PackagingOrder LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="pallets":
@@ -131,7 +122,7 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="raw-grades":
   source="dbo.RawGrade p LEFT JOIN dbo.RawGrade parent ON parent.ID=p.ParentGradeID"
-  select="p.ID,p.ParentGradeID,p.GradeName,p.Status,p.CreatedBy,p.CreatedAt,p.UpdatedBy,p.UpdatedAt,p.RowVersion,parent.GradeName AS ParentGradeName"
+  select="p.ID,p.ParentGradeID,p.GradeName,p.FinalGrade,p.Status,p.CreatedBy,p.CreatedAt,p.UpdatedBy,p.UpdatedAt,p.RowVersion,parent.GradeName AS ParentGradeName,CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.RawGrade child WHERE child.ParentGradeID=p.ID) THEN 1 ELSE 0 END AS BIT) AS HasChildren"
   where="(?='' OR p.GradeName LIKE ? OR parent.GradeName LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
  elif entity=="vendors":
@@ -144,23 +135,17 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
   select="p.*,g.GradeName" if entity=="raw-materials" else "p.*,CASE WHEN pt.ID IS NOT NULL THEN CASE WHEN pt.ParentTypeID IS NOT NULL THEN pt.PackagingType ELSE CONCAT(pt.PackagingOrder,N' / ',pt.PackagingType) END END AS PackagingType"
   where="(?='' OR p.MaterialCode LIKE ? OR p.MaterialName LIKE ?) AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.CreatedBy=?)"
   params=[search,search+"%",search+"%",status,status,created_by,created_by]
+  if entity=="raw-materials":
+   where=where.replace("p.MaterialName LIKE ?","p.MaterialName LIKE ? OR p.Origin LIKE ?")
+   params.insert(3,search+"%")
  else:
   source="dbo.PackagingPrice p JOIN dbo.PackagingMaterial m ON m.ID=p.MaterialID JOIN dbo.Currency c ON c.ID=p.CurrencyID LEFT JOIN dbo.Vendor v ON v.ID=p.VendorID"
   if entity=="raw-prices": source=source.replace("PackagingPrice","RawMaterialPrice").replace("PackagingMaterial","RawMaterial")
   source+=" OUTER APPLY dbo.fn_UnitConversion(p.PriceBasis,m.UnitOfMeasure,"+("NULL,p.MaterialID" if entity=="raw-prices" else "p.MaterialID,NULL")+",p.VendorID) conv"
   factor="CASE WHEN p.PriceBasis=m.UnitOfMeasure THEN CONVERT(DECIMAL(18,3),1) ELSE conv.Factor END"
   if entity=="prices":
-   source+=" LEFT JOIN dbo.PackagingType pt ON pt.ID=m.PackagingTypeID LEFT JOIN dbo.PackagingDimension sd ON sd.ID=p.SupplierDimensionID LEFT JOIN dbo.PackagingDimension sp ON sp.ID=sd.ParentDimensionID"
-   factor="""CASE
-    WHEN pt.PriceBasis='Square meter' AND LOWER(p.PriceBasis) IN(N'm2',N'm²',N'm^2',N'sqm',N'sq m') THEN CONVERT(DECIMAL(28,9),1)
-    WHEN pt.PriceBasis<>'Square meter' AND p.PriceBasis=m.UnitOfMeasure THEN CONVERT(DECIMAL(28,9),1)
-    WHEN pt.PriceBasis='Square meter' OR p.SupplierDimensionID IS NOT NULL THEN CASE
-    WHEN sd.RowVersion=p.SupplierDimensionRowVersion AND sd.PackagingTypeID=m.PackagingTypeID
-     AND sd.Status='Active' AND sp.Status='Active' AND sd.FormulaNeedsReview=0
-     AND sd.ConvertFromSupplierFormula IS NOT NULL AND (sd.ConversionOutputUoMID IS NULL OR EXISTS(SELECT 1 FROM dbo.UoM WHERE ID=sd.ConversionOutputUoMID AND Status='Active'))
-     AND NOT EXISTS(SELECT 1 FROM (VALUES(sd.D1UoMID),(sd.D2UoMID),(sd.D3UoMID)) s(ID) JOIN dbo.UoM u ON u.ID=s.ID WHERE u.Status<>'Active')
-     THEN p.SupplierAreaPerPriceUnit END
-    ELSE conv.Factor END"""
+   source+=" LEFT JOIN dbo.PackagingType pt ON pt.ID=m.PackagingTypeID"
+   factor="CASE WHEN pt.PriceBasis='Square meter' THEN CASE WHEN LOWER(p.PriceBasis) IN(N'm2',N'm²',N'm^2',N'sqm',N'sq m') THEN CONVERT(DECIMAL(28,9),1) END ELSE "+factor+" END"
   select=("p.*,p.PriceBasis AS BaseUoM,m.MaterialCode,m.MaterialName,c.CurrencyCode,v.VendorName,"
           "m.UnitOfMeasure AS MaterialBaseUoM,"+factor+" AS ConversionFactor,"
           "CONVERT(DECIMAL(38,8),p.UnitPrice/NULLIF(("+factor+"),0)) AS BaseUnitPrice,"
@@ -168,10 +153,7 @@ def read(entity:Entity,page:int=Query(1,ge=1,le=1000000),page_size:int=Query(25,
           "CASE WHEN p.PriceBasis=m.UnitOfMeasure THEN 'Same unit' WHEN conv.ID IS NULL THEN 'Conversion required' ELSE 'Converted' END AS ConversionStatus")
   if entity=="prices":
    select=select.replace("m.UnitOfMeasure AS MaterialBaseUoM","CASE WHEN pt.PriceBasis='Square meter' THEN N'm²' ELSE m.UnitOfMeasure END AS MaterialBaseUoM")
-   select=select.rsplit("CASE WHEN p.PriceBasis=m.UnitOfMeasure THEN 'Same unit'",1)[0]+"""
-    CASE WHEN pt.PriceBasis='Square meter' OR (p.SupplierDimensionID IS NOT NULL AND p.PriceBasis<>m.UnitOfMeasure)
-     THEN CASE WHEN ("""+factor+""") IS NULL THEN 'Supplier dimensions required or formula changed' ELSE 'Supplier pricing conversion' END
-    WHEN p.PriceBasis=m.UnitOfMeasure THEN 'Same unit' WHEN conv.ID IS NULL THEN 'Conversion required' ELSE 'Converted' END AS ConversionStatus"""
+   select=select.rsplit("CASE WHEN p.PriceBasis=m.UnitOfMeasure THEN 'Same unit'",1)[0]+"CASE WHEN ("+factor+") IS NULL THEN 'Calculated from material dimensions' ELSE 'Converted' END AS ConversionStatus"
   where="""(?='' OR m.MaterialCode LIKE ? OR m.MaterialName LIKE ? OR p.PriceBasis LIKE ?)
    AND (? IS NULL OR p.Status=?) AND (? IS NULL OR p.MaterialID=?) AND (? IS NULL OR p.CurrencyID=?)
    AND (? IS NULL OR (p.EffectiveFrom<=? AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=?)))
