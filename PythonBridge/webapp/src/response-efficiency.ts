@@ -40,16 +40,21 @@ export function mixTotals(snapshot:unknown,children:unknown):MixTotals{
  }catch{return empty}
 }
 export const mixWeightDisplay=(totals:MixTotals)=>display(totals.weight);
+// Calculation inputs must remain ungrouped; display formatting adds commas.
+export const mixWeightValue=(totals:MixTotals)=>decimalValue(totals.weight);
 export const mixVolumeDisplay=(totals:MixTotals)=>display(totals.volume);
 function count(raw:unknown,zero=false){
  const v=value(raw,zero);
  return v&&v.n%v.d===0n&&v.n/v.d<=2147483647n?v:null;
 }
-function display(v:Rational|null,places=6,fixed=false){
+function decimalValue(v:Rational|null,places=6){
  if(!v)return '';
  const scale=10n**BigInt(places),scaled=v.n*scale;
  const rounded=scaled/v.d+(scaled%v.d*2n>=v.d?1n:0n);
- return decimalDisplay((rounded/scale)+'.'+(rounded%scale).toString().padStart(places,'0'),places,fixed)||'';
+ return (rounded/scale)+'.'+(rounded%scale).toString().padStart(places,'0');
+}
+function display(v:Rational|null,places=6,fixed=false){
+ return decimalDisplay(decimalValue(v,places),places,fixed)||'';
 }
 export function responseEfficiency(netWeight:unknown,values:Record<string,string>,geometry:GeometryMetrics,palletAreaMM2:unknown,mix?:MixTotals){
  const layers=layerCount(values.ResponseLayerCount),height=value(values.HeightMM);

@@ -1,4 +1,40 @@
 /* One page scroll, compact header controls, and a quiet always-open grade workspace. */
+.tcb-process-loss{margin:12px 0}
+.process-loss-types{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 10px;font-size:12px}
+.process-loss-type{display:grid;grid-template-columns:24px minmax(0,200px) 32px;align-items:center;gap:6px;min-width:0;max-width:100%}
+.process-loss-type select{width:100%;min-width:0;max-width:100%;height:36px;font-size:12px;padding:6px 8px}
+.process-loss-types .icon-button{width:32px;height:32px;min-height:32px;padding:5px}
+.process-loss-table{width:100%;table-layout:fixed}
+.process-loss-table th,.process-loss-table td{padding:8px;text-align:left;vertical-align:middle}
+.process-loss-table tbody th{text-transform:none;font-size:12px;font-weight:600;color:inherit}
+.process-loss-table th:first-child{width:180px}
+.process-loss-table .process-loss-code-column{width:90px}
+.process-loss-table th:last-child{width:130px}
+.process-loss-table td input{width:100%;min-width:0;box-sizing:border-box;height:36px;padding:6px 8px}
+.process-loss-result-heading{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.process-loss-result-heading .icon-button{width:28px;height:28px;min-height:28px;padding:4px;flex:none}
+.process-loss-table td output{white-space:nowrap;font-variant-numeric:tabular-nums}
+.tcb-process-loss .table-scroll{max-height:none}
+.tcb-process-loss>small{display:block;color:var(--muted);margin-top:6px}
+.tcb-review-dialog .tcb-process-info-table .tcb-process-row{background:var(--recipe-family-bg,#f5f5f5)}
+.tcb-recipe-family-0{--recipe-family-bg:#f5f5f5;--recipe-family-accent:#c5c5c5}
+.tcb-recipe-family-1{--recipe-family-bg:#ffffff;--recipe-family-accent:#d7d7d7}
+
+
+
+
+.tcb-process-info-table .tcb-process-row>td:first-child{border-left:3px solid var(--recipe-family-accent)}
+.recipe-grade-label{display:flex;align-items:center;gap:5px;min-width:0}
+.recipe-grade-label strong{overflow-wrap:anywhere}
+.recipe-grade-label .icon-button{width:22px;min-width:22px;height:22px;min-height:22px;padding:2px;flex:none;border:0;background:transparent}
+.recipe-rm-prices{display:flex;flex-direction:column;gap:3px;min-width:0}
+.recipe-rm-prices>span{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:2px 4px}
+.recipe-rm-prices small{font-size:10px;color:var(--muted);white-space:nowrap}
+.recipe-rm-prices output{font-variant-numeric:tabular-nums;white-space:nowrap}
+.recipe-rm-with-loss{background:#e5e5e5;border-radius:4px;color:#303030;font-weight:600}
+.recipe-rm-with-loss small{color:inherit}
+@media(min-width:1001px) and (max-width:1500px){.recipe-rm-prices>span{flex-direction:column;align-items:flex-end;gap:0}}
+@media(max-width:650px){.process-loss-types{align-items:flex-start}.process-loss-type select{width:140px}.process-loss-table{min-width:620px}}
 .tcb-review-dialog .tcb-item{position:relative}
 .tcb-review-dialog .tcb-item-title::before{content:"›";display:inline-block;margin-right:7px;color:var(--muted)}
 .tcb-review-dialog .tcb-item[open]>.tcb-item-title::before{transform:rotate(90deg)}
@@ -35,7 +71,7 @@
 .tcb-review-dialog .tcb-grade-price{gap:5px}
 .tcb-review-dialog .tcb-grade-price>label{font-size:11px;gap:4px}
 .tcb-review-dialog .tcb-grade-price select{height:32px;padding:4px 6px;font-size:12px}
-.tcb-review-dialog .tcb-product-totals{display:flex;gap:32px;margin:10px 0 0}
+.tcb-review-dialog .tcb-product-totals{display:flex;flex-wrap:wrap;gap:12px 32px;margin:10px 0 0}
 .tcb-review-dialog .tcb-product-totals output{min-height:0;padding:2px 0}
 .tcb-review-dialog [aria-label="TCB Review items"]>.tcb-item>section{margin-top:10px;padding-top:10px}
 .tcb-review-dialog [aria-label="Product"]>h3{margin:0 0 8px}

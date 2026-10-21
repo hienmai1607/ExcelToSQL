@@ -4,7 +4,7 @@ import {defaultInputs,manualCostInputs,productFields} from './tcb-model';
 type GradePricing=Pick<Draft,'grades'|'selections'|'costingInputs'>&Partial<Pick<Draft,'quoteGrades'|'pricingGradeKey'>>;
 export function activeCostInputs(d:GradePricing){
  const active=d.grades.length?new Set(savedProcessTree(d.grades).filter(g=>g.Process).map(gradePath)):processRecipePaths(d.quoteGrades??[]);
- return {...manualCostInputs(d.costingInputs),MaterialCosts:(d.costingInputs.MaterialCosts??[]).filter(r=>active.has(r.Path))};
+ return {...manualCostInputs(d.costingInputs),MaterialCosts:(d.costingInputs.MaterialCosts??[]).filter(r=>active.has(r.Path)),...(Array.isArray(d.costingInputs.ProcessLosses)?{ProcessLosses:d.costingInputs.ProcessLosses.filter(r=>active.has(r.Path))}:{})};
 }
 export function withTCBGrades<T extends GradePricing>(d:T,grades:Draft['grades']):T{
  const parents=new Set(grades.map(g=>g.ParentID)),oldParents=new Set(d.grades.map(g=>g.ParentID));
@@ -22,6 +22,6 @@ export function withTCBGrades<T extends GradePricing>(d:T,grades:Draft['grades']
  }
  const structure=(items:Draft['grades'])=>JSON.stringify(items.map(g=>({...g,Process:undefined})));
  const processOnly=structure(grades)===structure(d.grades)&&d.pricingGradeKey===JSON.stringify(d.grades);
- return {...d,grades,selections:d.selections.filter(s=>leaves.has(s.Path)),costingInputs:{...d.costingInputs,MaterialCosts:recipes},
+ return {...d,grades,selections:d.selections.filter(s=>leaves.has(s.Path)),costingInputs:{...d.costingInputs,MaterialCosts:recipes,...(Array.isArray(d.costingInputs.ProcessLosses)?{ProcessLosses:d.costingInputs.ProcessLosses.filter(r=>recipePaths.has(r.Path))}:{})},
   ...(processOnly&&d.quoteGrades?{quoteGrades:classifyProcessLeaves(grades,d.quoteGrades),pricingGradeKey:JSON.stringify(grades)}:{})};
 }

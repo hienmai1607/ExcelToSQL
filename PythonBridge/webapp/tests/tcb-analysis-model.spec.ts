@@ -66,6 +66,24 @@ test('customer clearance is per container and zero overrides historical pallet v
  expect(values(buildTCBAnalysis([d])[0].columns[0])[14]).toBe('0');
 });
 
+test('destination and design customer amounts convert once, preserve legacy USD and require FX',()=>{
+ const d=draft();d.row.ShipmentCostInfo={InitialDesignCustomer:'300',PortToWHCustomerPerContainer:'150',WHCostCustomerPerPallet:'30'};
+ let column=buildTCBAnalysis([d])[0].columns[0];
+ expect(values(column)[5]).toBe('0.4');expect(values(column)[15]).toBe('0.1');expect(values(column)[16]).toBe('0.02');
+ d.row.ExchangeRateCustomerCurrencyPerUSD=null;
+ column=buildTCBAnalysis([d])[0].columns[0];
+ for(const index of [5,15,16])expect(column.cells[index].value).toBeNull();
+ d.row.ShipmentCostInfo={InitialDesignUSD:'300',PortToWHUSDPerContainer:'150',WHCostUSDPerPallet:'30'};
+ column=buildTCBAnalysis([d])[0].columns[0];
+ expect(values(column)[5]).toBe('0.6');expect(values(column)[15]).toBe('0.15');expect(values(column)[16]).toBe('0.03');
+ d.row.CustomerCurrencyCode='USD';d.row.ShipmentCostInfo={InitialDesignCustomer:'300',PortToWHCustomerPerContainer:'0',WHCostCustomerPerPallet:'0',PortToWHUSDPerContainer:'900',WHCostUSDPerPallet:'900'};
+ column=buildTCBAnalysis([d])[0].columns[0];
+ expect(values(column)[5]).toBe('0.6');expect(values(column)[15]).toBe('0');expect(values(column)[16]).toBe('0');
+ d.row.CustomerCurrencyCode='VND';d.row.ExchangeRateVNDPerUSD='25000';d.row.ShipmentCostInfo={InitialDesignCustomer:'25000',PortToWHCustomerPerContainer:'25000',WHCostCustomerPerPallet:'25000'};
+ column=buildTCBAnalysis([d])[0].columns[0];
+ expect(values(column)[5]).toBe('0.002');expect(values(column)[15]).toBe('0.001');expect(values(column)[16]).toBe('0.001');
+});
+
 test('days, USD-per-lb margin and customer clearance use exact revised units',()=>{
  const d=draft();d.row.ShipmentCostInfo={InterestPct:'12',InterestDays:30,MarginMode:'USDPerLb',MarginUSDPerLb:'.5',ImportClearanceCustomerPerPallet:'150',PaymentTermDays:999};
  const actual=values(buildTCBAnalysis([d])[0].columns[0]);
@@ -79,6 +97,12 @@ test('standalone products use their own costs and Mix parents without children r
  expect(scenarios).toHaveLength(1);expect(scenarios[0].columns.map(c=>c.id)).toEqual([1]);
  expect(values(scenarios[0].columns[0]).slice(0,12)).toEqual(['2.22222222','0.2','0','0.01','0.5','0.2','0.1','0.2','0.34322222','0.37754444','4.15298889','6.22948333']);
  expect(buildTCBAnalysis([draft(10,{mix:true})])).toEqual([]);
+});
+
+test('grade Process Loss mode never applies the historical overall loss again',()=>{
+ const d=draft();d.costingInputs.ProcessLosses=[];d.costingInputs.LossProductPct='50';
+ d.formula='L1';
+ expect(values(buildTCBAnalysis([d])[0].columns[0])[0]).toBe('2');
 });
 test('missing input or zero denominator never fabricates a complete FOB',()=>{
  const drafts=pair(),[root,child]=drafts;root.row.EstPctAwarded='0';

@@ -14,6 +14,19 @@ def row(id=1):
   ShipmentCostInfo=dict(PackingUSDPerLb=".5",InitialDesignUSD="100",OtherFixedCostsUSD="50",FobbingUSDPerContainer="200",InterestPct="12",InterestMonths="10",MarginPct="10"),
   _TCBCostInfo=dict(ProductUSDPerLb="2",Inputs=dict(PalletUSDPerEA="10",LossProductPct="10")))
 class Contracts(unittest.TestCase):
+ def test_grade_loss_mode_does_not_repeat_historical_product_loss(self):
+  r=row();r["_TCBCostInfo"]["Inputs"].update(ProcessLosses=[],LossProductPct="50",ProductLossFormula="L1")
+  add_tcb_columns([r]);self.assertEqual(r["TCBProductPerUnit"],"2")
+ def test_customer_destination_and_design_amounts_and_historical_usd(self):
+  for currency,rate,amount,expected in (("AUD","1.5","150",("0.2","0.1","0.1")),("USD",None,"150",("0.3","0.15","0.15")),("VND","25000","25000",("0.002","0.001","0.001"))):
+   r=row();r.update(CustomerCurrencyCode=currency,ExchangeRateCustomerCurrencyPerUSD=rate,ExchangeRateVNDPerUSD=rate)
+   r["ShipmentCostInfo"]={k:amount for k in ("InitialDesignCustomer","PortToWHCustomerPerContainer","WHCostCustomerPerPallet")}
+   add_tcb_columns([r]);self.assertEqual(tuple(r[k] for k in ("TCBInitialDesignPerUnit","TCBHaulagePerUnit","TCBDestinationWHPerUnit")),expected)
+  r=row();r["ExchangeRateCustomerCurrencyPerUSD"]=None
+  r["ShipmentCostInfo"]={k:"150" for k in ("InitialDesignCustomer","PortToWHCustomerPerContainer","WHCostCustomerPerPallet")}
+  add_tcb_columns([r]);self.assertTrue(all(r[k] is None for k in ("TCBInitialDesignPerUnit","TCBHaulagePerUnit","TCBDestinationWHPerUnit")))
+  r=row();r["ShipmentCostInfo"]={"PortToWHUSDPerContainer":"150","WHCostUSDPerPallet":"30","InitialDesignUSD":"300"}
+  add_tcb_columns([r]);self.assertEqual((r["TCBInitialDesignPerUnit"],r["TCBHaulagePerUnit"],r["TCBDestinationWHPerUnit"]),("0.6","0.15","0.03"))
  def test_response_palletization_overrides_manual_and_missing_is_unknown(self):
   for snapshot,expected in (({"UnitUSDPrice":"15.5"},"0.0155"),({"UnitUSDPrice":"0"},"0"),(None,None)):
    r=row();r["PalletPricingJSON"]=snapshot

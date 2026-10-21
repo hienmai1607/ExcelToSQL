@@ -8,7 +8,7 @@ percentage and months inputs do not have repetitive info icons.
 ## Ownership and values
 
 - A regular product maintains its own section.
-- A Mix parent owns the whole section; children display inherited values read-only.
+- A Mix parent owns the whole section; it is hidden on Mix children.
   No costs or shipment selections are duplicated onto child Opportunity rows.
 - After an item is sent for packaging, Container Type and Loading request
   stay locked. Incoterm, Port of Entry and all Logistics, Co-Man
@@ -17,7 +17,12 @@ percentage and months inputs do not have repetitive info icons.
   read-only. Existing Draft workflow, access and row-version checks still apply.
 - Shipment-only updates do not resubmit protected packaging fields or alter
   already-captured PCR selections. The editing exception needs no separate migration; name-only ports require 90.
-- All dollar inputs are USD. They are not converted by customer exchange rates.
+- Freight and the other USD-labeled inputs remain USD. Import clearance and new
+  Port-WH and WH Cost inputs use customer currency, with an adjacent USD preview.
+  Initial Design offers USD (default) or customer currency. Analysis converts
+  customer amounts once using the Opportunity customer-currency-per-USD rate
+  (the VND rate for VND, or 1 for USD). A missing rate leaves calculated costs
+  incomplete. Stored financial inputs are never replaced by rounded previews.
   Amounts support two decimal places; percentages are 0–100. Interest months
   is a nonnegative whole number.
 - These are stored inputs, not a landed-cost or margin calculation engine.
@@ -63,6 +68,24 @@ container choices. Current requested size is enforced in both the response dropd
 and SQL save validation. Container capacities and loading formulas remain unchanged.
 
 ## VM deployment
+
+### Shipment customer currency update (138)
+
+For a VM already through migration 137, back up the database and application,
+stop the API, and run **sql/138_shipment_customer_currency.sql** in the intended
+database. Deploy matching **core/** and the entire rebuilt **webapp/dist/**,
+then restart the API and hard-refresh the browser. Migration 138 is rerunnable;
+it changes validation only, not saved costs, row versions or PCR snapshots.
+The older combined 117-to-137 bundle does not contain migration 138.
+
+Existing Port-WH/WH Cost USD amounts retain their original basis. The editor
+shows them as saved USD beside an empty customer-currency input; entering a new
+customer amount replaces the legacy USD basis. Clearing that replacement clears
+the cost rather than restoring an old amount. Initial Design retains the saved
+basis and excludes the inactive amount on save. Blank new designs default to USD.
+Regular non-Mix products keep their own section; only Mix children hide it.
+Excel and layouts expose explicit customer-currency columns while preserving
+the historical USD columns. Initial Design accepts one basis, not both.
 
 For a VM already migrated through **88**:
 

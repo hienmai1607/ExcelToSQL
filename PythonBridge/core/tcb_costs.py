@@ -2,6 +2,7 @@
 from decimal import Decimal
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from grade_process_loss import GradeProcessLoss,process_loss_results
 
 Money = Annotated[Decimal, Field(ge=0, max_digits=19, decimal_places=6, allow_inf_nan=False)]
 Pct = Annotated[Decimal, Field(ge=0, le=100, max_digits=5, decimal_places=2, allow_inf_nan=False)]
@@ -76,6 +77,7 @@ class Inputs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     Prices: list[Selection] = Field(default_factory=list, max_length=1000)
     MaterialCosts: list[MaterialCost] = Field(default_factory=list,max_length=1000)
+    ProcessLosses: list[GradeProcessLoss] | None = Field(None,max_length=1000)
     LossProcesses: list[LossProcess] | None = Field(None, max_length=100)
     ProductLossFormula: str | None = Field(None,max_length=200)
     RMRatio: Pct = Decimal(100)
@@ -95,6 +97,8 @@ class Inputs(BaseModel):
 
     @model_validator(mode="after")
     def balanced(self):
+        if self.ProcessLosses is not None and len({p.Path for p in self.ProcessLosses})!=len(self.ProcessLosses):
+            raise ValueError("Use only one Process Loss row per grade.")
         if self.RMRatio + self.SeasoningRatio + self.OilPct != 100:
             raise ValueError("RM + Seasoning/salt + Oil ratios must total 100%.")
         if self.SeasoningRatio and self.SeasoningUSDPerLb is None:
@@ -110,7 +114,8 @@ class Inputs(BaseModel):
                 raise ValueError("Each loss group needs unique process sequence numbers.")
             for field,value in process_losses(self.LossProcesses).items():
                 setattr(self,field,value)
-        if self.ProductLossFormula and self.ProductLossFormula.strip():
+        if self.ProcessLosses is not None:self.LossProductPct=Decimal(0)
+        if self.ProcessLosses is None and self.ProductLossFormula and self.ProductLossFormula.strip():
             from dimension_formula import _calculate
             product_steps=[p for p in self.LossProcesses or [] if p.ProcessType in ("Sorting","Processing")]
             values={"L"+str(i+1):p.LossPct / Decimal(100) for i,p in enumerate(product_steps)}
@@ -171,13 +176,19 @@ def trim_process_recipes(inputs,items,grade_leaves):
     active=process_paths(grade_leaves)
     # Hidden child recipes exist in the browser only until Save; invalid unknown paths still fail.
     inputs.MaterialCosts=[r for r in inputs.MaterialCosts if r.Path in active or r.Path not in known]
+    if inputs.ProcessLosses is not None:
+        inputs.ProcessLosses=[r for r in inputs.ProcessLosses if r.Path in active or r.Path not in known]
 
-def calculate(inputs, grade_leaves, prices,allow_unpriced=False):
+def calculate(inputs, grade_leaves, prices,allow_unpriced=False,weight=None):
     selected = {p.Path: p for p in inputs.Prices}
     valid_paths = {leaf["Path"] for leaf in grade_leaves}
     if selected.keys() - valid_paths:
         raise ValueError("Selected price refers to a removed or non-leaf grade. Refresh grades.")
     recipes={r.Path:r for r in inputs.MaterialCosts}
+    loss_results=process_loss_results(inputs.ProcessLosses,len([s for s in inputs.LossProcesses or [] if s.ProcessType in ("Sorting","Processing")]),weight)
+    losses={r["Path"]:Decimal(r["LossPct"]) for r in loss_results}
+    if losses.keys()-process_paths(grade_leaves):
+        raise ValueError("Process Loss refers to a removed or non-Process grade.")
     if recipes.keys() - process_paths(grade_leaves):
         raise ValueError("Material costing refers to a removed, non-leaf or non-Process grade. Refresh grades.")
     rm = Decimal(0)
@@ -188,6 +199,7 @@ def calculate(inputs, grade_leaves, prices,allow_unpriced=False):
     def include(leaf,cost):
         nonlocal rm
         owner=leaf.get("ProcessPath",leaf["Path"])
+        cost=cost/(1-losses.get(owner,Decimal(0))/100)
         key=owner or leaf["Path"]
         group=groups.setdefault(key,{"Process":bool(owner),"WeightedRM":Decimal(0),"Proportion":Decimal(0)})
         weighted=leaf["Proportion"]*cost
@@ -237,4 +249,5 @@ def calculate(inputs, grade_leaves, prices,allow_unpriced=False):
             line=blended
         product+=share*line
     return {"RMCostUSDPerLb": str(rm) if len(captures) == len(grade_leaves) else None,
-            "ProductUSDPerLb": str(product), "PriceSnapshots": captures,"MaterialCostSnapshots":recipe_captures}
+            "ProductUSDPerLb": str(product), "PriceSnapshots": captures,"MaterialCostSnapshots":recipe_captures,
+            "ProcessLossSnapshots":loss_results}

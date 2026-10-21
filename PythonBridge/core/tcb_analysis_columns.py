@@ -192,19 +192,20 @@ def add_tcb_columns(rows):
         rate = F(1) if currency=="USD" else num(root.get("ExchangeRateVNDPerUSD" if currency=="VND" else "ExchangeRateCustomerCurrencyPerUSD")) if currency else None
         for row in products:
             value = saved(row);own = obj(value.get("Inputs"));weight = num(row.get("WeightGrams"))
-            lost = ratio(own,"LossProductPct") if own.get("ProductLossFormula") else loss(own,"LossProductPct")
+            lost = F(0) if own.get("ProcessLosses") is not None else ratio(own,"LossProductPct") if own.get("ProductLossFormula") else loss(own,"LossProductPct")
             product = per(times(num(value.get("ProductUSDPerLb"),True),per(weight,F("453.59237"))),1-lost) if lost is not None and lost < 1 else None
             applicable_weight = num(row.get("ApplicableNetWeightGrams") if "ApplicableNetWeightGrams" in row else row.get("WeightGrams"))
             floor_cost = times(optional(shipping,"FloorLoadUSDPerMT"),per(applicable_weight,F(1000000))) if mode in ("Floor load","Both") else F(0)
             loading_cost = plus([pallet_cost,floor_cost])
             cells = [product,packaging(row,root),parent_pm,loading_cost,times(optional(shipping,"PackingUSDPerLb"),per(weight,F("453.59237"))),
-                     per(optional(shipping,"InitialDesignUSD"),awarded),per(optional(shipping,"OtherFixedCostsUSD"),awarded),container("FobbingUSDPerContainer")]
+                     per(per(optional(shipping,"InitialDesignCustomer"),rate) if shipping.get("InitialDesignCustomer") is not None else optional(shipping,"InitialDesignUSD"),awarded),per(optional(shipping,"OtherFixedCostsUSD"),awarded),container("FobbingUSDPerContainer")]
             cells.append(times(plus(cells),times(ratio(shipping,"InterestPct"),per(optional(shipping,"InterestDays"),F(360)) if shipping.get("InterestDays") is not None else per(optional(shipping,"InterestMonths"),F(12)))))
             cells.append(times(optional(shipping,"MarginUSDPerLb"),per(weight,F("453.59237"))) if shipping.get("MarginMode") == "USDPerLb" or shipping.get("MarginMode") is None and shipping.get("MarginUSDPerLb") is not None else times(plus(cells),ratio(shipping,"MarginPct")))
             cells.append(plus(cells));cells.append(times(cells[10],rate))
             freight = container("FreightUSDPerContainer")
             destination = [freight,times(plus([cells[10],freight]),ratio(shipping,"DutyPct")),per(per(optional(shipping,"ImportClearanceCustomerPerContainer"),rate),container_units) if resolved and shipping.get("ImportClearanceCustomerPerContainer") is not None else per(per(optional(shipping,"ImportClearanceCustomerPerPallet"),rate),pallet_units) if resolved and shipping.get("ImportClearanceCustomerPerPallet") is not None else container("ImportClearanceUSDPerContainer"),
-                           container("PortToWHUSDPerContainer"),pallet("WHCostUSDPerPallet")]
+                           (per(per(optional(shipping,"PortToWHCustomerPerContainer"),rate),container_units) if resolved else None) if shipping.get("PortToWHCustomerPerContainer") is not None else container("PortToWHUSDPerContainer"),
+                           (per(per(optional(shipping,"WHCostCustomerPerPallet"),rate),pallet_units) if resolved else None) if shipping.get("WHCostCustomerPerPallet") is not None else pallet("WHCostUSDPerPallet")]
             destination.append(times(plus([cells[10],*destination]),ratio(shipping,"OverageShortageDamagePct")))
             destination.extend([pallet("WHToCoManWHUSDPerPallet"),pallet("CoManOverheadUSDPerPallet"),pallet("FreightToCustomerUSDPerPallet")])
             base = plus([cells[10],*destination])

@@ -198,6 +198,8 @@ summary>.field-label{font-weight:inherit}
 .packaging-layer-symbol{font-weight:700;color:var(--muted);letter-spacing:1px}
 .shipment-cost-input,.packing-quantity-input{display:flex;align-items:center;gap:4px;min-width:0}
 .shipment-cost-input input,.packing-quantity-input input{min-width:0;width:100%;flex:1}
+.shipment-cost-field{min-width:0;display:flex;flex-direction:column;gap:4px}
+.shipment-cost-input select{width:auto;flex:0 0 auto;max-width:85px}
 .shipment-cost-input output{font-size:11px;min-width:64px;overflow-wrap:anywhere}
 .opportunity-entry-dialog .shipment-entry-grid label,.opportunity-entry-dialog .packaging-entry-grid label{overflow-wrap:anywhere}
 @media(max-width:1100px){.opportunity-entry-dialog .shipment-entry-grid,.opportunity-entry-dialog .packaging-entry-grid,.opportunity-entry-dialog .packing-way-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -411,3 +413,4 @@ button.primary:hover:not(:disabled),[data-theme=dark] button.primary:hover:not(:
  .response-sections>section[aria-label="Product Info response"]>.packaging-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
  .response-sections>section[aria-label="Product Info response"] .response-product-summary{grid-column:1/-1}
 }
+.floating-notification.warning{background:#fff8e6;color:#775600;border:1px solid #e5c575}

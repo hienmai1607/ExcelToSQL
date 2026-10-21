@@ -14,6 +14,26 @@ from container_loading import container_types
 import ports_api
 
 class ShipmentModels(unittest.TestCase):
+    def test_customer_currency_costs_and_design_basis(self):
+        values=dict(PortToWHCustomerPerContainer="150.00",WHCostCustomerPerPallet="30.00",InitialDesignCustomer="300.00")
+        self.assertEqual(ShipmentCostInfo(**values).model_dump(mode="json")["InitialDesignCustomer"],"300.00")
+        for key in values:
+            for invalid in ("-1","1.234","NaN"):
+                with self.subTest(key=key,invalid=invalid),self.assertRaises(ValidationError):ShipmentCostInfo(**{key:invalid})
+        with self.assertRaises(ValidationError):ShipmentCostInfo(InitialDesignUSD="0",InitialDesignCustomer="0")
+    def test_excel_currency_basis_replacement_and_flat_columns(self):
+        from opportunity_excel_api import merge_shipment
+        from shipment_columns import shipment_columns
+        from opportunity_views import OpportunityViews
+        original={"ShipmentCostInfo":dict(InitialDesignUSD="200.00",PortToWHUSDPerContainer="100.00",WHCostUSDPerPallet="20.00")}
+        result=merge_shipment(None,original,dict(InitialDesignCustomer="300.00",PortToWHCustomerPerContainer="150.00",WHCostCustomerPerPallet="30.00"),{})
+        for key in ("InitialDesignUSD","PortToWHUSDPerContainer","WHCostUSDPerPallet"):self.assertIsNone(result[key])
+        flat=shipment_columns({"ShipmentCostInfo":result})
+        self.assertEqual(flat["InitialDesignCustomer"],"300.00")
+        restored=merge_shipment(None,{"ShipmentCostInfo":result},{"InitialDesignUSD":"200.00"},{})
+        self.assertIsNone(restored["InitialDesignCustomer"])
+        with self.assertRaises(ValueError):merge_shipment(None,{},dict(InitialDesignUSD="1",InitialDesignCustomer="1"),{})
+        OpportunityViews(items=dict(field_version=14,columns=["PortToWHCustomerPerContainer","WHCostCustomerPerPallet","InitialDesignCustomer"]))
     def test_precision_and_bounds(self):
         self.assertEqual(ShipmentCostInfo(FreightUSDPerContainer="12.30").model_dump(mode="json")["FreightUSDPerContainer"],"12.30")
         for field,value in (("FreightUSDPerContainer","1.234"),("FreightUSDPerContainer","-1"),("DutyPct","100.01"),("InterestMonths",1.5),("InterestMonths",True),("ContainerSizeFT","40RC"),("Incoterm","CIF"),("Currency","AUD")):
@@ -40,10 +60,10 @@ class ShipmentModels(unittest.TestCase):
         with self.assertRaises(HTTPException):
             ports_api.save(payload,AccessContext(2,"Sales",frozenset({"Opportunity"})))
 
-    def test_fresh_port_and_market_choices_do_not_mutate_lookup_cache(self):
+    def test_fresh_port_and_market_choices_do_not_mutate_lookup_results(self):
         import main
         cached={"customers":[{"ID":1,"CustomerName":"Northstar"}],"products":[],"mix_children":[],"currencies":[]}
-        with patch.object(main,"cached",return_value=cached),patch.object(main,"run_read_query",return_value=[]),patch.object(main,"opportunity_shipment_lookups",return_value=([{"ID":1,"MarketID":5}], [{"ID":11,"CustomerID":1,"MarketID":5}])):
+        with patch.object(main,"run_read_query",side_effect=lambda procedure,*args:cached["customers"] if procedure=="dbo.usp_OpportunityCustomerLookup_Read" else []),patch.object(main,"opportunity_mix_setup_choices",return_value=[]),patch.object(main,"opportunity_shipment_lookups",return_value=([{"ID":1,"MarketID":5}], [{"ID":11,"CustomerID":1,"MarketID":5}])):
             result=main.opportunity_lookups_read("Admin",True,frozenset())
         self.assertEqual(result["customers"][0]["MarketID"],5)
         self.assertEqual(result["ports"][0]["ID"],11)
@@ -221,6 +241,38 @@ class ShipmentSQL(ProfileFixture,unittest.TestCase):
     def test_processing_loading_request_remains_locked(self):
         with self.assertRaisesRegex(Exception,"locked"):
             self.fields(self.item,ConfigurationRequest="Floor load")
+
+class ShipmentCurrencySQL(unittest.TestCase):
+    """Current local test schema only; rollback the procedure update, with no business writes."""
+    def test_migration_validation_rerun_and_preserved_rows(self):
+        import os
+        import pyodbc
+        from pathlib import Path
+        server=os.environ.get("FOUNDATION_TEST_SERVER","localhost")
+        if server.lower() not in {"localhost",".","desktop-5bgmjsc"}:
+            raise RuntimeError("Restricted to the local test database.")
+        conn=pyodbc.connect(f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE=test;Trusted_Connection=yes;TrustServerCertificate=yes",autocommit=True)
+        cur=conn.cursor()
+        try:
+            cur.execute("SET NOCOUNT ON; BEGIN TRANSACTION")
+            snapshot="SELECT COUNT_BIG(*),CHECKSUM_AGG(BINARY_CHECKSUM(ID,RowVersion,ShipmentCostInfo)) FROM dbo.OpportunityItem"
+            before=tuple(cur.execute(snapshot).fetchone())
+            sql=(Path(__file__).resolve().parents[2]/"sql/138_shipment_customer_currency.sql").read_text(encoding="utf-8")
+            cur.execute(sql);consume(cur)
+            definition=cur.execute("SELECT OBJECT_DEFINITION(OBJECT_ID('dbo.usp_OpportunityShipment_Validate'))").fetchval()
+            cur.execute(sql);consume(cur)
+            self.assertEqual(definition,cur.execute("SELECT OBJECT_DEFINITION(OBJECT_ID('dbo.usp_OpportunityShipment_Validate'))").fetchval())
+            self.assertEqual(before,tuple(cur.execute(snapshot).fetchone()))
+            cur.execute("SET XACT_ABORT OFF")
+            cur.execute("EXEC dbo.usp_OpportunityShipment_Validate -1,?",json.dumps(dict(PortToWHCustomerPerContainer="150.00",WHCostCustomerPerPallet="30.00",InitialDesignCustomer="300.00")));consume(cur)
+            for payload in (dict(InitialDesignUSD="0",InitialDesignCustomer="0"),dict(PortToWHCustomerPerContainer="1.234"),dict(WHCostCustomerPerPallet="-1")):
+                with self.subTest(payload=payload),self.assertRaises(pyodbc.Error):
+                    cur.execute("EXEC dbo.usp_OpportunityShipment_Validate -1,?",json.dumps(payload));consume(cur)
+            self.assertEqual(cur.execute("SELECT @@TRANCOUNT").fetchval(),1)
+        finally:
+            cur.close()
+            conn.cursor().execute("IF @@TRANCOUNT>0 ROLLBACK TRANSACTION")
+            conn.close()
 
 if __name__=="__main__":
     unittest.main()

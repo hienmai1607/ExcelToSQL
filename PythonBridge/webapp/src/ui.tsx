@@ -4,13 +4,14 @@ import {createPortal} from 'react-dom';
 import {text} from './api';
 import {Icon,IconButton} from './icons';
 export function Badge({value}:{value:unknown}){return <span className={'badge '+String(value).toLowerCase().replaceAll(' ','-')}>{text(value)}</span>}
-export function Notification({value,error=false,onDismiss}:{value:string;error?:boolean;onDismiss?:()=>void}){
+export function Notification({value,error=false,severity,onDismiss}:{value:string;error?:boolean;severity?:'success'|'error'|'warning';onDismiss?:()=>void}){
+ const tone=severity??(error?'error':'success');
  const ref=useRef<HTMLDivElement>(null),[dismissed,setDismissed]=useState(false);
  const dismissRef=useRef(onDismiss);dismissRef.current=onDismiss;
  const dismiss=()=>{setDismissed(true);dismissRef.current?.()};
  useEffect(()=>{setDismissed(false);if(!value)return;const frame=requestAnimationFrame(()=>ref.current?.showPopover?.());return()=>cancelAnimationFrame(frame)},[value]);
- useEffect(()=>{if(!value||error)return;const timer=window.setTimeout(dismiss,12000);return()=>window.clearTimeout(timer)},[value,error]);
- return value&&!dismissed?<div ref={ref} popover="manual" className={'floating-notification notice '+(error?'error':'success')} role={error?'alert':'status'}><span>{value}</span><IconButton icon="close" label="Dismiss notification" onClick={dismiss}/></div>:null;
+ useEffect(()=>{if(!value||tone!=='success')return;const timer=window.setTimeout(dismiss,12000);return()=>window.clearTimeout(timer)},[value,tone]);
+ return value&&!dismissed?<div ref={ref} popover="manual" className={'floating-notification notice '+tone} role={tone==='success'?'status':'alert'}><span>{value}</span><IconButton icon="close" label="Dismiss notification" onClick={dismiss}/></div>:null;
 }
 export function ErrorNote({value}:{value:string}){return <Notification value={value} error/>}
 export function InfoTip({text}:{text:string}){

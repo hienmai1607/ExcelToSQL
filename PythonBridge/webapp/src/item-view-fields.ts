@@ -2,7 +2,7 @@ import {tcbColumnGroups,tcbColumnLabels} from './tcb-columns';
 import {costSections} from './shipment-sections';
 export const shipmentFieldGroups=[
  {title:'Shipment',fields:{ContainerRequest:'Container Type',ConfigurationRequest:'Loading request',FloorLoadUSDPerMT:'Floor load cost ($/MT)',Incoterm:'Incoterm',PortOfEntryName:'Port of Entry'} as Record<string,string>},
- ...costSections.map(section=>({title:section.title,fields:Object.fromEntries([...section.fields.map(field=>[field.key,field.label]),...(section.title==='Others'?[['MarginMode','Margin basis']]:[])])})),
+ ...costSections.map(section=>({title:section.title,fields:Object.fromEntries([...section.fields.map(field=>[field.key,field.label]),...(section.title==='Others'?[['MarginMode','Margin basis'],['InitialDesignCustomer','Initial Design (customer currency)']]:section.title==='Logistics'?[['PortToWHUSDPerContainer','Legacy Port - WH ($/cont)'],['WHCostUSDPerPallet','Legacy WH Cost ($/pallet)']]:[])])})),
 ];
 export const productFields:Record<string,string>={
  ProductCode:'Product',ProductName:'Product name',AnnualUnit:'Annual units',

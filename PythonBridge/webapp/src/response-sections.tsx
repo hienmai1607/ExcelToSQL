@@ -15,7 +15,7 @@ import {packingWeights,loadSections} from './packing-way';
 import {decimalDisplay,numberDisplay} from './number-format';
 import {layerCount,responseOrderFields,selectableType,isMixParent,type PackagingOrder} from './packaging-orders';
 import {GradeSnapshotIcon,parseGradeSnapshot} from './opportunity-grade-snapshot';import {parseMixStructure,mixFormula} from './mix-structure';
-import {responseEfficiency,mixTotals,mixVolumeDisplay,mixWeightDisplay} from './response-efficiency';
+import {responseEfficiency,mixTotals,mixVolumeDisplay,mixWeightValue} from './response-efficiency';
 import {capturedDimensions,dimensionDisplay,savedLayerDimensions} from './response-dimensions';
 import {allowedContainerTypes,containerChange,parseContainerProfiles} from './container-loading';
 
@@ -71,7 +71,7 @@ export function ResponseSections({values,requestedLayers,netWeight,configuration
  const results={...appliedResults,...pricingResults};
  const mixParent=isMixParent(product);const mixChild=!!product?.ParentItemID,mix=mixChild?null:parseMixStructure(product?.ProductMixSnapshot),unitHelp=mixFormula(mix),unitLabel=(layer:string)=>'No of '+layer+(mix?' Mix':'');const layers=layerCount(values.ResponseLayerCount),layerField=webResponseFields.find(f=>f.key==='ResponseLayerCount')!;
  const totals=mixParent&&product?.ProductMixSnapshot?mixTotals(product?.ProductMixSnapshot,product?.MixResponseChildren):undefined;
- const applicable=mixParent&&totals?mixWeightDisplay(totals):values.ApplicableNetWeightGrams||String(netWeight??'');
+ const applicable=mixParent&&totals?mixWeightValue(totals):values.ApplicableNetWeightGrams||String(netWeight??'');
  const displayValues=(!editable||configReadOnly)&&reviewContainer?responseChange(values,{},'SelectedContainerType',reviewContainer,pallets,configuration).values:values;
  values=displayValues;
  const activePlan=savedLoadPlan(values.LoadPlanJSON);

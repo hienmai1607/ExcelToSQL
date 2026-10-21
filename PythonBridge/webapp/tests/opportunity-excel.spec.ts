@@ -19,6 +19,6 @@ test('Opportunity combined workbook uses both layouts and keeps required columns
  expect(submitted.views.header.columns).toContain('CustomerName');
  expect([...submitted.views.items.columns].sort()).toEqual(['ApplicableNetWeightGrams','ShelfPrice','ProductCode','WeightGrams','AnnualUnit',...shipmentFieldGroups.flatMap(g=>Object.keys(g.fields)),...Object.keys(tcbColumnLabels),'PackagingRequestNumber',...efficiencyFields].sort());
  expect(submitted.page_size).toBe(25);
- expect(submitted.views.items.field_version).toBe(12);
+ expect(submitted.views.items.field_version).toBe(14);
  expect(submitted.views.items.columns).not.toContain('PortCode');
 });

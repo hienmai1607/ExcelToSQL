@@ -1,4 +1,4 @@
-"""Opportunity shipment/cost inputs. Amounts are USD except clearance in customer currency/pallet; percentages are 0..100."""
+"""Opportunity costs with explicit USD/customer-currency bases; percentages are 0..100."""
 from typing import Literal
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -17,6 +17,8 @@ class ShipmentCostInfo(BaseModel):
     ImportClearanceUSDPerContainer: USD | None = None
     PortToWHUSDPerContainer: USD | None = None
     WHCostUSDPerPallet: USD | None = None
+    PortToWHCustomerPerContainer: USD | None = None
+    WHCostCustomerPerPallet: USD | None = None
     OverageShortageDamagePct: Percent | None = None
     WHToCoManWHUSDPerPallet: USD | None = None
     CoManOverheadUSDPerPallet: USD | None = None
@@ -27,6 +29,7 @@ class ShipmentCostInfo(BaseModel):
     BrokerFeePct: Percent | None = None
     PackingUSDPerLb: USD | None = None
     InitialDesignUSD: USD | None = None
+    InitialDesignCustomer: USD | None = None
     OtherFixedCostsUSD: USD | None = None
     FobbingUSDPerContainer: USD | None = None
     InterestPct: Percent | None = None
@@ -42,6 +45,8 @@ class ShipmentCostInfo(BaseModel):
 
     @model_validator(mode="after")
     def margin_basis(self):
+        if self.InitialDesignUSD is not None and self.InitialDesignCustomer is not None:
+            raise ValueError("Choose USD or customer currency for Initial Design, not both.")
         if self.MarginPct is not None and self.MarginUSDPerLb is not None:
             raise ValueError("Choose Margin % or Margin ($/lbs), not both.")
         if self.MarginMode=="Percent" and self.MarginUSDPerLb is not None or self.MarginMode=="USDPerLb" and self.MarginPct is not None:

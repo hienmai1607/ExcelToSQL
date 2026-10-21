@@ -20,13 +20,15 @@ export function OpportunityTCBTab({drafts,renderProductLoss,renderVersions,...pr
    {renderVersions?.(d)}
    {!d.mix&&<section aria-label="Product"><header className="tcb-product-heading"><h3>Product</h3>{!gradesReady&&<IconButton icon="refresh" label="Load pricing for current grades" disabled={busy||review||!!gradeError(d.grades)} onClick={()=>props.loadPrices(d)}/>}</header>
     <section className="tcb-grade-editor" aria-label="Grades & pricing" data-tcb-field="Grades"><ItemGradeEditor {...props} d={d}/></section>
+    {renderProductLoss(d)}
     <ItemProcessInfo {...props} d={d}/>
     <div className="tcb-grid tcb-product-totals">
-     <label><FieldLabel help="Sum of final grade proportion × each selected raw material price in USD/lb.">RM Cost ($/lbs)</FieldLabel><output>{money(gradesReady?calc.rm:null)}</output></label>
-     <label><FieldLabel help="Sum of each Process group's product ratio × its shared recipe cost, plus the weighted raw costs of unprocessed grades.">Product ($/lbs)</FieldLabel><output>{money(gradesReady?calc.product:null)}</output></label>
+     <label><FieldLabel help="Raw material prices weighted by grade ratios, before Process Loss.">Total RM w/o Loss ($/lbs)</FieldLabel><output aria-label={'Total RM w/o Loss item '+id}>{money(gradesReady?calc.rmWithoutLoss:null)}</output></label>
+     <label><FieldLabel help="Sum of each Level 1 grade Line RM × its Level 1 ratio, after grade Process Loss.">Total RM with Loss ($/lbs)</FieldLabel><output aria-label={'Total RM with Loss item '+id}>{money(gradesReady?calc.rm:null)}</output></label>
+     <label><FieldLabel help="Sum of each Level 1 grade Line product × its Level 1 ratio, after Process Loss. Process recipes blend RM, seasoning and oil, plus Processing.">Total Product with Loss ($/lbs)</FieldLabel><output aria-label={'Total Product with Loss item '+id}>{money(gradesReady?calc.product:null)}</output></label>
     </div>
    </section>}
-   {!d.mix&&renderProductLoss(d)}
+
    <section aria-label="Packaging"><h3>Packaging</h3>{d.mix&&<h4>Mix packaging</h4>}
     <div className="tcb-packaging-scroll" role="region" aria-label={'Packaging layers item '+id} tabIndex={0}>
      <table className="tcb-packaging-table" aria-label={'Packaging layers item '+id}>

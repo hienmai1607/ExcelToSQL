@@ -81,16 +81,19 @@ test('new version uses a compact form with padded fields',async({page},info)=>{
   await form.screenshot({path:info.outputPath('new-version-'+width+'.png')});
  }
 });
-test('new version failures are shown inside the form and preserve entered values',async({page})=>{
+test('new version failures notify at the top and preserve entered values',async({page})=>{
  const {dialog,state}=await setup(page);state.failCreate=true;
  await dialog.getByRole('button',{name:'New TCB version item 11'}).click();
  const form=page.getByRole('dialog',{name:'New TCB version',exact:true});
  await form.getByLabel('TCB approach name').fill('Draft');
  await form.getByRole('button',{name:'Save',exact:true}).click();
  await expect(form.getByRole('alert')).toContainText('Could not create the version');
+ await expect(form.locator('.floating-notification.error')).toBeVisible();
+ expect((await form.locator('.floating-notification.error').boundingBox())!.y).toBeLessThan(30);
  await expect(form.getByLabel('TCB approach name')).toHaveValue('Draft');
  state.failCreate=false;await form.getByRole('button',{name:'Save',exact:true}).click();
  await expect(form).toHaveCount(0);
+ await expect(page.locator('.floating-notification.success').filter({hasText:'TCB version saved.'})).toBeVisible();
  await expect(dialog.getByLabel('TCB version item 11',{exact:true})).toHaveValue('3');
 });
 

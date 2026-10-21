@@ -55,6 +55,7 @@ function pct(cell:AnalysisCell,label:string){
  return cell.value&&cell.value.n<=100n*cell.value.d?scale(cell,divide(one,hundred),label):missing('Invalid '+label+'.');
 }
 export function productLossValue(d:Draft,tested?:string):Fraction|null{
+ if(Array.isArray(d.costingInputs.ProcessLosses))return zero;
  if(lossError(d.steps,processOptions(d.mix,d.layers)))return null;
  if(!d.formula)return lossTotals(d.steps).LossProductPct;
  if(tested!==undefined)return quantity(tested,true);
@@ -104,6 +105,8 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
   if(!products.length)continue;
   const total=root.mix?composition(root,children).total:one;
   const shipping={...root.row,...objectValue(root.row.ShipmentCostInfo)},currency=String(root.row.CustomerCurrencyCode??'').trim().toUpperCase();
+  const rate=currency==='USD'?one:quantity(currency==='VND'?root.row.ExchangeRateVNDPerUSD:root.row.ExchangeRateCustomerCurrencyPerUSD);
+  const customerAmount=(field:string,label:string)=>scale(optional(shipping[field],label),currency&&rate?divide(one,rate):null,'Missing customer exchange rate.');
   // Sales owns the commercial choice. Response plans supply matching capacity only.
   const request=String(root.row.ContainerRequest??'');
   const types=allowedContainerTypes(request,shipping.ContainerSizeFT);
@@ -114,7 +117,7 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
   const parentPM=root.mix?perCount(packaging(root,root.row),total,'Missing captured Mix unit quantities.'):good(zero);
   const awarded=quantity(root.row.AnnualUnit),award=quantity(root.row.EstPctAwarded,true);
   const awardedUnits=awarded&&award&&award.n<=100n*award.d&&total?divide(multiply(multiply(awarded,award),total),hundred):null;
-  const design=perCount(optional(shipping.InitialDesignUSD,'Initial Design'),awardedUnits,'Estimated awarded units must be positive for Initial Design.');
+  const design=perCount(shipping.InitialDesignCustomer!=null?customerAmount('InitialDesignCustomer','Initial Design'):optional(shipping.InitialDesignUSD,'Initial Design'),awardedUnits,'Estimated awarded units must be positive for Initial Design.');
   const fixed=perCount(optional(shipping.OtherFixedCostsUSD,'Other fixed costs'),awardedUnits,'Estimated awarded units must be positive for fixed costs.');
   const palletPrice=quantity(palletizationValue(root.row,root.costingInputs),true);
   const final=unitsPerFinal(root.row),palletUnits=quantity(root.row.UnitsPerPallet);
@@ -143,7 +146,6 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
      scale(optional(shipping.MarginUSDPerLb,'Margin USD/lb'),weight?divide(weight,gramsPerLb):null,'Missing product weight.'):
      scale(sum(cells),margin.value,'Invalid Margin %.'));
     cells.push(sum(cells));
-    const rate=currency==='USD'?one:quantity(currency==='VND'?root.row.ExchangeRateVNDPerUSD:root.row.ExchangeRateCustomerCurrencyPerUSD);
     cells.push(scale(cells[10],currency?rate:null,'Missing Opportunity customer currency or exchange rate.'));
     const perContainer=(field:string,label:string)=>!resolved?missing('Choose a loading request.'):
      perCount(optional(shipping[field],label),containerUnits,'Missing container capacity, packaging quantities or Mix unit quantities.');
@@ -158,7 +160,8 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
       shipping.ImportClearanceCustomerPerPallet!=null?
       !resolved?missing('Choose a loading request.'):perCount(scale(optional(shipping.ImportClearanceCustomerPerPallet,'Import clearance/customer currency/pallet'),rate?divide(one,rate):null,'Missing customer exchange rate.'),sharedPalletUnits,'Missing units per pallet.'):
       perContainer('ImportClearanceUSDPerContainer','Import clearance/container'),
-     perContainer('PortToWHUSDPerContainer','Port–WH/container'),perPallet('WHCostUSDPerPallet','Destination WH cost/pallet')
+     shipping.PortToWHCustomerPerContainer!=null?(!resolved?missing('Choose a loading request.'):perCount(customerAmount('PortToWHCustomerPerContainer','Port–WH/container'),containerUnits,'Missing units per container.')):perContainer('PortToWHUSDPerContainer','Port–WH/container'),
+     shipping.WHCostCustomerPerPallet!=null?(!resolved?missing('Choose a loading request.'):perCount(customerAmount('WHCostCustomerPerPallet','Destination WH cost/pallet'),sharedPalletUnits,'Missing units per pallet.')):perPallet('WHCostUSDPerPallet','Destination WH cost/pallet')
     ];
     destination.push(scale(sum([cells[10],...destination]),percentage('OverageShortageDamagePct','Damage %').value,'Invalid Damage %.'));
     destination.push(perPallet('WHToCoManWHUSDPerPallet','WH–Co-Man WH/pallet'),

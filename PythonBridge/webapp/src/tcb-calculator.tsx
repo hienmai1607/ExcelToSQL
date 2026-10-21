@@ -1,7 +1,7 @@
 import {LossFormulaVariables} from './loss-formula-variables';
 import {Fragment,useEffect,useState} from 'react';
 import {call,type Row} from './api';
-import {Modal,ErrorNote,InfoTip,FieldLabel} from './ui';
+import {Modal,ErrorNote,InfoTip,FieldLabel,Notification} from './ui';
 import {IconButton} from './icons';
 import {objectValue,quantity,quantityDisplay} from './packaging-summary-model';
 import {defaultInputs,costs,money,packagingUSD,palletizationValue,productFields,type TCBInputs,type TCBGrade} from './tcb-model';
@@ -90,7 +90,7 @@ export function TCBCalculator({row,opportunity,onClose,onSaved,lossOnly=false}:{
     </div>:<div role="tabpanel" aria-label="Packaging Loss"><table className="item-loss-table"><thead><tr><th>Packaging layer</th><th>Loss ratio (%)</th></tr></thead><tbody>{steps.filter(p=>p.ProcessType!=='Sorting'&&p.ProcessType!=='Processing').map((step,index)=><tr key={step.ProcessType}><td>{(mix?'Mix ':'')+['Primary','Secondary','Tertiary'][index]+' packaging'}</td><td><input aria-label={'Packaging loss ratio '+(index+1)} type="number" min="0" max="100" step="0.01" value={step.LossPct} disabled={readonly||saving} onChange={e=>change('LossProcesses',steps.map(s=>s===step?{...s,LossPct:e.target.value}:s))}/></td></tr>)}</tbody></table></div>}
    </section>}
    {readonly&&<p>Read only — this Opportunity or item is no longer Draft.</p>}
-   {message&&<p role="status">{message}</p>}
+   <Notification value={message} onDismiss={()=>setMessage('')}/>
    <div className="actions"><button type="button" disabled={saving} onClick={close}>Close</button>{!readonly&&<button type="button" className="primary" disabled={saving||!!processError||(!lossOnly&&!mix&&(!calc.product||!!data.gradeError))} onClick={save}>{saving?'Saving…' :lossOnly?'Save item losses':'Save TCB'}</button>}</div>
   </>}
  </Modal>

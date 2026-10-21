@@ -244,6 +244,13 @@ def merge_shipment(ctx,original,changes,header):
  if "ImportClearanceCustomerPerPallet" in changes and shipment.get("ImportClearanceCustomerPerPallet") is not None:
   shipment["ImportClearanceUSDPerContainer"]=None
  mode=changes.get("MarginMode")
+ for customer_key,usd_key in (("PortToWHCustomerPerContainer","PortToWHUSDPerContainer"),("WHCostCustomerPerPallet","WHCostUSDPerPallet"),("InitialDesignCustomer","InitialDesignUSD")):
+  if customer_key in changes and shipment.get(customer_key) is not None:
+   if usd_key in changes and shipment.get(usd_key) is not None:
+    raise ValueError("Choose USD or customer currency, not both.")
+   shipment[usd_key]=None
+  elif usd_key in changes and shipment.get(usd_key) is not None:
+   shipment[customer_key]=None
  if "MarginPct" in changes and "MarginUSDPerLb" in changes and changes["MarginPct"] is not None and changes["MarginUSDPerLb"] is not None:
   raise ValueError("Choose only one Margin basis.")
  if mode is None:

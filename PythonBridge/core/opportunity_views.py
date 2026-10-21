@@ -28,7 +28,7 @@ class OpportunityView(BaseModel):
     sort: list[MasterSort] = Field(default_factory=list, max_length=644)
     filters: list[str] | None = Field(None, max_length=5)
     values: dict[str, str] = Field(default_factory=dict, max_length=5)
-    field_version: int = Field(1, ge=1, le=13)
+    field_version: int = Field(1, ge=1, le=14)
     prefix_columns: list[str] | None = Field(None, max_length=64)
 
 def validate_view(view, allowed):

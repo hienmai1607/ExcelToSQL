@@ -37,7 +37,7 @@ const savedValues=(row:Row)=>({...fieldValues(row,responseFields),SameConfig:sam
 const entry=(row:Row,editable:boolean):Entry=>({row,values:{...(editable?responseValues(row):fieldValues(row,responseFields)),SameConfig:sameConfig(row.SameConfig)?'1':'0'},done:false,error:'',pricing:{},pricingResults:{}});
 const responseDirty=(e:Entry)=>Object.keys(e.pricing).length>0||JSON.stringify(e.values)!==JSON.stringify(savedValues(e.row));
 const changed=(e:Entry)=>!e.done&&responseDirty(e);
-export function RequestEditor({request,canAssign,user,onClose,onSaved,initialPage=1,focusItemID,sort='[]'}:{request:Row;canAssign:boolean;user:string;onClose:()=>void;onSaved:()=>void;initialPage?:number;focusItemID?:number;sort?:string}){
+export function RequestEditor({request,canAssign,user,onClose,onSaved,initialPage=1,focusItemID,sort='[]',readOnly=false}:{readOnly?:boolean;request:Row;canAssign:boolean;user:string;onClose:()=>void;onSaved:()=>void;initialPage?:number;focusItemID?:number;sort?:string}){
  const [pics,setPics]=useState<Row[]>([]);
  useEffect(()=>{let active=true;if(canAssign)api.pics().then(d=>{if(active)setPics(d.rows)}).catch(e=>{if(active)setError(e.message)});return()=>{active=false}},[canAssign]);
  const session=useSession(),guard=useRef(false),content=useRef<HTMLDivElement>(null),focused=useRef(false);
@@ -45,10 +45,10 @@ export function RequestEditor({request,canAssign,user,onClose,onSaved,initialPag
  const [entries,setEntries]=useState<Entry[]>([]),responseTypes=useResponseTypes();
  const [mixFull,setMixFull]=useState(false),loadedMix=useRef('');
  const [page,setPage]=useState(initialPage),[size,setSize]=useState(profile.settings.requests?.editor_page_size??25),[total,setTotal]=useState(0),[tick,setTick]=useState(0);
- const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[uncertain,setUncertain]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+ const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[uncertain,setUncertain]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[saveSeverity,setSaveSeverity]=useState<'success'|'warning'|'error'>('success');
  const [confirm,setConfirm]=useState(false);
  const [pricingHistory,setPricingHistory]=useState<number|null>(null);
- const canResponse=(r:Row)=>canRespondPackaging(session,r);
+ const canResponse=(r:Row)=>!readOnly&&canRespondPackaging(session,r);
  const dirty=entries.some(changed);
  function leave(){if(!busy&&(!dirty||window.confirm('Discard unsaved request changes?')))onClose()}
  function move(action:()=>void,keepDraft=false){if(!busy&&(mixFull&&keepDraft||!dirty||window.confirm('Discard unsaved request changes?')))action()}
@@ -66,7 +66,7 @@ export function RequestEditor({request,canAssign,user,onClose,onSaved,initialPag
  }).catch(e=>{if(active){setEntries([]);setError(e.message)}}).finally(()=>{if(active)setLoading(false)});
  return()=>{active=false}},[request.RequestID,page,size,tick,sort]);
  useEffect(()=>{if(!loading&&focusItemID&&!focused.current){const target=content.current?.querySelector<HTMLElement>('[data-item-id="'+focusItemID+'"]');if(target){target.scrollIntoView({block:'start'});focused.current=true}}},[loading,entries,focusItemID]);
- async function savePageSize(){setError('');try{await saveProfile({...profile.settings,requests:{...profile.settings.requests,editor_page_size:size}});setMessage('Edit view item page size saved to your profile.')}catch(e){setError((e as Error).message)}}
+ async function savePageSize(){setError('');setSaveSeverity('success');try{await saveProfile({...profile.settings,requests:{...profile.settings.requests,editor_page_size:size}});setMessage('Edit view item page size saved to your profile.')}catch(e){setError((e as Error).message)}}
  function update(id:unknown,patch:Partial<Entry>){setEntries(xs=>{const previous=xs.find(e=>e.row.ItemID===id);let next=xs.map(e=>e.row.ItemID===id?{...e,...patch,error:''}:e);
  const member=next.find(e=>e.row.ItemID===id),root=member&&sameConfigRoot(member,next);
  if(member?.row.ParentItemID&&previous&&(['ApplicableNetWeightGrams','UnitsPerCarton','UnitsPerTertiary','ResponseLayerCount','FirstPMType','SecondPMType','ThirdPMType','LayerTareJSON'].some(k=>member.values[k]!==previous.values[k])||JSON.stringify(member.pricing)!==JSON.stringify(previous.pricing))){
@@ -129,19 +129,20 @@ export function RequestEditor({request,canAssign,user,onClose,onSaved,initialPag
     if(!(err instanceof ApiError)||err.status===0||err.status>=500){setUncertain(true);break}
    }
   }
-  setMessage(saved+' item(s) saved.'+(failed?' Some changes were not saved; see the item messages.':''));
+  setSaveSeverity(failed?(saved?'warning':'error'):'success');setMessage(saved+' item(s) saved.'+(failed?' Some changes were not saved; see the item messages.':''));
   if(!failed)setTick(n=>n+1);
   }finally{guard.current=false;setBusy(false);setConfirm(false)}
  }
- return <Modal label="Edit Packaging request" className="dialog opportunity-editor record-dialog" onClose={leave}>
+ return <Modal label={readOnly?"Packaging request view":"Edit Packaging request"} className="dialog opportunity-editor record-dialog" onClose={leave}>
  <div className="customer-editor-heading"><h2>{text(request.RequestNumber)}</h2><IconButton icon="close" label="Close request editor" disabled={busy} onClick={leave}/></div>
  <div className="record-dialog-content" ref={content}><section className="panel request-editor-header"><strong>{text(request.OpportunityNumber)} · {text(request.CustomerName)}</strong><span>Response due: {date(request.ResponseDue)}</span><span>Requested by: {text(request.RequestedByName)}</span><Badge value={request.RequestStatus}/><div className="request-header-note"><span>Request note</span><p>{text(request.RequestNotes??entries[0]?.row.RequestNotes)}</p></div></section>
- <ErrorNote value={error||responseTypes.error}/><Notification value={message} onDismiss={()=>setMessage('')}/>{uncertain&&<ErrorNote value="Save outcome uncertain. Close and refresh before making further changes."/>}
+ <ErrorNote value={error||responseTypes.error}/><Notification value={message} severity={saveSeverity} onDismiss={()=>setMessage('')}/>{uncertain&&<ErrorNote value="Save outcome uncertain. Close and refresh before making further changes."/>}
  {loading?<p>Loading items…</p>:<div className="request-editor-list">{visibleGroups.map(group=><section className="request-editor-family" key={String(group[0].row.ItemID)} aria-label={'Item group '+group[0].row.ItemID}>{group.length>1&&<h3>Parent item · {text(group[0].row.ProductCode)} <small>{group.length-1} child item(s)</small></h3>}{group.map(e=>{const r=e.row,id=Number(r.ItemID),root=sameConfigRoot(e,entries),first=root?mixChildren(root,entries)[0]:undefined,linked=!!root&&!!r.ParentItemID&&first?.row.ItemID!==id,blocked=!!root&&!!mixConfigError(root,entries,canResponse);
  return <section className={'panel request-editor-item'+(r.ParentItemID?' request-editor-child':'')} key={id} data-item-id={id} aria-label={'Request item '+id}>
- <header><strong>{r.ParentItemID&&<small className="request-child-label">Child {text(r.MixChildNumber)} of {text(group[0].row.ProductCode)} · </small>}{text(r.ProductCode)} · {text(r.ItemDescription)}</strong><div className="request-item-assignment">{!r.ParentItemID&&<ItemReviewActions item={r} group={group.map(e=>e.row)} canAssign={canAssign} user={user} pics={pics} refreshing={busy||loading||uncertain||dirty} onSaved={()=>{setTick(n=>n+1);onSaved()}}/>}<span className="item-review-pic">PIC: {text(r.PIC)}</span>{!!r.ParentItemID&&<Badge value={r.ItemStage}/>}{(session.is_admin||session.scopes.some(s=>['Packaging','PackagingManager'].includes(s)))&&<IconButton icon="history" label={'View saved pricing for item '+id} disabled={busy} onClick={()=>setPricingHistory(id)}/>}</div></header>
+ <header><strong>{r.ParentItemID&&<small className="request-child-label">Child {text(r.MixChildNumber)} of {text(group[0].row.ProductCode)} · </small>}{text(r.ProductCode)} · {text(r.ItemDescription)}</strong><div className="request-item-assignment">{readOnly&&<Badge value={r.ItemStage}/>}
+ {!readOnly&&!r.ParentItemID&&<ItemReviewActions item={r} group={group.map(e=>e.row)} canAssign={canAssign} user={user} pics={pics} refreshing={busy||loading||uncertain||dirty} onSaved={()=>{setTick(n=>n+1);setSaveSeverity('success');setMessage('Item group updated successfully.');onSaved()}}/>}<span className="item-review-pic">PIC: {text(r.PIC)}</span>{!!r.ParentItemID&&<Badge value={r.ItemStage}/>}{(session.is_admin||session.scopes.some(s=>['Packaging','PackagingManager'].includes(s)))&&<IconButton icon="history" label={'View saved pricing for item '+id} disabled={busy} onClick={()=>setPricingHistory(id)}/>}</div></header>
 
- <details><summary>Packaging request</summary><RequirementSections row={r} values={webRequirementValues(r)} child={!!r.ParentItemID} shelfLife={r.ShelfLifeDays}/></details>
+ <details open={readOnly}><summary>Packaging request</summary><RequirementSections row={r} values={webRequirementValues(r)} child={!!r.ParentItemID} shelfLife={r.ShelfLifeDays}/></details>
  <ErrorNote value={e.error}/>{e.done&&<p>Saved</p>}
 
 
@@ -149,7 +150,7 @@ export function RequestEditor({request,canAssign,user,onClose,onSaved,initialPag
 
  </section>})}</section>)}</div>}
  </div><footer className="record-dialog-footer"><Pager page={page} size={size} total={groupCount} busy={loading||busy||uncertain} onPage={n=>move(()=>setPage(n),true)} onSize={n=>move(()=>{setSize(n);setPage(1)},true)} unit="parent / standalone items"/>
- <div className="actions record-action-bar"><IconButton icon="refresh" label="Refresh items" disabled={busy||loading||uncertain} onClick={()=>move(()=>setTick(n=>n+1))}/><IconButton icon="save" label="Save item page size" disabled={!ready||profileSaving||busy} onClick={savePageSize}/><button className="primary" disabled={!dirty||busy||loading||uncertain} onClick={review}>Review &amp; save</button></div></footer>
+ <div className="actions record-action-bar"><IconButton icon="refresh" label="Refresh items" disabled={busy||loading||uncertain} onClick={()=>move(()=>setTick(n=>n+1))}/><IconButton icon="save" label="Save item page size" disabled={!ready||profileSaving||busy} onClick={savePageSize}/>{!readOnly&&<button className="primary" disabled={!dirty||busy||loading||uncertain} onClick={review}>Review &amp; save</button>}</div></footer>
  {confirm&&<Modal label="Confirm request save" onClose={()=>{if(!busy)setConfirm(false)}}><h2>Save changes to {saveGroups().flat().length} item(s)?</h2><p>Each parent and its children are saved together atomically. Standalone items are saved independently. Same config is a separate choice for copying packaging settings.</p><div className="actions"><button disabled={busy} onClick={()=>setConfirm(false)}>Back</button><button disabled={busy} onClick={save}>Confirm save</button></div></Modal>}
  {pricingHistory!==null&&<PricingHistory itemID={pricingHistory} onClose={()=>setPricingHistory(null)}/>}
  </Modal>;

@@ -38,7 +38,7 @@ class Math(unittest.TestCase):
   selections=[*SELECTIONS[:2],{"Path":"0/1/2","DirectUSDPerLb":"5"}]
   result=calculate(Inputs(Prices=selections),leaves(TREE),PRICES)
   self.assertEqual(Decimal(result["RMCostUSDPerLb"]),Decimal("3.75"))
-  self.assertEqual(result["PriceSnapshots"][-1]["Source"],"Direct")
+  self.assertEqual(next(r for r in result["PriceSnapshots"] if r["Path"]=="0/1/2")["Source"],"Direct")
  def test_direct_price_validation(self):
   for selection in ({"Path":"0/2","DirectUSDPerLb":"-1"},{"Path":"0/2","DirectUSDPerLb":"NaN"},{"Path":"0/2","DirectUSDPerLb":"1.0000001"},{"Path":"0/2","DirectUSDPerLb":None},{"Path":"0/2","DirectUSDPerLb":"3","PriceID":1,"PriceVersion":VERSION}):
    with self.subTest(selection=selection),self.assertRaises(ValidationError):Inputs(Prices=[selection])

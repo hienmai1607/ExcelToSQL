@@ -21,6 +21,8 @@ SHIPMENT_GROUPS = [
    "ImportClearanceCustomerPerPallet": "Legacy clearance (customer currency/pallet)",
    "PortToWHUSDPerContainer": "Port - WH ($/cont)",
    "WHCostUSDPerPallet": "WH Cost ($/pallet)",
+   "PortToWHCustomerPerContainer": "Port - WH (customer currency/container)",
+   "WHCostCustomerPerPallet": "WH Cost (customer currency/pallet)",
    "OverageShortageDamagePct": "Overage, Shortage & Damage %"
   }
  ],
@@ -41,6 +43,7 @@ SHIPMENT_GROUPS = [
   {
    "PackingUSDPerLb": "Packing cost ($/lbs)",
    "InitialDesignUSD": "Initial Design ($)",
+   "InitialDesignCustomer": "Initial Design (customer currency)",
    "OtherFixedCostsUSD": "Other fixed costs ($)",
    "FobbingUSDPerContainer": "Fobbing/container ($)",
    "InterestPct": "Interest %",

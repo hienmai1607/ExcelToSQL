@@ -91,7 +91,7 @@ test('mix response uses captured Product structure and mix unit labels',async({p
  await dialog.getByRole('button',{name:'Close product structure',exact:true}).click();
  await expect(editor).toBeVisible();
 });
-import {responseEfficiency,mixTotals,mixVolumeDisplay} from '../src/response-efficiency';
+import {responseEfficiency,mixTotals,mixVolumeDisplay,mixWeightValue,mixWeightDisplay} from '../src/response-efficiency';
 import {fieldPayload,webResponseFields} from '../src/packaging-fields';
 
 const efficiencyMix={MixVersionID:7,items:[
@@ -115,6 +115,16 @@ test('mix efficiency sums child consumption exactly and never requires a parent 
  expect(mixVolumeDisplay(fractions)).toBe('0.666667');
 });
 
+test('Mix weight calculation values are unformatted and preserve missing and zero totals',()=>{
+ const totals=mixTotals({items:[{ProductID:1,UnitQuantity:2,WeightGrams:'625.125'}]},[]);
+ expect(mixWeightValue(totals)).toBe('1250.250000');
+ expect(mixWeightDisplay(totals)).toBe('1,250.25');
+ expect(mixVolumeDisplay(totals)).toBe(''); // Missing density does not block weight.
+ expect(mixWeightValue(mixTotals(null,[]))).toBe('');
+ expect(mixWeightValue(mixTotals({items:[{ProductID:1,UnitQuantity:1}]},[]))).toBe('');
+ expect(mixWeightValue(mixTotals({items:[{ProductID:1,UnitQuantity:1,WeightGrams:0}]},[]))).toBe('0.000000');
+});
+
 for(const layers of [1,3])test('mix parent volume and efficiency use off-page children for '+layers+' layers',async({page})=>{
  const {editor,writes}=await setup(page,layers,{
   IsMixParent:true,WeightGrams:750,NutDensity:999,ProductMixSnapshot:JSON.stringify(efficiencyMix),
@@ -133,6 +143,29 @@ for(const layers of [1,3])test('mix parent volume and efficiency use off-page ch
  await expect(editor.getByRole('status')).toContainText('1 item(s) saved');
  for(const key of ['NutDensity','UsedVolumeML','MixNetWeightGrams','CartonEfficiencyKGM3','RelativeCartonEfficiencyPct'])expect(writes[0].rows[0]).not.toHaveProperty(key);
  await expect(editor.getByLabel('Total Used volume (ml)',{exact:true})).toHaveValue('1,000');
+});
+
+for(const layers of [1,2,3])test('Mix net weight recalculates from child response weights before saving for '+layers+' layers',async({page})=>{
+ const {editor,writes}=await setup(page,layers,{IsMixParent:true,OpportunityItemID:99,WeightGrams:750,UnitsPerCarton:6,UnitsPerTertiary:2,
+  ProductMixSnapshot:JSON.stringify(efficiencyMix),MixResponseChildren:JSON.stringify(efficiencyChildren)},[],[
+  {RequestID:1,ItemID:2,ParentItemID:99,ProductID:2,ProductCode:'PRD-A',WeightGrams:150,ItemStage:'Assigned',PIC:'Admin',ItemRowVersion:'AAAAAAAAAAE=',ResponseLayerCount:1},
+  {RequestID:1,ItemID:3,ParentItemID:99,ProductID:3,ProductCode:'PRD-B',WeightGrams:450,ItemStage:'Assigned',PIC:'Admin',ItemRowVersion:'AAAAAAAAAAE=',ResponseLayerCount:1}
+ ]);
+ const parent=editor.getByRole('region',{name:'Request item 1',exact:true}),child=editor.getByRole('region',{name:'Request item 2',exact:true});
+ await expect(parent.getByLabel('Applicable Net weight (g)',{exact:true})).toHaveValue('750');
+ await child.getByLabel('Applicable Net weight (g)',{exact:true}).fill('200');
+ await expect(parent.getByLabel('Applicable Net weight (g)',{exact:true})).toHaveValue('850');
+ await expect(parent.getByLabel('Primary net weight (g)',{exact:true})).toHaveValue('850');
+ await child.getByLabel('Applicable Net weight (g)',{exact:true}).fill('400');
+ await expect(parent.getByLabel('Applicable Net weight (g)',{exact:true})).toHaveValue('1,250');
+ await expect(parent.getByLabel('Primary net weight (g)',{exact:true})).toHaveValue('1,250');
+ if(layers>=2)await expect(parent.getByLabel('Secondary net weight (g)',{exact:true})).toHaveValue('7,500');
+ if(layers===3)await expect(parent.getByLabel('Tertiary net weight (g)',{exact:true})).toHaveValue('15,000');
+ await child.getByLabel('Applicable Net weight (g)',{exact:true}).fill('400.125');
+ await expect(parent.getByLabel('Primary net weight (g)',{exact:true})).toHaveValue('1,250.25');
+ if(layers>=2)await expect(parent.getByLabel('Secondary net weight (g)',{exact:true})).toHaveValue('7,501.5');
+ if(layers===3)await expect(parent.getByLabel('Tertiary net weight (g)',{exact:true})).toHaveValue('15,003');
+ expect(writes).toEqual([]);
 });
 
 test('editing a mix child density updates the parent total and persists after reload',async({page})=>{

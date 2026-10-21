@@ -86,7 +86,7 @@ test('responses group primary, secondary and palletization fields; PIC stays bes
  await expect(packing.getByLabel('No of Secondary Unit',{exact:true})).toHaveAttribute('readonly','');
  for(const label of ['Primary Type','Primary MOQ unit','Primary price per unit'])await expect(primary.getByLabel(label,{exact:true})).toBeVisible();
  for(const label of ['Secondary Type','Secondary MOQ unit','Secondary price per unit'])await expect(secondary.getByLabel(label,{exact:true})).toBeVisible();
- for(const label of ['Pallet size','Pallet stacking','Max pallet height (mm)','Cartons / layer','Layers / pallet','Units / pallet'])await expect(pallet.getByLabel(label,{exact:true})).toBeVisible();
+ for(const label of ['Pallet','Pallet stacking','Max pallet height (mm)','Cartons / layer','Layers / pallet','Units / pallet'])await expect(pallet.getByLabel(label,{exact:true})).toBeVisible();
  const load=item.getByRole('region',{name:'Container Load response',exact:true});
  for(const label of ['Pallet / Container','Carton / Container','Net weight / Container (kg)'])await expect(load.getByLabel(label,{exact:true})).toBeVisible();
  await expect(item.getByLabel('Packaging description',{exact:true})).toHaveCount(0);
@@ -200,12 +200,29 @@ test('an unavailable historical type survives unrelated edits',async({page})=>{
  expect(writes[0].rows[0]).toMatchObject({FirstPMType:'Old film',UnitsPerCarton:'13'});
  expect(writes[0].rows[0]).not.toHaveProperty('Cost');
 });
+test('submitting from the request editor shows a top success notification',async({page})=>{
+ await setup(page);
+ let submitted=false;
+ await page.route('**/api/packaging/items/1/transition',route=>{
+  submitted=true;return route.fulfill({json:{result:{Stage:'Pending Review'}}});
+ });
+ await page.getByRole('button',{name:'Edit request PCR-1'}).click();
+ const editor=page.getByRole('dialog',{name:'Edit Packaging request'});
+ await editor.getByRole('button',{name:'Submit 1',exact:true}).click();
+ await page.getByRole('dialog',{name:'Confirm response action'}).getByRole('button',{name:'Confirm',exact:true}).click();
+ const notice=editor.locator('.floating-notification.success');
+ await expect(notice).toContainText('Item group updated successfully.');
+ expect(submitted).toBe(true);
+ expect((await notice.boundingBox())!.y).toBeLessThan(30);
+});
+
 test('partial save preserves failed draft and never resends successful items',async({page})=>{
  const writes=await setup(page,true);await page.getByRole('button',{name:'Edit request PCR-1'}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request'});
  for(const id of [1,2])await editor.getByRole('region',{name:'Request item '+id,exact:true}).getByLabel('No of Primary Unit',{exact:true}).fill(String(id+10));
  await editor.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(editor.getByRole('alert')).toContainText('Conflict');
+ await expect(editor.locator('.floating-notification.error')).toContainText('Conflict');
+ await expect(editor.locator('.floating-notification.warning')).toContainText('Some changes were not saved');
  await expect(editor.getByRole('region',{name:'Request item 2',exact:true}).getByLabel('No of Primary Unit',{exact:true})).toHaveValue('12');
  await editor.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect.poll(()=>writes.length).toBe(3);expect(writes.map(w=>w.rows[0].ID)).toEqual([1,2,2]);
