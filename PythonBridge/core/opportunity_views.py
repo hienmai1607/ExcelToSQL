@@ -9,6 +9,7 @@ from packaging_weight import layer_sql
 from packaging_efficiency import response_derived
 from web_item_fields import WEB_ITEM_FIELDS
 from shipment_columns import SHIPMENT_COLUMNS, shipment_columns
+from shipment_ownership import effective_shipment
 from item_stage_summary import stage_summary, complete_stage_summaries
 from tcb_analysis_columns import TCB_COLUMNS, add_tcb_columns
 
@@ -131,7 +132,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CASE WHEN @CanReadDraft=1 OR stage_request.Stage IN('Approved','Canceled') THEN stage_request.ManagerComment END AS _StageReason,
             x.Category,x.Grade,x.MixRatioPct,logistics.PalletSize,logistics.PalletStacking,logistics.MaxPalletHeightM,logistics.ContainerRequest,logistics.ConfigurationRequest,x.PackagingType,x.RecyclableRequirement,x.RecycledContent,x.Transparency,x.MetalizedAluminum,p.ShelfLifeDays,x.SpecialComments,
             i.PrimaryTypeID,i.SecondaryTypeID,i.SecondaryTransparency,i.NumberOfPrimary,i.PackagingLayerCount,i.PackagingLayerCount RequestedLayerCount,i.TertiaryTypeID,i.TertiaryTransparency,i.NumberOfSecondary,
-            port_entry.PortName AS PortOfEntryName,logistics.ShipmentCostInfo,logistics.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
+            port_entry.PortName AS PortOfEntryName,logistics.ShipmentCostInfo,i.ShipmentCostInfo AS OwnShipmentCostInfo,logistics.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.TertiaryTypeID) AS TertiaryTypeName,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.PrimaryTypeID) AS PrimaryTypeName,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.SecondaryTypeID) AS SecondaryTypeName,
@@ -230,6 +231,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         SELECT COUNT(*) Total FROM dbo.Opportunity o JOIN dbo.Customer c ON c.ID=o.CustomerID WHERE {where};
     """, [username, username, *params, (page-1)*page_size, page_size, *params])
     for row in result[0]:
+        row["ShipmentCostInfo"] = json.dumps(effective_shipment(row))
         row["StageSummaryJSON"] = stage_summary(row)
         row.update(shipment_columns(row))
         # Responses use the immutable request product/configuration snapshot, not current product weight.

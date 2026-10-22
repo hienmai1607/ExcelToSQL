@@ -164,22 +164,25 @@
 .tcb-process-info>h3{margin:14px 0 8px}
 .commercial-price-table.tcb-process-info-table{table-layout:fixed;width:100%;min-width:0;border-collapse:collapse}
 .commercial-price-table.tcb-process-info-table th{box-sizing:border-box;width:auto;font-size:11px;line-height:1.35;white-space:normal;overflow-wrap:normal}
-.commercial-price-table.tcb-process-info-table th:first-child{width:15%}
+.commercial-price-table.tcb-process-info-table th:first-child{width:13%}
 .commercial-price-table.tcb-process-info-table th:nth-child(2){width:5%}
-.commercial-price-table.tcb-process-info-table th:nth-child(3){width:8%}
-.commercial-price-table.tcb-process-info-table th:nth-child(4){width:8%}
-.commercial-price-table.tcb-process-info-table th:nth-child(5){width:12%}
-.commercial-price-table.tcb-process-info-table th:nth-child(6){width:14%}
-.commercial-price-table.tcb-process-info-table th:nth-child(7){width:8%}
-.commercial-price-table.tcb-process-info-table th:nth-child(8){width:5%}
-.commercial-price-table.tcb-process-info-table th:nth-child(9){width:12%}
-.commercial-price-table.tcb-process-info-table th:last-child{width:13%}
+.commercial-price-table.tcb-process-info-table th:nth-child(3){width:6%}
+.commercial-price-table.tcb-process-info-table th:nth-child(4){width:15%}
+.commercial-price-table.tcb-process-info-table th:nth-child(5){width:7%}
+.commercial-price-table.tcb-process-info-table th:nth-child(6){width:10%}
+.commercial-price-table.tcb-process-info-table th:nth-child(7){width:11%}
+.commercial-price-table.tcb-process-info-table th:nth-child(8){width:6%}
+.commercial-price-table.tcb-process-info-table th:nth-child(9){width:5%}
+.commercial-price-table.tcb-process-info-table th:nth-child(10){width:10%}
+.commercial-price-table.tcb-process-info-table th:last-child{width:12%}
 .tcb-process-info-table th,.tcb-process-info-table td{padding:7px 6px}
 .commercial-price-table .tcb-process-row input[type=number]{width:100%;min-width:0;max-width:100%;height:32px;padding:5px 6px;box-sizing:border-box}
 .tcb-process-row .tcb-field-error{white-space:normal}
 .tcb-process-row>td{vertical-align:middle;font-size:13px}
-.tcb-process-info-table .tcb-process-row>td:nth-child(3),.tcb-process-info-table .tcb-process-row>td:last-child,.tcb-process-info-table th:nth-child(3),.tcb-process-info-table th:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.tcb-process-info-table .tcb-process-row>td:nth-child(5),.tcb-process-info-table .tcb-process-row>td:nth-child(6){text-align:left}
+.tcb-process-info-table .tcb-process-row>td:nth-child(4),.tcb-process-info-table .tcb-process-row>td:last-child,.tcb-process-info-table th:nth-child(4),.tcb-process-info-table th:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tcb-process-info-table .tcb-process-row>td:nth-child(6),.tcb-process-info-table .tcb-process-row>td:nth-child(7){text-align:left}
+.tcb-process-info-table .recipe-process-loss{font-variant-numeric:tabular-nums}
+.tcb-process-info-table .recipe-process-loss output{white-space:nowrap}
 @media(max-width:1000px){
  .tcb-process-info-table thead{display:none}
  .tcb-process-info-table tbody{display:grid;gap:10px}

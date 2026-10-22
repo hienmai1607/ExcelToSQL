@@ -16,6 +16,7 @@ Two known bug classes this file exists specifically to avoid:
 import base64
 from decimal import Decimal
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from sqlalchemy import create_engine
@@ -120,8 +121,27 @@ engine = create_engine(
 # the pool is for in-flight queries, not concurrent users.
 
 
+_transaction_connection = ContextVar('bridge_transaction_connection', default=None)
+
+@contextmanager
+def reuse_transaction(connection):
+    """Share an explicitly owned transaction, but retain a fresh cursor per call."""
+    token = _transaction_connection.set(connection)
+    try:
+        yield
+    finally:
+        _transaction_connection.reset(token)
+
 @contextmanager
 def get_raw_cursor():
+    shared = _transaction_connection.get()
+    if shared is not None:
+        cursor = shared.cursor()
+        try:
+            yield cursor
+        finally:
+            cursor.close()
+        return
     sa_conn = engine.raw_connection()
     cursor = sa_conn.cursor()
 

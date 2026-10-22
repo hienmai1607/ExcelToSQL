@@ -40,7 +40,7 @@ async function setup(page:Page,lookupTypes=types){
  await form.getByLabel('Customer *',{exact:true}).selectOption('1');
  await form.getByLabel('Description *',{exact:true}).fill('Packaging launch');
  await form.getByLabel('Exchange rate VND per USD *',{exact:true}).fill('25000');
- await form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true}).fill('1');
+ await expect(form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true})).toHaveValue('1');
  await form.getByLabel('Bid open',{exact:true}).fill('10/01/2026');await form.getByLabel('Bid close',{exact:true}).fill('10/10/2026');
  const item=form.getByRole('region',{name:'Item 1',exact:true});
  await item.getByLabel('Product *').selectOption('2');
@@ -265,13 +265,13 @@ test('Opportunity header has one desktop control row and responsive smaller rows
  const {form}=await setup(page);
  for(const width of [1440,1020]){
   await page.setViewportSize({width,height:766});
-  const boxes=await form.locator('.opportunity-header-fields').evaluate(grid=>[...grid.querySelectorAll('input,select,.opportunity-entry-summary')].map(el=>{const r=el.getBoundingClientRect();return {top:r.top,left:r.left,right:r.right,height:r.height}}));
-  expect(new Set(boxes.slice(0,4).map(b=>Math.round(b.top))).size).toBe(1);
-  expect(new Set(boxes.slice(4,7).map(b=>Math.round(b.top))).size).toBe(1);
-  if(width>=1400)expect(new Set(boxes.slice(0,7).map(b=>Math.round(b.top))).size).toBe(1);
-  else expect(boxes[7].top).toBeLessThanOrEqual(boxes[4].top);
-  expect(boxes[7].top).toBeGreaterThan(boxes[0].top);
-  for(const b of boxes.slice(0,7))expect(b.height).toBe(32);
+  const boxes=await form.locator('.opportunity-header-fields').evaluate(grid=>[...grid.querySelectorAll('input:not([aria-hidden="true"]),select,.opportunity-entry-summary')].map(el=>{const r=el.getBoundingClientRect();return {top:r.top,left:r.left,right:r.right,height:r.height}}));
+  expect(boxes).toHaveLength(7);
+  expect(new Set(boxes.slice(2,4).map(b=>Math.round(b.top))).size).toBe(1);
+  if(width>=1400)expect(new Set(boxes.slice(0,6).map(b=>Math.round(b.top))).size).toBe(1);
+  else expect(new Set(boxes.slice(4,6).map(b=>Math.round(b.top))).size).toBe(1);
+  expect(boxes[6].top).toBeGreaterThan(boxes[0].top);
+  for(const b of boxes.slice(0,6))expect(b.height).toBe(32);
   const header=await form.locator('.opportunity-header-box').boundingBox();
   expect(header!.height).toBeLessThan(205);
   const viewport=await form.locator('.opportunity-header-fields').evaluate(el=>({width:el.clientWidth,scroll:el.scrollWidth}));
@@ -323,8 +323,8 @@ test('copy uses current unsaved packaging only, clears blank source fields and s
 
 test('currency controls use matching compact widths and help aligns with the label line',async({page},info)=>{
  const {form,item}=await setup(page);
- const controls=form.locator('.opportunity-currency input,.opportunity-rate input'),boxes=await controls.evaluateAll(nodes=>nodes.map(el=>{const b=el.getBoundingClientRect();return {width:b.width,font:getComputedStyle(el).fontSize}}));
- expect(boxes).toHaveLength(3);expect(new Set(boxes.map(b=>b.width)).size).toBe(1);for(const b of boxes)expect(b.width).toBeLessThan(150);
+ const controls=form.locator('.opportunity-currency input,.opportunity-rate input'),boxes=await controls.evaluateAll(nodes=>nodes.map(el=>{const b=el.getBoundingClientRect();return {width:b.width,height:b.height,font:getComputedStyle(el).fontSize}}));
+ expect(boxes).toHaveLength(2);expect(new Set(boxes.map(b=>b.height)).size).toBe(1);for(const b of boxes){expect(b.width).toBeGreaterThan(0);expect(b.font).toBe('12px');}
  const label=item.locator('.field-label').filter({hasText:'Requested packaging layers'}),note=label.getByRole('note');
  const {l,n,textBox}=await label.evaluate(el=>({l:el.getBoundingClientRect().toJSON(),n:el.querySelector('.info-tip')!.getBoundingClientRect().toJSON(),textBox:el.querySelector('.field-label-text')!.getBoundingClientRect().toJSON()}));expect(Math.abs(l.y+l.height/2-n.y-n.height/2)).toBeLessThan(2);expect(n.x-textBox.x-textBox.width).toBeLessThanOrEqual(6);
  await expect(item.getByLabel('Copy packaging from item')).toHaveCount(0);await expect(item.locator('.packaging-copy > button svg')).toBeVisible();

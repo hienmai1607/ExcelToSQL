@@ -12,6 +12,22 @@ TREE=[dict(ParentID="0",ID=1,Grade="Cashews",RatioPct=20,Process=True),
  dict(ParentID="0",ID=2,Grade="Almonds",RatioPct=80,RawGradeID=3,Process=False)]
 
 class Contracts(unittest.TestCase):
+ def test_child_loss_and_level_one_recipe_are_independent(self):
+  tree=[dict(row) for row in TREE]
+  tree[0]["Process"]=False
+  tree[1]["Process"]=tree[2]["Process"]=True
+  inputs=Inputs(Prices=[dict(Path=path,DirectUSDPerLb=price) for path,price in (("0/1/1","3.6"),("0/1/2","1.8"),("0/2","2"))],
+   LossProcesses=[dict(ProcessType="Processing",Sequence=1,LossPct=0,Shared=True)],
+   ProcessLosses=[dict(Path="0/1/2",Ratios=[25]),dict(Path="0/1/1",Ratios=[10])],
+   MaterialCosts=[dict(Path="0/1",ProcessingUSDPerLb=".5")])
+  result=calculate(inputs,leaves(tree),{},weight=150)
+  self.assertEqual({Decimal(row["LossPct"]) for row in result["ProcessLossSnapshots"]},{Decimal(10)})
+  self.assertEqual(Decimal(result["ProductUSDPerLb"]),Decimal("2.42"))
+  self.assertTrue(all(row["Path"].count("/")==1 for row in result["MaterialCostSnapshots"]))
+ def test_conflicting_child_recipes_require_a_level_one_override(self):
+  tree=leaves(TREE)
+  inputs=Inputs(MaterialCosts=[dict(Path="0/1/1",ProcessingUSDPerLb=1),dict(Path="0/1/2",ProcessingUSDPerLb=2)])
+  with self.assertRaisesRegex(ValueError,"saved child recipes differ"):calculate(inputs,tree,{},allow_unpriced=True)
  def test_grade_yield_before_recipe_and_root_rollup(self):
   inputs=Inputs(Prices=[dict(Path=path,DirectUSDPerLb=price) for path,price in (("0/1/1","3.6"),("0/1/2","1.8"),("0/2","2"))],
    LossProcesses=[dict(ProcessType="Processing",Sequence=1,LossPct=0)],

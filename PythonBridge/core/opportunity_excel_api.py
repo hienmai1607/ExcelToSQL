@@ -215,8 +215,11 @@ def resolve(ctx,table,column,value):
  return found[0]["ID"]
 
 def merge_shipment(ctx,original,changes,header):
- raw=original.get("ShipmentCostInfo")
- shipment=json.loads(raw) if isinstance(raw,str) and raw else dict(raw or {})
+ from shipment_ownership import own_others,validate_child_others
+ if original.get("ParentItemID"):
+  validate_child_others(changes)
+ raw=original.get("OwnShipmentCostInfo",original.get("ShipmentCostInfo")) if original.get("ParentItemID") else original.get("ShipmentCostInfo")
+ shipment=own_others(original) if original.get("ParentItemID") else json.loads(raw) if isinstance(raw,str) and raw else dict(raw or {})
  for key,value in changes.items():
   if key=="PortOfEntryName":
    if value is None or str(value).strip()=="":

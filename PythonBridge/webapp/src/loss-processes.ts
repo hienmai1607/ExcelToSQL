@@ -4,7 +4,7 @@ export const lossFields=['LossProductPct','PrimaryLossPct','SecondaryLossPct','T
 export type LossField=typeof lossFields[number];
 export const processFields={Sorting:'LossProductPct',Processing:'LossProductPct',PrimaryPackaging:'PrimaryLossPct',SecondaryPackaging:'SecondaryLossPct',TertiaryPackaging:'TertiaryLossPct',MixPrimaryPackaging:'MixPrimaryLossPct',MixSecondaryPackaging:'MixSecondaryLossPct',MixTertiaryPackaging:'MixTertiaryLossPct'} as const;
 export type ProcessType=keyof typeof processFields;
-export type LossStep={ProcessType:ProcessType;ProcessName?:string|null;Sequence:number|string;LossPct:string;MasterID?:number|null;MasterVersion?:string|null};
+export type LossStep={ProcessType:ProcessType;ProcessName?:string|null;Sequence:number|string;LossPct:string;MasterID?:number|null;MasterVersion?:string|null;Shared?:boolean};
 export const lossCodeIdentity=(step:LossStep)=>step.MasterID?'master:'+step.MasterID:'name:'+(step.ProcessName||step.ProcessType).trim().toLowerCase();
 export function processOptions(mix:boolean,layers:number):[ProcessType,string][]{
  const options:[ProcessType,string][]=mix?[]:[['Sorting','Sorting'],['Processing','Processing / Roasting']];

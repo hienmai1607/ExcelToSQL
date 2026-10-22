@@ -3,8 +3,8 @@ import type {Row} from './api';
 import {SharedMasterView} from './shared-master-view';
 import {SharedMasterEditor} from './shared-master-editor';
 
-export function CategoryEditor({row,canWrite,onClose,onSaved}:{row:Row|null;canWrite:boolean;onClose:()=>void;onSaved:(records:Row[])=>void}){
- return <SharedMasterEditor row={row} canWrite={canWrite} title="Category" endpoint="/api/categories" onClose={onClose} onSaved={onSaved}
+export function CategoryEditor({row,canWrite,onClose,onSaved,saveEndpoint}:{saveEndpoint?:string;row:Row|null;canWrite:boolean;onClose:()=>void;onSaved:(records:Row[])=>void}){
+ return <SharedMasterEditor row={row} canWrite={canWrite} saveEndpoint={saveEndpoint} title="Category" endpoint="/api/categories" onClose={onClose} onSaved={onSaved}
  initial={()=>({CategoryName:String(row?.CategoryName??''),Status:String(row?.Status??'Active')})}
  validate={v=>!v.CategoryName.trim()?'Category name is required.':''}
  payload={v=>({CategoryName:v.CategoryName.trim(),Status:v.Status})}

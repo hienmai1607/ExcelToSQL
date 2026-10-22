@@ -39,3 +39,4 @@ class MultiItemNumbers(unittest.TestCase):
  def test_numeric_boundaries_remain_exact(self):self.save_pair(annual=2147483647,price=99999999.99)
  def test_zero_is_not_treated_as_blank(self):self.save_pair(annual=0,award=0,price=0)
  def test_reversed_input_has_identical_saved_values(self):self.save_pair(reverse=True)
+ def test_whole_sql_decimal_quantity_does_not_send_fractional_text_to_int_tvp(self):self.save_pair(annual=Decimal('50000.0000'))

@@ -8,6 +8,8 @@ from packaging_api import execute, require, rv
 from opportunity_excel_api import AUTH
 from tcb_costs import Inputs, leaves, calculate, LossProcess, LOSS_FIELDS
 from loss_process_api import active_loss_masters
+from grade_loss_master_api import active_loss_defaults
+from product_grades import OpportunityGradeTree
 
 router = APIRouter(prefix="/api/opportunity/items", tags=["TCB Calculator"])
 
@@ -88,7 +90,7 @@ def read(item_id: int = Path(ge=1),ctx: AccessContext=Depends(get_access_context
             error = exc.detail
     saved=json.loads(item["TCBCostInfo"] or "{}")
     saved.setdefault("Inputs",{})["PalletUSDPerEA"]=str(palletization_usd(item)) if palletization_usd(item) is not None else None
-    return {"lossMasters":active_loss_masters(ctx),"item":item,"saved":saved,
+    return {"lossDefaults":active_loss_defaults(ctx),"lossMasters":active_loss_masters(ctx),"item":item,"saved":saved,
             "grades":json.loads(json.dumps(grades,default=serial)),
             "prices":current_prices(grades,ctx) if grades else [],"gradeError":error}
 
@@ -120,6 +122,9 @@ def apply_formula_variables(item,inputs):
 
 def resolve_loss_assignments(item, inputs, ctx):
     """Preserve existing immutable steps; new/replaced steps must come from Master."""
+    if inputs.ProcessLosses:
+        resolve_stage_codes(item,inputs,ctx)
+        inputs=Inputs(**inputs.model_dump(mode="json"))
     if inputs.LossProcesses is None: return apply_formula_variables(item,inputs)
     saved = json.loads(item.get("TCBCostInfo") or "{}").get("Inputs",{})
     previous = saved.get("LossProcesses")
@@ -157,6 +162,28 @@ def resolve_loss_assignments(item, inputs, ctx):
         return apply_formula_variables(item,Inputs(**{**inputs.model_dump(mode="json"),"LossProcesses":resolved}))
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
+
+
+def resolve_stage_codes(item,inputs,ctx):
+    """Canonical type snapshots for row-local stages; user-entered ratios remain item-owned."""
+    saved=json.loads(item.get("TCBCostInfo") or "{}").get("Inputs",{})
+    previous=[code for row in saved.get("ProcessLosses") or [] for code in row.get("Codes") or []]
+    previous.extend({"MasterID":step.get("MasterID"),"MasterVersion":step.get("MasterVersion"),"ProcessName":step.get("ProcessName") or step.get("ProcessType"),"Shared":step.get("Shared",False)}
+                    for step in saved.get("LossProcesses") or [] if step.get("ProcessType") in ("Processing","Sorting"))
+    identity=lambda code:(code.get("MasterID"),str(code.get("MasterVersion") or "").lower(),code.get("ProcessName"))
+    masters=None
+    for row in inputs.ProcessLosses:
+        for code in row.Codes or []:
+            old=next((p for p in previous if identity(p)==identity(code.model_dump())),None)
+            if old:
+                code.Shared=bool(old.get("Shared"))
+                continue
+            if masters is None:masters={m["MasterID"]:m for m in active_loss_masters(ctx)}
+            master=masters.get(code.MasterID)
+            if not master or str(master["MasterVersion"]).lower()!=str(code.MasterVersion).lower():
+                raise HTTPException(409,"Process Type changed or is blocked. Refresh and reselect the type.")
+            code.ProcessName=master["ProcessName"]
+            code.Shared=bool(master.get("Shared"))
 
 def palletization_usd(item):
     value=item.get("DefaultPalletUSDPerEA")
@@ -218,6 +245,7 @@ class LossSave(BaseModel):
     model_config = ConfigDict(extra="forbid")
     RowVersion: str
     Inputs: Inputs
+    Grades: OpportunityGradeTree | None = None
 
 @router.post("/{item_id}/loss-processes")
 def save_losses(body: LossSave,item_id: int = Path(ge=1),ctx: AccessContext=Depends(get_access_context)):
@@ -253,13 +281,13 @@ def preview_loss_formula(body: LossSave,item_id: int = Path(ge=1),ctx: AccessCon
         raise HTTPException(409,"Opportunity item changed. Refresh before testing the formula.")
     inputs=apply_formula_variables(item,body.Inputs)
     try:
-        from grade_process_loss import process_loss_results
-        results=process_loss_results(inputs.ProcessLosses,len([s for s in inputs.LossProcesses or [] if s.ProcessType in ("Processing","Sorting")]),item.get("WeightGrams"))
+        from tcb_costs import grade_loss_results
+        snapshot=body.Grades.model_dump(mode="json") if body.Grades is not None else json.loads(item.get("ProductGradeSnapshot") or "{}")
+        results=grade_loss_results(inputs,leaves(snapshot.get("items",[])) if snapshot.get("items") else [],item.get("WeightGrams"))
     except ValueError as exc:raise HTTPException(422,str(exc)) from exc
     return {"LossProductPct":str(inputs.LossProductPct),"ProcessLossSnapshots":results}
 
 # Opportunity workspace: grade copies and existing material quote selections.
-from product_grades import OpportunityGradeTree
 from tcb_costs import Selection,Inputs as CommercialInputs
 from pydantic import Field
 from db import get_raw_cursor,bytes_to_b64
@@ -287,11 +315,16 @@ def commercial_value(body,item,ctx,cursor):
     old=value.get("Inputs",{})
     new={**old}
     if body.CostInputs is not None:
-        fields=["PalletUSDPerEA"] if item["IsMixParent"] else ["ProcessLosses","MaterialCosts","RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb","OilPct","ProcessingUSDPerLb","PalletUSDPerEA"]
+        fields=["PalletUSDPerEA"] if item["IsMixParent"] else ["ProcessLosses","ProcessLossMode","ProcessLossLayout","ProcessLossFormulas","MaterialCosts","RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb","OilPct","ProcessingUSDPerLb","PalletUSDPerEA"]
         new.update({field:body.CostInputs.model_dump(mode="json")[field] for field in fields})
     if body.Inputs is not None:
         new.update(ProductLossFormula=body.Inputs.ProductLossFormula,
                    LossProcesses=[s.model_dump(mode="json") for s in body.Inputs.LossProcesses or []])
+        if body.Inputs.ProcessLosses is not None and (body.CostInputs is None or body.CostInputs.ProcessLosses is None):
+            new["ProcessLosses"]=[row.model_dump(mode="json") for row in body.Inputs.ProcessLosses]
+            new["ProcessLossMode"]=body.Inputs.ProcessLossMode
+            new["ProcessLossLayout"]=body.Inputs.ProcessLossLayout
+            new["ProcessLossFormulas"]=body.Inputs.ProcessLossFormulas
     if body.Prices is not None:
         new["Prices"]=[p.model_dump(mode="json") for p in body.Prices]
     elif body.Grades is not None:
@@ -310,7 +343,8 @@ def commercial_value(body,item,ctx,cursor):
         if inputs.Prices and not grade_list: raise HTTPException(422,"Maintain grades before selecting raw prices.")
         from tcb_costs import trim_process_recipes,process_paths
         trim_process_recipes(inputs,snapshot.get("items",[]),grade_list)
-        if {r.Path for r in inputs.MaterialCosts} - process_paths(grade_list):
+        from tcb_costs import recipe_path
+        if {r.Path for r in inputs.MaterialCosts} - {recipe_path(g["Path"]) for g in grade_list}:
             raise ValueError("Material costing refers to a removed or non-leaf grade. Refresh grades.")
         # Validate every selected quote, even when some leaves remain unpriced.
         partial=Inputs(**{**inputs.model_dump(mode="json"),"RMRatio":0,"SeasoningRatio":100,

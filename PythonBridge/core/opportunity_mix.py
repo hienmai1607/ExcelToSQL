@@ -2,6 +2,7 @@
 import json
 from decimal import Decimal
 from db import b64_to_bytes
+from shipment_ownership import validate_child_others
 
 
 def split_child_edits(cursor, models, username):
@@ -41,6 +42,7 @@ def split_child_edits(cursor, models, username):
         if PARENT_LOGISTICS_FIELDS & row.model_fields_set:
             raise ValueError("Pallet and Container requirements belong to the parent item only.")
         extra=additional(row,"OpportunityItem")
+        validate_child_others(extra.get("ShipmentCostInfo"))
         if extra.get("ProductGradeSnapshot") is not None:
             from opportunity_grade_snapshot import validate_snapshot
             validate_snapshot(cursor,extra["ProductGradeSnapshot"])
@@ -73,6 +75,7 @@ def save_new_child_requirements(cursor, model, result, username):
         if saved is None:
             raise ValueError("Child Product does not belong to the saved Product Mix.")
         extra=additional(child,"OpportunityItem")
+        validate_child_others(extra.get("ShipmentCostInfo"))
         if extra.get("ProductGradeSnapshot") is not None:
             from opportunity_grade_snapshot import validate_snapshot
             validate_snapshot(cursor,extra["ProductGradeSnapshot"])

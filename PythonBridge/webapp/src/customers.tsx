@@ -1,7 +1,7 @@
 import {ResizableTable,ColumnResizer,columnWidth} from './column-widths';
 import {timestamp} from './datetime';
 import {useEffect,useRef,useState} from 'react';
-import {api,ApiError,date,text,type Row,type Page} from './api';
+import {api,ApiError,call,date,text,type Row,type Page} from './api';
 import {Badge,ErrorNote,Modal,Pager,PageSizeSetting,LayoutPanel,ColumnOrder,Notification,InfoTip} from './ui';
 import './customers.css';
 import {BusinessDelete} from './business-delete';
@@ -57,10 +57,10 @@ export function Customers({canWrite=true}:{canWrite?:boolean}){
  <Pager page={page} size={size} total={data.total} busy={busy} onPage={setPage} onSize={n=>{setSize(n);setPage(1)}} unit="customers"/></div>
 
  {editing&&!editing.row&&<CustomerCreate lookups={lookups} onClose={()=>setEditing(null)} onSaved={count=>{setNotice(count+' customer(s) created.');setRevision(x=>x+1)}}/>}
- {editing?.row&&<Editor canWrite={canWrite} row={editing.row} lookups={lookups} lookupError={lookupError} onClose={()=>setEditing(null)} onSaved={(name,action)=>{setNotice(name+' '+action+'.');setRevision(x=>x+1)}}/>}
+ {editing?.row&&<CustomerEditor canWrite={canWrite} row={editing.row} lookups={lookups} lookupError={lookupError} onClose={()=>setEditing(null)} onSaved={(name,action)=>{setNotice(name+' '+action+'.');setRevision(x=>x+1)}}/>}
  </section>
 }
-function Editor({row,lookups,lookupError,onClose,onSaved,canWrite=true}:{row:Row|null;lookups:Lookups;lookupError:string;onClose:()=>void;onSaved:(name:string,action:string)=>void;canWrite?:boolean}){
+export function CustomerEditor({row,lookups,lookupError,onClose,onSaved,canWrite=true,saveEndpoint}:{row:Row|null;lookups:Lookups;lookupError:string;onClose:()=>void;onSaved:(name:string,action:string,record?:Row)=>void;canWrite?:boolean;saveEndpoint?:string}){
  const [fields,setFields]=useState(()=>initial(row)),[errors,setErrors]=useState<Record<string,string>>({}),[error,setError]=useState(''),[confirm,setConfirm]=useState<'save'|'block'|null>(null),[saving,setSaving]=useState(false),[uncertain,setUncertain]=useState(false);
  const lock=useRef(false),dirty=JSON.stringify(fields)!==JSON.stringify(initial(row));
  useEffect(()=>{const guard=(e:BeforeUnloadEvent)=>{if(dirty||saving){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard)},[dirty,saving]);
@@ -72,11 +72,12 @@ function Editor({row,lookups,lookupError,onClose,onSaved,canWrite=true}:{row:Row
   if(!canWrite||lock.current||uncertain)return;lock.current=true;setSaving(true);setError('');
   const action=confirm,name=action==='block'?String(row!.CustomerName):fields.name.trim();
   try{
-   const response=await api.saveCustomer({RowNum:1,Command:action==='block'?'D':row?'U':'C',ID:row?.ID??null,CustomerName:name,MarketID:Number(fields.market),CurrencyID:Number(fields.currency),Status:row?fields.status:null,RowVersion:row?.RowVersion??null});
+   const submitted={RowNum:1,Command:action==='block'?'D':row?'U':'C',ID:row?.ID??null,CustomerName:name,MarketID:Number(fields.market),CurrencyID:Number(fields.currency),Status:row?fields.status:null,RowVersion:row?.RowVersion??null};
+   const response=saveEndpoint?await call<{results:Row[];row?:Row}>(saveEndpoint,{payload:{rows:[submitted]}}):await api.saveCustomer(submitted);
    const result=response?.results?.[0];
    if(!result){setUncertain(true);throw new Error('No save result received. Check the list before saving again.')}
    if(result.Status!=='OK')throw new Error(String(result.Message||'Could not save.'));
-   onSaved(name,action==='block'?'blocked':row?'updated':'created');
+   onSaved(name,action==='block'?'blocked':row?'updated':'created','row' in response?response.row as Row:{...submitted,ID:result.NewID??row?.ID??null});
    onClose();
   }catch(e){if(e instanceof ApiError&&(e.status===0||e.status>=500)){setUncertain(true);setError('Save outcome unknown. Close the form and refresh the list before trying again to avoid duplicates.')}else setError(e instanceof Error?e.message:'Save failed.');setConfirm(null)}
   finally{lock.current=false;setSaving(false)}

@@ -17,10 +17,10 @@ class SharedMasterViews(unittest.TestCase):
    with self.assertRaises(HTTPException):order_by("ports",raw)
  def test_filtered_count_and_page_use_same_parameters(self):
   execute=Mock(return_value=[[{"ID":1,"LossPct":Decimal("5.00")}],[{"TotalRows":26}]])
-  result=listing("loss-processes",Mock(username="Sales"),execute,"AUTH ?;","dbo.LossProcessMaster p","p.ID,p.LossPct",["p.ProcessType"],"Sort","Active",2,25,'[{"column":"LossPct","direction":"desc"}]')
+  result=listing("loss-processes",Mock(username="Sales"),execute,"AUTH ?;","dbo.LossProcessMaster p","p.ID,p.LossPct",["p.ProcessType"],"Sort","Active",2,25,'[{"column":"Shared","direction":"desc"}]')
   self.assertEqual(result["total"],26);self.assertEqual(result["rows"][0]["LossPct"],"5.00")
   sql,params=execute.call_args.args
-  self.assertIn("[LossPct] DESC, ID ASC",sql)
+  self.assertIn("[Shared] DESC, ID ASC",sql)
   self.assertEqual(params,["Sales","Sort","Sort%","Active","Active",25,25,"Sort","Sort%","Active","Active"])
  def test_layout_roundtrips_and_rejects_foreign_keys(self):
   layout={"columns":["PortName","Status"],"sort":[{"column":"PortName","direction":"asc"}],"filters":["search","status"],"values":{"search":"Sea","status":"Active"},"column_widths":{"PortName":240},"page_size":25}

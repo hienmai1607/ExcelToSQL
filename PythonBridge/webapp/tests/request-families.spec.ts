@@ -38,6 +38,17 @@ test('parent primary gross sums child final gross plus parent tare and updates w
  await child.getByLabel('Applicable Net weight (g)',{exact:true}).fill('151');
  await expect(root.getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('35,778');
 });
+test('parent gross allocates child cartons per product unit and reacts to child counts',async({page})=>{
+ const {rows}=await setup(page);
+ Object.assign(rows[0],{ProductMixSnapshot:JSON.stringify({items:[{ProductID:11,UnitQuantity:2,WeightGrams:100},{ProductID:12,UnitQuantity:1,WeightGrams:100}]}),MixResponseChildren:JSON.stringify([{ItemID:2,ProductID:11,UnitQuantity:2},{ItemID:3,ProductID:12,UnitQuantity:1}]),ResponseLayerCount:1,LayerTareJSON:JSON.stringify({Primary:{KG:'.05'}})});
+ for(const [index,id] of [[1,11],[2,12]])Object.assign(rows[index],{ProductID:id,ResponseLayerCount:2,UnitsPerCarton:10,LayerTareJSON:JSON.stringify({Primary:{KG:'.01'},Secondary:{KG:'.2'}})});
+ await page.getByRole('button',{name:'Edit request PCR-31668',exact:true}).click();
+ const root=page.getByRole('region',{name:'Request item 1',exact:true});
+ await expect(root.getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('440');
+ await page.getByRole('region',{name:'Request item 2',exact:true}).getByLabel('No of Primary Unit',{exact:true}).fill('20');
+ await expect(root.getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('420');
+});
+
 test('editor keeps children nested on the parent page and standalone duplicate on its own page',async({page},info)=>{
  await setup(page);
  await page.getByRole('button',{name:'Edit request PCR-31668',exact:true}).click();

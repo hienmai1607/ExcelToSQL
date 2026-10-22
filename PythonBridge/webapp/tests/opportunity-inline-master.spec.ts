@@ -26,6 +26,63 @@ async function setup(page:Page,scopes=['Admin']){
  await form.getByLabel('Description *',{exact:true}).fill('Keep this opportunity draft');
  return {form,writes};
 }
+for(const entry of ['Master','Shortcut'])test(entry+' Customer editor has identical validation and save payload',async({page})=>{
+ const {form}=await setup(page),writes:any[]=[];
+ const row={ID:1,CustomerName:'Customer one',MarketID:1,CurrencyID:1,Status:'Active',RowVersion:'AAAAAAAAAAE='};
+ await page.route('**/api/customer?*',route=>route.fulfill({json:{rows:[row],total:1,page:1}}));
+ await page.route('**/api/inline-masters/customers/1',route=>{
+  if(route.request().method()==='GET')return route.fulfill({json:{row,editable:true,lockedFields:[]}});
+  const body=route.request().postDataJSON();writes.push(body.payload.rows[0]);return route.fulfill({json:{row:{...row,...body.payload.rows[0]},results:[{RowNum:1,Status:'OK',NewID:1}]}});
+ });
+ await page.route('**/api/customer/batch',route=>{
+  const body=route.request().postDataJSON();writes.push(body.rows[0]);return route.fulfill({json:{results:[{RowNum:1,Status:'OK',NewID:1}]}});
+ });
+ if(entry==='Master'){
+  page.once('dialog',dialog=>dialog.accept());await page.keyboard.press('Escape');await expect(form).toHaveCount(0);
+  await page.getByRole('button',{name:'Customers',exact:true}).click();await page.getByRole('button',{name:'Edit Customer one',exact:true}).click();
+ }else{
+  await form.getByLabel('Customer *',{exact:true}).selectOption('1');await form.getByRole('button',{name:'Edit Customer',exact:true}).click();
+ }
+ const editor=page.getByRole('dialog',{name:'Edit customer',exact:true});
+ await editor.getByLabel('Customer name *',{exact:true}).fill('');await editor.getByLabel('Market *',{exact:true}).selectOption('');await editor.getByLabel('Currency *',{exact:true}).selectOption('');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ for(const text of ['Enter a customer name.','Choose a valid market.','Choose a valid currency.'])await expect(editor.getByText(text,{exact:true})).toBeVisible();
+ expect(writes).toHaveLength(0);
+ await editor.getByLabel('Customer name *',{exact:true}).fill('Updated customer');await editor.getByLabel('Market *',{exact:true}).selectOption('1');await editor.getByLabel('Currency *',{exact:true}).selectOption('1');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('dialog',{name:'Confirm customer save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor).toHaveCount(0);
+ expect(writes).toEqual([{RowNum:1,Command:'U',ID:1,CustomerName:'Updated customer',MarketID:1,CurrencyID:1,Status:'Active',RowVersion:'AAAAAAAAAAE='}]);
+});
+
+test('shortcut Customer save rejection keeps entered values and the Opportunity draft',async({page})=>{
+ const {form,writes}=await setup(page);
+ await form.getByLabel('Customer *',{exact:true}).selectOption('1');
+ await page.route('**/api/inline-masters/customers/1',route=>route.request().method()==='GET'?route.fulfill({json:{row:{ID:1,CustomerName:'Customer one',MarketID:1,CurrencyID:1,Status:'Active',RowVersion:'AAAAAAAAAAE='},editable:true,lockedFields:[]}}):route.fulfill({status:422,json:{detail:'Customer save rejected by shared validation.'}}));
+ await form.getByRole('button',{name:'Edit Customer',exact:true}).click();
+ const editor=page.getByRole('dialog',{name:'Edit customer',exact:true});
+ await editor.getByLabel('Customer name *',{exact:true}).fill('Keep this edit');await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await expect(form.getByRole('alert')).toHaveCount(0);
+ await page.getByRole('dialog',{name:'Confirm customer save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('shared validation');await expect(editor.getByLabel('Customer name *',{exact:true})).toHaveValue('Keep this edit');
+ await expect(form.getByLabel('Description *',{exact:true})).toHaveValue('Keep this opportunity draft');expect(writes).toHaveLength(0);
+});
+
+test('selected Customer opens Edit with the shared save path and preserves Opportunity quantities',async({page})=>{
+ const {form,writes}=await setup(page),edits:any[]=[];
+ await form.getByLabel('Customer *',{exact:true}).selectOption('1');await form.getByLabel('Annual units *',{exact:true}).fill('500');
+ await page.route('**/api/inline-masters/customers/1',route=>{
+  if(route.request().method()==='GET')return route.fulfill({json:{row:{ID:1,CustomerName:'Customer one',MarketID:1,CurrencyID:1,Status:'Active',RowVersion:'AAAAAAAAAAE='},editable:true,lockedFields:[]}});
+  const body=route.request().postDataJSON();edits.push(body);return route.fulfill({json:{row:body.payload.rows[0],results:[{RowNum:1,Status:'OK',NewID:1}]}});
+ });
+ await form.getByRole('button',{name:'Edit Customer',exact:true}).click();
+ const child=page.getByRole('dialog',{name:'Edit customer',exact:true});
+ await child.getByLabel('Customer name *',{exact:true}).fill('Updated customer');
+ await child.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(child).toHaveCount(0);await expect(form.getByLabel('Customer *',{exact:true})).toHaveValue('1');
+ await expect(form.getByLabel('Annual units *',{exact:true})).toHaveValue('500');expect(edits[0].payload.rows[0].ID).toBe(1);expect(writes).toHaveLength(0);
+});
+
 test('create Customer in its master and refresh choices without saving the Opportunity',async({page})=>{
  const {form,writes}=await setup(page);
  await form.getByRole('button',{name:'Add new Customer',exact:true}).click();

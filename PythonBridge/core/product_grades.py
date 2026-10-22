@@ -28,8 +28,6 @@ class GradeTree(BaseModel):
         paths = {i.path for i in self.items}
         if len(paths) != len(self.items):
             raise ValueError("Duplicate grade ID under the same parent.")
-        if any(i.Process and any(p.Process and i.path.startswith(p.path+"/") for p in self.items) for i in self.items):
-            raise ValueError("A child under a Process grade cannot also be Process.")
         totals = {}
         for item in self.items:
             if item.ParentID != "0" and item.ParentID not in paths:

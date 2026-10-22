@@ -14,23 +14,24 @@ async function open(page:Page,admin=true){
   return route.fulfill({json:{rows:[],total:0,page:1}});
  });
  await page.goto('/workbench/');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('button',{name:'Loss Master',exact:true}).click();
- await expect(page.getByRole('table',{name:'Loss Master'})).toBeVisible();
+ await page.getByRole('button',{name:'Process Types',exact:true}).click();
+ await expect(page.getByRole('table',{name:'Process Types'})).toBeVisible();
  return writes;
 }
 test('admin maintains a separate master and blocks existing entries with version guard',async({page})=>{
  const writes=await open(page);
- await page.getByRole('button',{name:'New loss process',exact:true}).click();
- let dialog=page.getByRole('dialog',{name:'New Loss Process',exact:true});
+ await page.getByRole('button',{name:'New process type',exact:true}).click();
+ let dialog=page.getByRole('dialog',{name:'New Process Type',exact:true});
  await dialog.getByLabel('Process Type',{exact:true}).fill('Roasting custom');
+ await dialog.getByLabel('Shared',{exact:true}).check();
  await expect(dialog.getByLabel('Loss %',{exact:true})).toHaveCount(0);
  await expect(dialog.getByLabel('Process sequence',{exact:true})).toHaveCount(0);
  await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(dialog).not.toBeVisible();
- expect(writes[0]).toMatchObject({ID:null,ProcessType:'Roasting custom',Status:'Active'});
- await page.getByRole('button',{name:'View Loss Process 1',exact:true}).click();
- dialog=page.getByRole('dialog',{name:'Edit Loss Process',exact:true});
+ expect(writes[0]).toMatchObject({ID:null,ProcessType:'Roasting custom',Shared:true,Status:'Active'});
+ await page.getByRole('button',{name:'View Process Type 1',exact:true}).click();
+ dialog=page.getByRole('dialog',{name:'Edit Process Type',exact:true});
  await dialog.getByLabel('Status',{exact:true}).selectOption('Block');
  await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
@@ -39,25 +40,25 @@ test('admin maintains a separate master and blocks existing entries with version
 });
 test('Opportunity users can inspect the master without editing',async({page})=>{
  const writes=await open(page,false);
- await expect(page.getByRole('button',{name:'New loss process',exact:true})).toHaveCount(0);
- await page.getByRole('button',{name:'View Loss Process 1',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'View Loss Process',exact:true});
+ await expect(page.getByRole('button',{name:'New process type',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'View Process Type 1',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'View Process Type',exact:true});
  await expect(dialog.getByRole('button',{name:'Review & save',exact:true})).toHaveCount(0);
- await dialog.getByRole('button',{name:'Close Loss Process',exact:true}).click();
+ await dialog.getByRole('button',{name:'Close Process Type',exact:true}).click();
  await expect(dialog).not.toBeVisible();expect(writes).toEqual([]);
 });
 
 test('Add shared master record smoothly reveals the new section',async({page})=>{
  await captureRevealScrolls(page);await open(page);
- await page.getByRole('button',{name:'New loss process',exact:true}).click();
+ await page.getByRole('button',{name:'New process type',exact:true}).click();
  await page.getByRole('button',{name:'+ Add record section',exact:true}).click();
  await expectReveal(page,null);
 });
 
 test('unified editor creates multiple sections through review without duplicate submissions',async({page})=>{
  const writes=await open(page);
- await page.getByRole('button',{name:'New loss process',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'New Loss Process',exact:true});
+ await page.getByRole('button',{name:'New process type',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'New Process Type',exact:true});
  await dialog.getByRole('region',{name:'Record 1',exact:true}).getByLabel('Process Type',{exact:true}).fill('Sorting custom');
  await dialog.getByRole('button',{name:'+ Add record section',exact:true}).click();
  await dialog.getByRole('region',{name:'Record 2',exact:true}).getByLabel('Process Type',{exact:true}).fill('Roasting custom');

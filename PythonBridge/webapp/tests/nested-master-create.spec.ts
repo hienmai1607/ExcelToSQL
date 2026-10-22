@@ -43,7 +43,7 @@ async function setup(page:Page,session:Record<string,unknown>={username:'Tester'
   return route.fulfill({json:{rows:[],total:0,page:1}});
  });
  await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- return {writes,types,grades,setFailRefresh:(value:boolean)=>{failRefresh=value}};
+ return {writes,types,grades,categories,materials,setFailRefresh:(value:boolean)=>{failRefresh=value}};
 }
 async function product(page:Page){
  await page.getByRole('button',{name:'Products',exact:true}).click();
@@ -56,6 +56,73 @@ async function save(page:Page,form:Locator){
  await form.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('dialog',{name:'Confirm master save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();
 }
+
+test('selected Category switches to Edit and refreshes its renamed selection without saving the Product',async({page})=>{
+ const state=await setup(page),parent=await product(page),writes:any[]=[];
+ await parent.getByLabel('Category',{exact:true}).selectOption('Nuts');
+ await page.route('**/api/inline-masters/categories/Nuts',route=>{
+  if(route.request().method()==='GET')return route.fulfill({json:{row:{...state.categories[0],RowVersion:rv},editable:true,lockedFields:[]}});
+  const body=route.request().postDataJSON();writes.push(body);Object.assign(state.categories[0],body.payload,{RowVersion:'AAAAAAAAAAI='});
+  return route.fulfill({json:{row:state.categories[0]}});
+ });
+ const edit=parent.getByRole('button',{name:'Edit Category master',exact:true});
+ await expect(edit.locator('.edit-master-mark')).toBeVisible();await edit.click();
+ const nested=page.getByRole('dialog',{name:'Edit Category',exact:true});
+ await nested.getByLabel('Category name',{exact:true}).fill('Renamed nuts');await save(page,nested);
+ await expect(nested).toHaveCount(0);await expect(parent.getByLabel('Category',{exact:true})).toHaveValue('Renamed nuts');
+ await expect(parent.getByLabel('Product name',{exact:true})).toHaveValue('Keep unsaved product');
+ expect(writes).toHaveLength(1);expect(writes[0].payload.ID).toBe(1);expect(state.writes).toHaveLength(0);
+ await parent.getByLabel('Category',{exact:true}).selectOption('');
+ await expect(parent.getByRole('button',{name:'Add new Category master',exact:true})).toBeVisible();
+});
+
+test('referenced master opens and uses the normal save-time validation',async({page})=>{
+ await setup(page);const parent=await product(page);
+ await parent.getByLabel('Category',{exact:true}).selectOption('Nuts');
+ await page.route('**/api/inline-masters/categories/Nuts',route=>route.request().method()==='GET'?route.fulfill({json:{row:{ID:1,CategoryName:'Nuts',Status:'Active',RowVersion:rv},editable:true,lockedFields:[]}}):route.fulfill({status:422,json:{detail:'This Category is used by Products. Keep its name, or create a new Category.'}}));
+ await parent.getByRole('button',{name:'Edit Category master',exact:true}).click();
+ const nested=page.getByRole('dialog',{name:'Edit Category',exact:true});
+ await nested.getByLabel('Category name',{exact:true}).fill('Renamed nuts');await save(page,nested);
+ await expect(page.getByRole('alert')).toContainText('used by Products');
+ await expect(nested.getByLabel('Category name',{exact:true})).toHaveValue('Renamed nuts');
+ page.once('dialog',dialog=>dialog.accept());
+ await page.keyboard.press('Escape');await expect(parent.getByLabel('Category',{exact:true})).toHaveValue('Nuts');
+});
+
+test('master changed after opening keeps the edited form and parent draft intact',async({page})=>{
+ await setup(page);const parent=await product(page);
+ await parent.getByLabel('Category',{exact:true}).selectOption('Nuts');
+ await page.route('**/api/inline-masters/categories/Nuts',route=>route.request().method()==='GET'?route.fulfill({json:{row:{ID:1,CategoryName:'Nuts',Status:'Active',RowVersion:rv},editable:true,lockedFields:[]}}):route.fulfill({status:409,json:{detail:'The selected master changed. Close, refresh and reopen it.'}}));
+ await parent.getByRole('button',{name:'Edit Category master',exact:true}).click();
+ const nested=page.getByRole('dialog',{name:'Edit Category',exact:true});
+ await nested.getByLabel('Category name',{exact:true}).fill('My edit');await save(page,nested);
+ await expect(page.getByRole('alert')).toContainText('selected master changed');
+ await expect(nested.getByLabel('Category name',{exact:true})).toHaveValue('My edit');
+ await expect(parent.getByLabel('Category',{exact:true})).toHaveValue('Nuts');
+});
+
+test('generic Raw Material edit locks its Grade and preserves the invoking grade ratios',async({page})=>{
+ const state=await setup(page);state.grades.push({ID:2,GradeName:'Child',FinalGrade:true,ParentGradeID:1,Status:'Active'});
+ state.materials.push({ID:9,MaterialName:'Raw nuts',MaterialCode:'RAW-9',GradeID:2,UnitOfMeasure:'EA',Origin:'US',Status:'Active',RowVersion:rv});
+ const writes:any[]=[];
+ await page.route('**/api/inline-masters/raw-materials/9',route=>{
+  if(route.request().method()==='GET')return route.fulfill({json:{row:state.materials[0],editable:true,lockedFields:['GradeID']}});
+  const body=route.request().postDataJSON(),row=body.payload.rows[0];writes.push(row);Object.assign(state.materials[0],row);
+  return route.fulfill({json:{results:[{RowNum:1,Status:'OK',NewID:9}]}});
+ });
+ const parent=await product(page);await parent.getByRole('button',{name:'Grades for record 1',exact:true}).click();
+ const grades=page.getByRole('dialog',{name:'Product grades',exact:true});
+ await grades.getByRole('button',{name:'Add root grade',exact:true}).click();await grades.getByLabel('Grade 0/1',{exact:true}).selectOption('1');
+ await grades.getByRole('button',{name:'Add child grade to 0/1',exact:true}).click();await grades.getByLabel('Grade 0/1/1',{exact:true}).selectOption('2');
+ await grades.getByLabel('Raw Material 0/1/1',{exact:true}).selectOption('9');
+ await grades.getByRole('button',{name:'Edit Raw Material master for 0/1/1',exact:true}).click();
+ const edit=page.getByRole('dialog',{name:'Edit raw material',exact:true});
+ await expect(edit.getByLabel('Grade',{exact:true})).toBeDisabled();await expect(edit.getByLabel('Grade',{exact:true})).toHaveValue('2');
+ await edit.getByLabel('Material name',{exact:true}).fill('Edited raw nuts');await save(page,edit);
+ await expect(edit).toHaveCount(0);await expect(grades.getByLabel('Raw Material 0/1/1',{exact:true})).toHaveValue('9');
+ await expect(grades.getByLabel('Raw Material 0/1/1',{exact:true})).toContainText('Edited raw nuts');
+ await expect(grades.getByLabel('Ratio 0/1/1',{exact:true})).toHaveValue('100');expect(writes[0].GradeID).toBe(2);
+});
 
 test('Category can be created inside an unsaved Product and selected without saving Product',async({page})=>{
  const {writes}=await setup(page);const parent=await product(page);
@@ -248,13 +315,13 @@ test('non-final Packaging Type is saved but not assigned to a Material',async({p
  await page.getByRole('button',{name:'Packaging Material',exact:true}).click();
  await page.getByRole('button',{name:'New material',exact:true}).click();
  const parent=page.getByRole('dialog',{name:'New material',exact:true});
- await parent.getByLabel('Packaging Type',{exact:true}).selectOption('7');
+ await parent.getByLabel('Packaging Type',{exact:true}).selectOption('');
  await parent.getByRole('button',{name:'Add new Packaging Type master',exact:true}).click();
  const child=page.getByRole('dialog',{name:'New packaging type',exact:true});
  await child.getByLabel('Packaging Type',{exact:true}).fill('Assembly type');
  await child.getByLabel('Primary order',{exact:true}).check();await save(page,child);
  await expect(child).toHaveCount(0);
- await expect(parent.getByLabel('Packaging Type',{exact:true})).toHaveValue('7');
+ await expect(parent.getByLabel('Packaging Type',{exact:true})).toHaveValue('');
  await expect(parent.getByLabel('Packaging Type',{exact:true}).locator('option[value="40"]')).toHaveCount(0);
  expect(state.writes.map(w=>w.path)).toEqual(['/api/packaging/type/batch']);
 });

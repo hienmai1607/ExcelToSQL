@@ -1,4 +1,4 @@
-"""Flat layout/workbook columns backed by the parent's ShipmentCostInfo JSON."""
+"""Flat layout/workbook columns backed by effective parent shared logistics and child-owned Others Info."""
 import json
 from decimal import Decimal
 SHIPMENT_GROUPS = [

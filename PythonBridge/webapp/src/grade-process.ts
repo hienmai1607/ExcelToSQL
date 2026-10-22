@@ -12,13 +12,13 @@ export function editableProcessTree(items:GradeItem[]):GradeItem[]{
  return items.map(g=>({...g,Process:!parents.has(gradePath(g))}));
 }
 export function savedProcessTree(items:GradeItem[]):GradeItem[]{
- return editableProcessTree(items).map((g,_,all)=>({...g,Process:!!g.Process&&!processAncestor(all,gradePath(g))}));
+ return editableProcessTree(items).map(g=>({...g,Process:!!g.Process}));
 }
 export function classifyProcessLeaves(items:GradeItem[],leaves:TCBGrade[]):TCBGrade[]{
  const processes=savedProcessTree(items).filter(g=>g.Process);
  const result=leaves.map(leaf=>{
   const owner=processes.find(g=>leaf.Path===gradePath(g)||leaf.Path.startsWith(gradePath(g)+'/'));
-  return {...leaf,ProcessPath:owner?gradePath(owner):null,ProcessGrade:owner?.Grade??null};
+  return {...leaf,ProcessPaths:JSON.stringify(processes.filter(g=>leaf.Path===gradePath(g)||leaf.Path.startsWith(gradePath(g)+'/')).map(gradePath).sort((a,b)=>b.split('/').length-a.split('/').length)),ProcessPath:owner?gradePath(owner):null,ProcessGrade:owner?.Grade??null};
  });
  return result.map(leaf=>{
   const share=result.filter(g=>g.ProcessPath===leaf.ProcessPath).reduce((sum,g)=>add(sum,quantity(g.Proportion,true)??quantity('0',true)!),quantity('0',true)!);

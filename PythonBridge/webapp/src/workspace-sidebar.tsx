@@ -24,7 +24,7 @@ export function WorkspaceSidebar({session,tab,onNavigate}:{session:Session;tab:s
    {key:'raw-prices',label:'Raw Pricing',icon:'price',allowed:has('RawMaterial')},
    {key:'raw-grades',label:'Raw Grade Master',icon:'grade',allowed:has('RawMaterial')}]},
 {label:'Shared masters',items:[
-   {key:'categories',label:'Category Master',icon:'grade',allowed:has('Product')},{key:'loss-processes',label:'Loss Master',icon:'calculator',allowed:has('Opportunity','Product')},
+   {key:'categories',label:'Category Master',icon:'grade',allowed:has('Product')},{key:'loss-defaults',label:'Loss Process Master',icon:'calculator',allowed:has('Opportunity','Product')},{key:'loss-processes',label:'Process Types',icon:'calculator',allowed:has('Opportunity','Product')},
    {key:'ports',label:'Ports of Entry',icon:'customer',allowed:has('Opportunity','Customer')},
    {key:'vendors',label:'Vendors',icon:'customer',allowed:has('Packaging','PackagingManager')},
    {key:'conversions',label:'Unit Conversions',icon:'price',allowed:has('Packaging','PackagingManager','RawMaterial')},

@@ -32,7 +32,7 @@ class Settings(BaseModel):
     column_widths: dict[Column | Literal["_Actions"], ColumnWidth] = Field(default_factory=dict,max_length=9)
     requests: RequestViews = Field(default_factory=RequestViews)
     opportunity: OpportunityViews = Field(default_factory=OpportunityViews)
-    shared_masters: dict[Literal["loss-processes","ports","categories","grade-densities"], MasterLayout] = Field(default_factory=dict)
+    shared_masters: dict[Literal["loss-defaults","loss-processes","ports","categories","grade-densities"], MasterLayout] = Field(default_factory=dict)
     @field_validator("shared_masters")
     @classmethod
     def validate_shared_layouts(cls, layouts):

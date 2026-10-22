@@ -15,8 +15,18 @@ export function mixContentsGross(snapshot:unknown,responses:unknown):number|null
    if(seen.has(key)||!q||!Number.isFinite(q)||q<=0)return null;seen.add(key);
    const layers=Number(c.ResponseLayerCount||c.RequestedLayerCount||2);
    const gross='CartonGrossWeightKG' in c?c.CartonGrossWeightKG:packagingGross(String(c.ApplicableNetWeightGrams??c.WeightGrams??''),c,layers,layerTares(c.LayerTareJSON))[['Primary','Secondary','Tertiary'][layers-1]];
-   if(gross==null||gross===''||!Number.isFinite(Number(gross)))return null;
-   total+=Number(gross)*q;
+   if(gross==null||gross===''||!Number.isFinite(Number(gross))||Number(gross)<0)return null;
+   // Product Mix quantities refer to the smallest child units. The read API
+   // supplies final-carton gross, so allocate its packaging on that unit basis.
+   const unitLayers=Number(c.ResponseLayerCount||c.RequestedLayerCount||1);
+   if(![1,2,3].includes(unitLayers))return null;
+   let units=1;
+   for(const field of ['UnitsPerCarton','UnitsPerTertiary'].slice(0,unitLayers-1)){
+    const factor=Number(c[field]);
+    if(!Number.isInteger(factor)||factor<1||factor>2147483647)return null;
+    units*=factor;
+   }
+   total+=Number(gross)*q/units;
   }
   return quantities&&seen.size!==quantities.size?null:total;
  }catch{return null}

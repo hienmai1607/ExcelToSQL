@@ -10,7 +10,7 @@ async function setup(page:Page,scopes=['Admin']){
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Tester',user_id:1,is_admin:scopes.includes('Admin'),scopes}});
   if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{},version:0}});
   if(path==='/api/opportunity/lookups')return route.fulfill({json:{customers:[customer],products:[child,...(parent&&parent.MixVersion.Status==='Active'?[parent]:[])],unready_products:[{ID:7,CustomerID:56,ProductCode:'PRD-7',ProductName:'Old unfinished mix'}],mix_children:parent&&parent.MixVersion.Status==='Active'?[{ParentProductID:3,ProductID:2,ProductCode:'CHILD',ProductName:'Normal child',UnitQuantity:2.5,MixVersionID:4}]:[],pallets:[],packagingTypes:[]}});
-  if(path==='/api/workbench/masters/lookups')return route.fulfill({json:{customers:[customer],products,categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],materials:[],currencies:[],creators:[]}});
+  if(path==='/api/workbench/masters/lookups')return route.fulfill({json:{customers:[customer],products,categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],uoms:[{ID:1,UoMCode:'g',UoMName:'Gram',Category:'Weight/Mass',Status:'Active',BaseFactor:1}],materials:[],currencies:[],creators:[]}});
   if(path==='/api/product/batch'){
    const body=request.postDataJSON();writes.push({path,...body});const row=body.rows[0];
    if(row.IsMix){parent={...row,ID:3,ProductCode:'PRD-3',WeightGrams:250};return route.fulfill({json:{results:[{RowNum:1,Status:'OK',NewID:3}]}})}

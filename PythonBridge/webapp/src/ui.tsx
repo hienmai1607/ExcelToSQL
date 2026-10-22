@@ -71,5 +71,6 @@ export function Modal({children,label,onClose,className='dialog',hidden=false}:{
  const ref=useRef<HTMLDialogElement>(null);
  useEffect(()=>{const node=ref.current!;if(!hidden)node.showModal();else node.close();return()=>node.close()},[hidden]);
  // Escape disabled form fieldsets, but retain workspace styles and session locking.
- return createPortal(<ViewTrailContext.Provider value={path}><dialog ref={ref} className={className} aria-label={label} onCancel={e=>{e.preventDefault();e.stopPropagation();onClose()}}>{children}{!hidden&&<ViewTrail path={path}/>}</dialog></ViewTrailContext.Provider>,document.querySelector('.app')||document.body)
+ // Portal events still bubble through React: keep submits inside this dialog.
+ return createPortal(<ViewTrailContext.Provider value={path}><dialog ref={ref} className={className} aria-label={label} onSubmit={e=>e.stopPropagation()} onCancel={e=>{e.preventDefault();e.stopPropagation();onClose()}}>{children}{!hidden&&<ViewTrail path={path}/>}</dialog></ViewTrailContext.Provider>,document.querySelector('.app')||document.body)
 }

@@ -1,4 +1,5 @@
 import type {Row} from './api';
+import {childOtherKeys} from './shipment-ownership';
 import type {Draft} from './opportunity-losses';
 import {costs,packagingUSD,palletizationValue} from './tcb-model';
 import {quantity,add,multiply,divide,objectValue,type Fraction} from './packaging-summary-model';
@@ -14,8 +15,8 @@ export const analysisRows=[
  {label:'Parent Packaging ($/unit)',help:'Sum of Mix parent layer prices adjusted for each layer loss, normalized per mix unit, then divided by total smallest child units. Equal allocation per smallest child unit.'},
  {label:'Pallet & Floor cost ($/unit)',help:'Pallet: pallet price / total smallest units on a pallet. Floor: USD/MT x applicable net weight (g) / 1,000,000. Both: sum of these two costs.'},
  {label:'Packing ($/unit)',help:'Packing USD/lb ÷ 453.59237 × this product’s net weight in grams.'},
- {label:'Initial Design ($/unit)',help:'Initial Design ÷ estimated awarded units. For Mix, awarded mix units × total child quantity.'},
- {label:'Fixed costs ($/unit)',help:'Other fixed costs ÷ estimated awarded units. For Mix, awarded mix units × total child quantity.'},
+ {label:'Initial Design ($/unit)',help:'Initial Design ÷ estimated awarded units. For Mix, awarded mix units × this child quantity.'},
+ {label:'Fixed costs ($/unit)',help:'Other fixed costs ÷ estimated awarded units. For Mix, awarded mix units × this child quantity.'},
  {label:'Fobbing fee ($/unit)',help:'Fobbing USD/container ÷ total smallest units in that container and loading scenario.'},
  {label:'Interest ($/unit)',help:'Sum of Product through Fobbing x Interest % / 100 x Interest days / 360. Legacy months are converted to days using 30 days/month.'},
  {label:'Margin ($/unit)',help:'Choose percentage of costs through Interest, or Margin USD/lb x product net weight (g) / 453.59237.'},
@@ -103,7 +104,7 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
  for(const root of drafts.filter(d=>!d.row.ParentItemID)){
   const children=drafts.filter(d=>Number(d.row.ParentItemID)===Number(root.row.ItemID)),products=root.mix?children.filter(d=>!d.mix):[root];
   if(!products.length)continue;
-  const total=root.mix?composition(root,children).total:one;
+  const mix=root.mix?composition(root,children):null,total=mix?mix.total:one;
   const shipping={...root.row,...objectValue(root.row.ShipmentCostInfo)},currency=String(root.row.CustomerCurrencyCode??'').trim().toUpperCase();
   const rate=currency==='USD'?one:quantity(currency==='VND'?root.row.ExchangeRateVNDPerUSD:root.row.ExchangeRateCustomerCurrencyPerUSD);
   const customerAmount=(field:string,label:string)=>scale(optional(shipping[field],label),currency&&rate?divide(one,rate):null,'Missing customer exchange rate.');
@@ -116,9 +117,6 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
   const resolved=mode==='Pallet load'||mode==='Floor load'||mode==='Both';
   const parentPM=root.mix?perCount(packaging(root,root.row),total,'Missing captured Mix unit quantities.'):good(zero);
   const awarded=quantity(root.row.AnnualUnit),award=quantity(root.row.EstPctAwarded,true);
-  const awardedUnits=awarded&&award&&award.n<=100n*award.d&&total?divide(multiply(multiply(awarded,award),total),hundred):null;
-  const design=perCount(shipping.InitialDesignCustomer!=null?customerAmount('InitialDesignCustomer','Initial Design'):optional(shipping.InitialDesignUSD,'Initial Design'),awardedUnits,'Estimated awarded units must be positive for Initial Design.');
-  const fixed=perCount(optional(shipping.OtherFixedCostsUSD,'Other fixed costs'),awardedUnits,'Estimated awarded units must be positive for fixed costs.');
   const palletPrice=quantity(palletizationValue(root.row,root.costingInputs),true);
   const final=unitsPerFinal(root.row),palletUnits=quantity(root.row.UnitsPerPallet);
   {
@@ -129,21 +127,26 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
    const pallet=!resolved?missing('Choose a loading request.'):mode==='Floor load'?good(zero):perCount(palletPrice?good(palletPrice):missing('Enter a pallet cost on the parent item (zero is allowed).'),sharedPalletUnits,'Missing units per pallet or Mix unit quantities.');
    const fobbing=!resolved?missing('Choose a loading request.'):perCount(optional(shipping.FobbingUSDPerContainer,'Fobbing/container'),containerUnits,'Missing container capacity, packaging quantities or Mix unit quantities.');
    const columns=products.map(d=>{
+    const own=root.mix?Object.fromEntries(Object.entries(objectValue('OwnShipmentCostInfo' in d.row?d.row.OwnShipmentCostInfo:d.row.ShipmentCostInfo)).filter(([key])=>childOtherKeys.has(key))):shipping;
+    const childQuantity=mix?mix.quantities[children.indexOf(d)]:one;
+    const awardedUnits=awarded&&award&&award.n<=100n*award.d&&childQuantity?divide(multiply(multiply(awarded,award),childQuantity),hundred):null;
+    const design=perCount(own.InitialDesignCustomer!=null?scale(optional(own.InitialDesignCustomer,'Initial Design'),rate?divide(one,rate):null,'Missing customer exchange rate.'):optional(own.InitialDesignUSD,'Initial Design'),awardedUnits,'Estimated awarded units must be positive for Initial Design.');
+    const fixed=perCount(optional(own.OtherFixedCostsUSD,'Other fixed costs'),awardedUnits,'Estimated awarded units must be positive for fixed costs.');
     const calc=costs({...d.costingInputs,Prices:d.selections},d.quoteGrades,d.quotes),weight=quantity(d.row.WeightGrams),loss=productLossValue(d,tested[Number(d.row.ItemID)]);
     const validLoss=loss&&loss.n<100n*loss.d;
     const factor=weight&&validLoss?divide(divide(weight,gramsPerLb),{n:100n*loss.d-loss.n,d:100n*loss.d}):null;
     const product=d.pricingGradeKey!==JSON.stringify(d.grades)?missing('Reload pricing for current grades.'):
      calc.product&&factor?good(multiply(calc.product,factor)):missing('Product price, weight or current loss calculation is incomplete.');
-    const packing=scale(optional(shipping.PackingUSDPerLb,'Packing cost'),weight?divide(weight,gramsPerLb):null,'Missing product net weight.');
+    const packing=scale(optional(own.PackingUSDPerLb,'Packing cost'),weight?divide(weight,gramsPerLb):null,'Missing product net weight.');
     const applicableWeight=quantity('ApplicableNetWeightGrams' in d.row?d.row.ApplicableNetWeightGrams:d.row.WeightGrams);
     const floor=['Floor load','Both'].includes(mode)?scale(optional(shipping.FloorLoadUSDPerMT,'Floor load cost'),applicableWeight?divide(applicableWeight,quantity('1000000')!):null,'Missing applicable net weight.'):good(zero);
     const cells=[product,packaging(d,root.row),parentPM,sum([pallet,floor]),packing,design,fixed,fobbing];
-    const interestRate=pct(optional(shipping.InterestPct,'Interest %'),'Interest %'),duration=optional(shipping.InterestDays??shipping.InterestMonths,'Interest duration');
-    const interestFactor=interestRate.value&&duration.value?divide(multiply(interestRate.value,duration.value),quantity(shipping.InterestDays!=null?'360':'12')!):null;
+    const interestRate=pct(optional(own.InterestPct,'Interest %'),'Interest %'),duration=optional(own.InterestDays??own.InterestMonths,'Interest duration');
+    const interestFactor=interestRate.value&&duration.value?divide(multiply(interestRate.value,duration.value),quantity(own.InterestDays!=null?'360':'12')!):null;
     cells.push(scale(sum(cells),interestFactor,'Invalid Interest % or days.'));
-    const margin=pct(optional(shipping.MarginPct,'Margin %'),'Margin %');
-    cells.push(shipping.MarginMode==='USDPerLb'||shipping.MarginMode==null&&shipping.MarginUSDPerLb!=null?
-     scale(optional(shipping.MarginUSDPerLb,'Margin USD/lb'),weight?divide(weight,gramsPerLb):null,'Missing product weight.'):
+    const margin=pct(optional(own.MarginPct,'Margin %'),'Margin %');
+    cells.push(own.MarginMode==='USDPerLb'||own.MarginMode==null&&own.MarginUSDPerLb!=null?
+     scale(optional(own.MarginUSDPerLb,'Margin USD/lb'),weight?divide(weight,gramsPerLb):null,'Missing product weight.'):
      scale(sum(cells),margin.value,'Invalid Margin %.'));
     cells.push(sum(cells));
     cells.push(scale(cells[10],currency?rate:null,'Missing Opportunity customer currency or exchange rate.'));

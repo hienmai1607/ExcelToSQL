@@ -66,9 +66,14 @@
 .mix-draft-toolbar select{height:36px}
 .mix-draft-actions{display:flex;align-items:center;gap:8px}
 .initial-product-mix .mix-draft-actions>button{width:36px;height:36px;min-width:36px;min-height:36px;max-width:36px;max-height:36px;padding:6px;display:inline-flex;align-items:center;justify-content:center}
-.initial-product-mix .mix-table{width:100%}
-.initial-product-mix .mix-table select{min-width:180px}
-.initial-product-mix .mix-table input{width:110px}
+.initial-product-mix .mix-table{width:100%;min-width:0;table-layout:fixed}
+.initial-product-mix .mix-table th:first-child{width:49%}
+.initial-product-mix .mix-table th:nth-child(2){width:21%}
+.initial-product-mix .mix-table th:last-child{width:42px}
+.initial-product-mix .mix-table th,.initial-product-mix .mix-table td{padding:8px;white-space:normal;overflow-wrap:anywhere}
+.initial-product-mix .mix-table td:nth-child(3){text-align:right;font-variant-numeric:tabular-nums}
+.initial-product-mix .mix-table select{min-width:0;width:100%;text-overflow:ellipsis}
+.initial-product-mix .mix-table input{min-width:0;width:100%}
 .inline-master-field{display:flex;align-items:center;gap:6px;min-width:0}
 .inline-master-field select{flex:1;min-width:0;width:0}
 .inline-master-field .icon-button{flex:none}
@@ -78,6 +83,8 @@
 .add-master-symbol{position:relative;display:inline-flex;padding-right:5px}
 .add-master-symbol svg{width:18px;height:18px}
 .add-master-symbol>span{position:absolute;right:0;bottom:-4px;font-size:14px;font-weight:800}
+.add-master-symbol>.edit-master-mark{right:-3px;bottom:-4px;display:flex;border-radius:2px;background:var(--surface)}
+.add-master-symbol>.edit-master-mark svg{width:11px;height:11px}
 .master-lookup-control{display:flex;align-items:center;gap:6px;min-width:0}
 .master-lookup-control>select{flex:1;min-width:0;width:0}
 .master-lookup-control>small{flex-basis:100%}

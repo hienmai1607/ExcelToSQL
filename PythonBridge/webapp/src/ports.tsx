@@ -6,14 +6,14 @@ import {SharedMasterView} from './shared-master-view';
 import {SharedMasterEditor} from './shared-master-editor';
 
 type PortLookups={customers:Row[];markets:Row[]};
-function PortEditor({row,lookups,canWrite,onClose,onSaved,customerID=''}:{row:Row|null;lookups:PortLookups;canWrite:boolean;onClose:()=>void;onSaved:(records:Row[])=>void;customerID?:string}){
- return <SharedMasterEditor row={row} canWrite={canWrite} title="Port of Entry" endpoint="/api/ports" onClose={onClose} onSaved={onSaved}
+export function PortEditor({row,lookups,canWrite,onClose,onSaved,customerID='',saveEndpoint}:{row:Row|null;lookups:PortLookups;canWrite:boolean;onClose:()=>void;onSaved:(records:Row[])=>void;customerID?:string;saveEndpoint?:string}){
+ return <SharedMasterEditor row={row} canWrite={canWrite} saveEndpoint={saveEndpoint} title="Port of Entry" endpoint="/api/ports" onClose={onClose} onSaved={onSaved}
  initial={()=>Object.fromEntries(['CustomerID','MarketID','PortName','Status'].map(key=>[key,String(row?.[key]??(key==='Status'?'Active':key==='CustomerID'?customerID:key==='MarketID'?String(lookups.customers.find(c=>String(c.ID)===customerID)?.MarketID??''):''))]))}
  validate={v=>!v.CustomerID||!v.MarketID||!v.PortName.trim()?'Customer, Market and Port name are required.':''}
  payload={v=>({CustomerID:Number(v.CustomerID),MarketID:Number(v.MarketID),PortName:v.PortName.trim(),Status:v.Status})}
  fields={(v,change)=><>
- <label>Customer *<select aria-label="Customer" value={v.CustomerID} onChange={e=>{change('CustomerID',e.target.value);change('MarketID',String(lookups.customers.find(c=>String(c.ID)===e.target.value)?.MarketID??''))}}><option value="">Choose customer</option>{lookups.customers.filter(c=>c.Status==='Active'||String(c.ID)===v.CustomerID).map(c=><option key={String(c.ID)} value={String(c.ID)}>{text(c.CustomerName)}</option>)}</select></label>
- <label>Market *<select aria-label="Market" value={v.MarketID} onChange={e=>change('MarketID',e.target.value)}><option value="">Choose market</option>{lookups.markets.map(m=><option key={String(m.ID)} value={String(m.ID)}>{text(m.MarketCode)} — {text(m.MarketName)}</option>)}</select></label>
+ <label>Customer *<select aria-label="Customer" disabled={!!saveEndpoint} value={v.CustomerID} onChange={e=>{change('CustomerID',e.target.value);change('MarketID',String(lookups.customers.find(c=>String(c.ID)===e.target.value)?.MarketID??''))}}><option value="">Choose customer</option>{lookups.customers.filter(c=>c.Status==='Active'||String(c.ID)===v.CustomerID).map(c=><option key={String(c.ID)} value={String(c.ID)}>{text(c.CustomerName)}</option>)}</select></label>
+ <label>Market *<select aria-label="Market" disabled={!!saveEndpoint} value={v.MarketID} onChange={e=>change('MarketID',e.target.value)}><option value="">Choose market</option>{lookups.markets.map(m=><option key={String(m.ID)} value={String(m.ID)}>{text(m.MarketCode)} — {text(m.MarketName)}</option>)}</select></label>
  <label>Port name *<input aria-label="Port name" maxLength={200} value={v.PortName} onChange={e=>change('PortName',e.target.value)}/></label>
  <label>Status<select aria-label="Status" value={v.Status} onChange={e=>change('Status',e.target.value)}><option>Active</option><option>Block</option></select></label></>}/>
 }

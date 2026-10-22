@@ -1,5 +1,23 @@
 # Opportunity shipment and USD cost inputs
 
+## Mix child Others Info (migration 140)
+
+Apply `sql/140_mix_child_others_info.sql` after 139, deploy matching `core`
+and rebuilt `webapp/dist`, restart the API, and hard-refresh the browser.
+The rerunnable migration changes only the ownership validation procedures.
+Existing item values, row versions, PCRs and financial history are not backfilled.
+Old parent-only Others amounts remain stored but are not inherited by children:
+maintain the applicable costs explicitly on each child.
+
+TCB Review, the Opportunity grid and Excel use the same ownership rules.
+Shared parent packaging/container/pallet costs divide by total captured child
+quantity. With two A and one B, a $12 parent cost allocates $8 to A and $4 to B
+($4 per smallest child unit). Category-specific weight and percentage bases are
+preserved. Each child's design and fixed costs divide by that child's estimated
+awarded units: awarded Mix units multiplied by its captured quantity.
+Packing, interest and margin use that child's own settings, never the parent's.
+USD/USD defaults to a locked 1. Shelf price is customer currency per unit.
+
 Product Info uses one desktop row, with responsive wrapping on smaller screens.
 The item editor has a separate collapsible **Shipment, Logistics, Co-Man & Others info**
 section. Contextual help appears beside the field it explains. Routine USD,
@@ -8,13 +26,16 @@ percentage and months inputs do not have repetitive info icons.
 ## Ownership and values
 
 - A regular product maintains its own section.
-- A Mix parent owns the whole section; it is hidden on Mix children.
-  No costs or shipment selections are duplicated onto child Opportunity rows.
+- A Mix parent owns shared Shipment, Logistics and Co-Man costs, plus
+  Fobbing/container and Payment term days. These selections are not duplicated.
+- Each Mix child has an editable **Others Info** section: Packing cost, Initial
+  Design (USD or customer currency), Other fixed costs, Interest %, Interest days,
+  and Margin (% or USD/lb). These fields are unavailable on the Mix parent.
 - After an item is sent for packaging, Container Type and Loading request
   stay locked. Incoterm, Port of Entry and all Logistics, Co-Man
-  and Others inputs remain editable on regular products and Mix parents.
-  Product Info and Packaging requirements remain locked; children still inherit
-  read-only. Existing Draft workflow, access and row-version checks still apply.
+  and applicable Others inputs remain editable. Children can edit their own
+  Others Info even while packaging is processing. Product Info and Packaging
+  requirements remain locked. Existing Draft, access and row-version checks apply.
 - Shipment-only updates do not resubmit protected packaging fields or alter
   already-captured PCR selections. The editing exception needs no separate migration; name-only ports require 90.
 - Freight and the other USD-labeled inputs remain USD. Import clearance and new

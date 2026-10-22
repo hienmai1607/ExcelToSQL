@@ -8,7 +8,7 @@ async function setup(page:Page){
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Tester',user_id:1,scopes:['Product'],is_admin:false}});
   if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,masters:{}},version:0}});
-  if(path.endsWith('/lookups'))return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:'Northstar',Status:'Active'}],products:[{ID:2,CustomerID:1,ProductCode:'CHILD',ProductName:'Child',Status:'Active',WeightGrams:100,RowVersion:rv}],materials:[],currencies:[],creators:[]}});
+  if(path.endsWith('/lookups'))return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:'Northstar',Status:'Active'}],products:[{ID:2,CustomerID:1,ProductCode:'CHILD',ProductName:'Child',Status:'Active',WeightGrams:100,RowVersion:rv}],materials:[],currencies:[],creators:[],uoms:[{ID:99,UoMCode:'g',UoMName:'Grams',Category:'Weight/Mass',BaseFactor:1,Status:'Active'}]}});
   if(path.endsWith('/masters/products'))return route.fulfill({json:{rows:[product],total:1,page:1}});
   if(path.endsWith('/products/7/mix')){
    if(route.request().method()==='POST'){const b=route.request().postDataJSON();writes.push(b);versions=[{ID:4,Version:1,Status:b.Status,RowVersion:rv}];items=b.items.map((i:any)=>({...i,VersionID:4,ProductCode:'CHILD',ProductName:'Child',WeightGrams:100}));return route.fulfill({json:{ID:4}})}
@@ -42,7 +42,8 @@ test('mix activation submits child quantities and version tokens; active mix is 
  await expect(grades.getByRole('button',{name:'Review & save',exact:true})).toHaveCount(0);
  const tree=grades.getByRole('region',{name:'Horizontal grade tree'});
  await expect(tree).toBeVisible();
- await expect(tree.locator('input')).toHaveCount(0);
+ await expect(tree.locator('input:not([type="checkbox"])')).toHaveCount(0);
+ await expect(tree.getByRole('checkbox')).toBeDisabled();
  await expect(tree.getByRole('button')).toHaveCount(0);
  await expect(tree.getByRole('heading',{name:'Level 1'})).toBeVisible();
 });
@@ -53,7 +54,7 @@ test('Product Mix column is display-only; Edit retains the checkbox',async({page
  await page.getByRole('button',{name:'Edit product 7',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'Edit product',exact:true}).getByLabel('Product Mix',{exact:true})).toBeChecked();
 });
-test('new Product Mix needs no manually entered net weight',async({page})=>{
+test('new Product Mix needs no manual net weight and child controls fit without scrollbars',async({page},info)=>{
  const writes=await setup(page);
  await page.getByRole('button',{name:'New product',exact:true}).click();
  const form=page.getByRole('dialog',{name:'New product',exact:true});
@@ -63,6 +64,13 @@ test('new Product Mix needs no manually entered net weight',async({page})=>{
  await form.getByLabel('Category',{exact:true}).selectOption('Nuts');
  await expect(form.getByLabel('Weight',{exact:true})).toHaveAttribute('readonly','');
  await form.getByRole('button',{name:'Add child Product',exact:true}).click();await form.getByLabel('Child Product 1',{exact:true}).selectOption('2');
+ for(const width of [1280,900,390]){
+  await page.setViewportSize({width,height:900});
+  const table=form.locator('.initial-product-mix .table-wrap');
+  expect(await table.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
+ }
+ await page.setViewportSize({width:900,height:900});
+ await form.locator('.initial-product-mix').screenshot({path:info.outputPath('mix-children-fit.png')});
  await form.getByRole('button',{name:'Review & save'}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  expect(writes[0].rows[0]).toMatchObject({IsMix:true,CustomerID:1,WeightValue:0,WeightUnit:'g'});

@@ -6,7 +6,7 @@ import {Badge,ErrorNote,Pager,Notification,LayoutPanel,ColumnOrder,PageSizeSetti
 import {ResizableTable,ColumnResizer,columnWidth} from './column-widths';
 import type {MasterLayout,MasterRule} from './master-config';
 import './masters.css';
-type Entity='ports'|'loss-processes'|'categories'|'grade-densities';
+type Entity='ports'|'loss-defaults'|'loss-processes'|'categories'|'grade-densities';
 type Props={filterKeys?:string[];entity:Entity;title:string;newLabel:string;recordLabel:string;columns:Record<string,string>;initialSort:string;canWrite:boolean;revision:number;notice:string;onDismiss:()=>void;onEdit:(row:Row|null)=>void;display?:(row:Row,column:string)=>string};
 export function SharedMasterView({filterKeys=['search','status'],entity,title,newLabel,recordLabel,columns,initialSort,canWrite,revision,notice,onDismiss,onEdit,display}:Props){
  const {profile,ready,saving,save}=useProfile();

@@ -1,7 +1,7 @@
 import {createContext,useContext,useLayoutEffect,useRef,type ReactNode} from 'react';
 
 export const ViewTrailContext=createContext<string[]>([]);
-const listNames:Record<string,string>={opportunities:'Opportunities',customers:'Customers',products:'Products',prices:'Packaging Pricing',materials:'Packaging Material',vendors:'Vendors','raw-prices':'Raw Pricing','raw-materials':'Raw Material','raw-grades':'Raw Grade Master','packaging-types':'Packaging Types','packaging-dimensions':'Packaging Dimensions','grade-densities':'Grade Density Master',categories:'Category Master',ports:'Ports of Entry','loss-processes':'Loss Master',uoms:'Units of Measure',pallets:'Pallet Master',containers:'Container Type Master',requests:'Packaging Requests',conversions:'Unit Conversions'};
+const listNames:Record<string,string>={opportunities:'Opportunities',customers:'Customers',products:'Products',prices:'Packaging Pricing',materials:'Packaging Material',vendors:'Vendors','raw-prices':'Raw Pricing','raw-materials':'Raw Material','raw-grades':'Raw Grade Master','packaging-types':'Packaging Types','packaging-dimensions':'Packaging Dimensions','grade-densities':'Grade Density Master',categories:'Category Master',ports:'Ports of Entry','loss-processes':'Process Types','loss-defaults':'Loss Process Master',uoms:'Units of Measure',pallets:'Pallet Master',containers:'Container Type Master',requests:'Packaging Requests',conversions:'Unit Conversions'};
 export function ViewTrailRoot({page,children}:{page:string;children:ReactNode}){
  return <ViewTrailContext.Provider value={[(listNames[page]||page)+' List']}>{children}</ViewTrailContext.Provider>;
 }

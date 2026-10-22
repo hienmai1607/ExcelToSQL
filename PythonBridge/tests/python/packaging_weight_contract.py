@@ -56,6 +56,31 @@ class WeightMath(unittest.TestCase):
         row['LayerTareJSON']['Primary']={'KG':'0'}
         self.assertEqual(D(packing_way(row)['SecondaryGrossWeightKG']),4)
 
+    def test_mix_allocates_child_carton_gross_per_smallest_unit(self):
+        row=dict(IsMixParent=True,ResponseLayerCount=1,WeightGrams='793.78',
+            LayerTareJSON={'Primary':{'KG':'.05'}},
+            ProductMixSnapshot={'items':[{'ProductID':1,'UnitQuantity':2}]},
+            MixResponseChildren=[dict(ProductID=1,ApplicableNetWeightGrams='396.89',
+                ResponseLayerCount=2,UnitsPerCarton=10,
+                LayerTareJSON={'Primary':{'KG':'.01'},'Secondary':{'KG':'.2'}})])
+        self.assertEqual(D(packing_way(row)['PrimaryGrossWeightKG']),D('.90378'))
+        child=row['MixResponseChildren'][0]
+        child.update(ResponseLayerCount=3,UnitsPerTertiary=5)
+        child['LayerTareJSON']['Tertiary']={'KG':'.5'}
+        self.assertEqual(D(packing_way(row)['PrimaryGrossWeightKG']),D('.92378'))
+        # Both raw response children and already-calculated read rows use the same basis.
+        child['CartonGrossWeightKG']='21.8445'
+        self.assertEqual(D(packing_way(row)['PrimaryGrossWeightKG']),D('.92378'))
+
+    def test_mix_child_missing_pack_count_is_unknown_not_a_whole_carton(self):
+        row=dict(IsMixParent=True,ResponseLayerCount=1,WeightGrams=100,
+            LayerTareJSON={'Primary':{'KG':'0'}},
+            ProductMixSnapshot={'items':[{'ProductID':1,'UnitQuantity':1}]},
+            MixResponseChildren=[dict(ProductID=1,RequestedLayerCount=2,CartonGrossWeightKG=1)])
+        self.assertIsNone(packing_way(row)['PrimaryGrossWeightKG'])
+        row['MixResponseChildren'][0]['UnitsPerCarton']=0
+        self.assertIsNone(packing_way(row)['PrimaryGrossWeightKG'])
+
 class WeightSQL(unittest.TestCase):
     cleanup=foundation.PackagingFoundation.cleanup
     request=foundation.PackagingFoundation.request

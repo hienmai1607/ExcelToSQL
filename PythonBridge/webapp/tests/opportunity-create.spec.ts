@@ -19,7 +19,8 @@ async function fill(page:Page){
  await expect(form.getByLabel('Customer currency',{exact:true})).toHaveCount(0);
  await expect(form.getByLabel('Currency *',{exact:true})).toHaveCount(0);
  await form.getByLabel('Exchange rate VND per USD *',{exact:true}).fill('25000');
- await form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true}).fill('1');
+ await expect(form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true})).toHaveValue('1');
+ await expect(form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true})).not.toBeEditable();
  await form.getByLabel('Description *',{exact:true}).fill('Retail launch');
  await form.getByLabel('Bid open',{exact:true}).fill('2026-09-01');
  await form.getByLabel('Bid close',{exact:true}).fill('2026-10-01');
@@ -91,7 +92,7 @@ test('compact heading and header align in one desktop row and estimated award un
  await item.getByLabel('Estimated award %').fill('50');
  await expect(item.getByLabel('Estimated awarded units')).toHaveValue('500');
  await expect(item.getByLabel('Estimated awarded units')).toHaveAttribute('readonly','');
- await expect(item.getByLabel('Shelf price',{exact:true}).locator('..')).toContainText('Shelf price (USD)');
+ await expect(item.getByLabel('Shelf price',{exact:true}).locator('..')).toContainText('Shelf price (USD/unit)');
  await item.getByLabel('Estimated award %').fill('0');
  await expect(item.getByLabel('Estimated awarded units')).toHaveValue('0');
  await item.getByLabel('Estimated award %').fill('');

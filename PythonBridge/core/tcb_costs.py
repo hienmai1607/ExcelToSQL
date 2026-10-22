@@ -1,5 +1,6 @@
 """Exact Opportunity TCB math. All monetary values are USD; ratios are percentages."""
 from decimal import Decimal
+import json
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from grade_process_loss import GradeProcessLoss,process_loss_results
@@ -26,6 +27,7 @@ class LossProcess(BaseModel):
     MasterVersion: str | None = Field(None, pattern=r"^0x[0-9A-Fa-f]{16}$")
     Sequence: int = Field(ge=1, le=1000, strict=True)
     LossPct: Pct
+    Shared: bool = False
 
 def process_losses(processes):
     """Apply each step to what survived the preceding steps, without rounding."""
@@ -78,6 +80,9 @@ class Inputs(BaseModel):
     Prices: list[Selection] = Field(default_factory=list, max_length=1000)
     MaterialCosts: list[MaterialCost] = Field(default_factory=list,max_length=1000)
     ProcessLosses: list[GradeProcessLoss] | None = Field(None,max_length=1000)
+    ProcessLossMode: Literal["Stages","GradePath"] = "Stages"
+    ProcessLossLayout: Literal["Local","Aligned"] = "Local"
+    ProcessLossFormulas: dict[Annotated[str,Field(pattern=r"^0(?:/[1-9][0-9]{0,3}){1,12}$")],Annotated[str,Field(max_length=200)]] = Field(default_factory=dict,max_length=1000)
     LossProcesses: list[LossProcess] | None = Field(None, max_length=100)
     ProductLossFormula: str | None = Field(None,max_length=200)
     RMRatio: Pct = Decimal(100)
@@ -114,7 +119,20 @@ class Inputs(BaseModel):
                 raise ValueError("Each loss group needs unique process sequence numbers.")
             for field,value in process_losses(self.LossProcesses).items():
                 setattr(self,field,value)
-        if self.ProcessLosses is not None:self.LossProductPct=Decimal(0)
+        if self.ProcessLosses is not None:
+            self.LossProductPct=Decimal(0)
+            codes=[step for step in self.LossProcesses or [] if step.ProcessType in ("Sorting","Processing")]
+            rows=sorted(self.ProcessLosses,key=lambda row:tuple(map(int,row.Path.split("/"))))
+            shared={}
+            for row in rows:
+                for index,code in enumerate(row.Codes or []):
+                    if code.Shared:
+                        key=code.MasterID or code.ProcessName.casefold()
+                        shared.setdefault(key,row.Ratios[index])
+                        row.Ratios[index]=shared[key]
+            for row in self.ProcessLosses:
+                if row.Codes is None:
+                    row.Ratios=[rows[0].Ratios[index] if rows and index<len(rows[0].Ratios) and index<len(codes) and codes[index].Shared else value for index,value in enumerate(row.Ratios)]
         if self.ProcessLosses is None and self.ProductLossFormula and self.ProductLossFormula.strip():
             from dimension_formula import _calculate
             product_steps=[p for p in self.LossProcesses or [] if p.ProcessType in ("Sorting","Processing")]
@@ -159,9 +177,9 @@ def leaves(items):
             result.append({**item, "Path": path, "Proportion": factor})
     explicit=any(item.get("Process") is not None for item in items)
     processes={path:node for path,node in nodes.items() if node.get("Process")}
-    if any(any(path.startswith(parent+"/") for parent in processes if parent!=path) for path in processes):
-        raise ValueError("A child under a Process grade cannot also be Process.")
     for leaf in result:
+        chain=sorted((path for path in processes if leaf["Path"]==path or leaf["Path"].startswith(path+"/")),key=lambda p:len(p.split("/")),reverse=True) if explicit else [leaf["Path"]]
+        leaf["ProcessPaths"]=json.dumps(chain)
         owner=next((path for path in processes if leaf["Path"]==path or leaf["Path"].startswith(path+"/")),None) if explicit else leaf["Path"]
         leaf["ProcessPath"]=owner
         leaf["ProcessGrade"]=nodes[owner]["Grade"] if owner else None
@@ -169,27 +187,61 @@ def leaves(items):
     return sorted(result,key=lambda grade:tuple(int(part) for part in grade["Path"].split("/")))
 
 def process_paths(grade_leaves):
-    return {leaf.get("ProcessPath",leaf["Path"]) for leaf in grade_leaves if leaf.get("ProcessPath",leaf["Path"])}
+    return {path for leaf in grade_leaves for path in leaf_process_paths(leaf) if path}
+
+def leaf_process_paths(leaf):
+    value=leaf.get("ProcessPaths",[leaf.get("ProcessPath",leaf["Path"])])
+    return json.loads(value) if isinstance(value,str) else value
+
+def recipe_path(path):
+    return "/".join(path.split("/")[:2])
+
+def loss_target(leaf):
+    chain=leaf_process_paths(leaf)
+    return chain[0] if chain else leaf["Path"]
+
+def grade_loss_results(inputs,grade_leaves,weight=None):
+    targets={loss_target(leaf) for leaf in grade_leaves}
+    if inputs.ProcessLossMode=="GradePath" and inputs.ProcessLossFormulas.keys()-targets:
+        raise ValueError("Process Loss formula refers to a removed or inactive grade. Refresh grades.")
+    return process_loss_results(inputs.ProcessLosses,len([s for s in inputs.LossProcesses or [] if s.ProcessType in ("Sorting","Processing")]),weight,
+        targets=targets if inputs.ProcessLossMode=="GradePath" else None,formulas=inputs.ProcessLossFormulas,aligned=inputs.ProcessLossLayout=="Aligned")
+
+def level_one_recipes(inputs,grade_leaves):
+    roots={recipe_path(leaf["Path"]) for leaf in grade_leaves}
+    result={}
+    for root in sorted(roots,key=lambda path:tuple(map(int,path.split("/")))):
+        exact=next((row for row in inputs.MaterialCosts if row.Path==root),None)
+        children=[row for row in inputs.MaterialCosts if row.Path.startswith(root+"/")]
+        if exact:result[root]=exact
+        elif children:
+            values={tuple(getattr(row,key) for key in Recipe.model_fields) for row in children}
+            if len(values)>1:raise ValueError("Review the Level 1 recipe for "+root+"; saved child recipes differ.")
+            result[root]=MaterialCost(**{**children[0].model_dump(),"Path":root})
+    return result
 
 def trim_process_recipes(inputs,items,grade_leaves):
     known={item["ParentID"]+"/"+str(item["ID"]) for item in items}
     active=process_paths(grade_leaves)
     # Hidden child recipes exist in the browser only until Save; invalid unknown paths still fail.
-    inputs.MaterialCosts=[r for r in inputs.MaterialCosts if r.Path in active or r.Path not in known]
+    unknown=[r for r in inputs.MaterialCosts if r.Path not in known]
+    inputs.MaterialCosts=[*level_one_recipes(inputs,grade_leaves).values(),*unknown]
     if inputs.ProcessLosses is not None:
-        inputs.ProcessLosses=[r for r in inputs.ProcessLosses if r.Path in active or r.Path not in known]
+        inputs.ProcessLosses=[r for r in inputs.ProcessLosses if r.Path=="0" or r.Path in active or r.Path not in known]
+    targets={loss_target(leaf) for leaf in grade_leaves}
+    inputs.ProcessLossFormulas={path:formula for path,formula in inputs.ProcessLossFormulas.items() if path in targets or path not in known}
 
 def calculate(inputs, grade_leaves, prices,allow_unpriced=False,weight=None):
     selected = {p.Path: p for p in inputs.Prices}
     valid_paths = {leaf["Path"] for leaf in grade_leaves}
     if selected.keys() - valid_paths:
         raise ValueError("Selected price refers to a removed or non-leaf grade. Refresh grades.")
-    recipes={r.Path:r for r in inputs.MaterialCosts}
-    loss_results=process_loss_results(inputs.ProcessLosses,len([s for s in inputs.LossProcesses or [] if s.ProcessType in ("Sorting","Processing")]),weight)
+    recipes=level_one_recipes(inputs,grade_leaves)
+    loss_results=grade_loss_results(inputs,grade_leaves,weight)
     losses={r["Path"]:Decimal(r["LossPct"]) for r in loss_results}
-    if losses.keys()-process_paths(grade_leaves):
+    if {r.Path for r in inputs.ProcessLosses or []}-process_paths(grade_leaves)-{"0"}:
         raise ValueError("Process Loss refers to a removed or non-Process grade.")
-    if recipes.keys() - process_paths(grade_leaves):
+    if any(not any(row.Path==recipe_path(leaf["Path"]) or row.Path==leaf["Path"] or leaf["Path"].startswith(row.Path+"/") for leaf in grade_leaves) for row in inputs.MaterialCosts):
         raise ValueError("Material costing refers to a removed, non-leaf or non-Process grade. Refresh grades.")
     rm = Decimal(0)
     product = Decimal(0)
@@ -198,10 +250,11 @@ def calculate(inputs, grade_leaves, prices,allow_unpriced=False,weight=None):
     groups={}
     def include(leaf,cost):
         nonlocal rm
-        owner=leaf.get("ProcessPath",leaf["Path"])
-        cost=cost/(1-losses.get(owner,Decimal(0))/100)
-        key=owner or leaf["Path"]
-        group=groups.setdefault(key,{"Process":bool(owner),"WeightedRM":Decimal(0),"Proportion":Decimal(0)})
+        chain=leaf_process_paths(leaf)
+        for path in ([loss_target(leaf)] if inputs.ProcessLossMode=="GradePath" else [*chain,"0"]):
+            cost=cost/(1-losses.get(path,Decimal(0))/100)
+        key=recipe_path(leaf["Path"])
+        group=groups.setdefault(key,{"Process":True,"WeightedRM":Decimal(0),"Proportion":Decimal(0)})
         weighted=leaf["Proportion"]*cost
         group["WeightedRM"]+=weighted
         group["Proportion"]+=leaf["Proportion"]

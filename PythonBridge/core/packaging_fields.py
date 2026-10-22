@@ -51,7 +51,7 @@ OPPORTUNITYITEM_FIELDS = ["PalletSize","PalletStacking","MaxPalletHeightM","Cont
 WEB_ITEM_FIELDS = ["PrimaryTypeID", "SecondaryTypeID", "SecondaryTransparency", "NumberOfPrimary", "WebPackagingRequirements",
                   "PackagingLayerCount", "TertiaryTypeID", "TertiaryTransparency", "NumberOfSecondary"]
 WEB_ITEM_FIELDS += ["MaxPalletHeightMM","ProductGradeSnapshot","SecondaryRecyclableRequirement","SecondaryRecycledContent","SecondaryMetalizedAluminum","SecondarySpecialComments","TertiaryRecyclableRequirement","TertiaryRecycledContent","TertiaryMetalizedAluminum","TertiarySpecialComments"]
-PARENT_LOGISTICS_FIELDS.update(("MaxPalletHeightMM", "ShipmentCostInfo"))
+PARENT_LOGISTICS_FIELDS.add("MaxPalletHeightMM")
 WEB_ITEM_FIELDS.append("ShipmentCostInfo")
 class ItemFields(BaseModel):
     NetWeightGrams: Decimal | None = Field(None, gt=0, max_digits=10, decimal_places=2, allow_inf_nan=False)

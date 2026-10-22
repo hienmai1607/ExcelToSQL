@@ -5,7 +5,7 @@ import {Modal,ErrorNote,Badge} from './ui';
 import {IconButton} from './icons';
 type Values=Record<string,string>;
 type Entry={key:number;values:Values;saved:boolean;error:string};
-export function SharedMasterEditor({row,canWrite,title,endpoint,initial,fields,validate,payload,onClose,onSaved}:{row:Row|null;canWrite:boolean;title:string;endpoint:string;initial:()=>Values;fields:(values:Values,change:(key:string,value:string)=>void)=>ReactNode;validate:(values:Values)=>string;payload:(values:Values)=>Record<string,unknown>;onClose:()=>void;onSaved:(records:Row[])=>void}){
+export function SharedMasterEditor({row,canWrite,title,endpoint,initial,fields,validate,payload,onClose,onSaved,saveEndpoint}:{saveEndpoint?:string;row:Row|null;canWrite:boolean;title:string;endpoint:string;initial:()=>Values;fields:(values:Values,change:(key:string,value:string)=>void)=>ReactNode;validate:(values:Values)=>string;payload:(values:Values)=>Record<string,unknown>;onClose:()=>void;onSaved:(records:Row[])=>void}){
  const [entries,setEntries]=useState<Entry[]>(()=>[{key:1,values:initial(),saved:false,error:''}]),[confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[uncertain,setUncertain]=useState(false),[error,setError]=useState('');
  const serial=useRef(1),lock=useRef(false),baseline=useRef(JSON.stringify(entries.map(e=>e.values)));
  const pending=entries.filter(e=>!e.saved),dirty=JSON.stringify(entries.map(e=>e.values))!==baseline.current;
@@ -17,7 +17,7 @@ export function SharedMasterEditor({row,canWrite,title,endpoint,initial,fields,v
   let count=0;const records:Row[]=[];
   for(const entry of pending){try{
    const submitted={ID:row?.ID??null,RowVersion:row?.RowVersion??null,...payload(entry.values)};
-   const result=await call<{rows?:Row[];row?:Row}>(endpoint,submitted);
+   const result=await call<{rows?:Row[];row?:Row}>(saveEndpoint??endpoint,saveEndpoint?{payload:submitted}:submitted);
    records.push({...submitted,...(result?.row||result?.rows?.[0]||{})} as Row);
    count++;setEntries(list=>list.map(e=>e.key===entry.key?{...e,saved:true,error:''}:e));
   }catch(exc){

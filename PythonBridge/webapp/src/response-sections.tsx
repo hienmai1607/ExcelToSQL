@@ -70,7 +70,7 @@ export function ResponseSections({values,requestedLayers,netWeight,configuration
  const [appliedResults,setAppliedResults]=useState<Record<string,PricingResult>>({});
  const results={...appliedResults,...pricingResults};
  const mixParent=isMixParent(product);const mixChild=!!product?.ParentItemID,mix=mixChild?null:parseMixStructure(product?.ProductMixSnapshot),unitHelp=mixFormula(mix),unitLabel=(layer:string)=>'No of '+layer+(mix?' Mix':'');const layers=layerCount(values.ResponseLayerCount),layerField=webResponseFields.find(f=>f.key==='ResponseLayerCount')!;
- const totals=mixParent&&product?.ProductMixSnapshot?mixTotals(product?.ProductMixSnapshot,product?.MixResponseChildren):undefined;
+ const totals=mixParent?mixTotals(product?.ProductMixSnapshot,product?.MixResponseChildren):undefined;
  const applicable=mixParent&&totals?mixWeightValue(totals):values.ApplicableNetWeightGrams||String(netWeight??'');
  const displayValues=(!editable||configReadOnly)&&reviewContainer?responseChange(values,{},'SelectedContainerType',reviewContainer,pallets,configuration).values:values;
  values=displayValues;

@@ -99,7 +99,7 @@ def response_efficiency(row, packing, geometry, pallet_area_mm2):
     volume = decimal_value(geometry.get("VolumeM3"))
     area = decimal_value(geometry.get("AreaM2"))
     density = decimal_value(row.get("NutDensity"))
-    mix = mix_totals(row.get("ProductMixSnapshot"), row.get("MixResponseChildren")) if row.get("IsMixParent") and row.get("ProductMixSnapshot") else None
+    mix = mix_totals(row.get("ProductMixSnapshot"), row.get("MixResponseChildren")) if row.get("IsMixParent") else None
     if mix is not None:
         last = mix["weight"]
     cartons = decimal_value(row.get("CartonsPerLayer"))

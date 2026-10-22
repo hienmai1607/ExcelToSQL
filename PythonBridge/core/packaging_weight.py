@@ -45,7 +45,17 @@ def mix_contents_gross(row):
             net=dict(PrimaryNetWeightGrams=grams,NoOfPrimaryUnit=child.get('UnitsPerCarton'),NoOfSecondaryUnit=child.get('UnitsPerTertiary'))
             gross=number(gross_weights(child,net)['CartonGrossWeightKG'],zero=True)
         if gross is None:return None
-        total+=count*gross
+        # Mix quantities count the smallest child product units, not its shipping
+        # cartons. Allocate the child's outer packaging tare on that same basis.
+        # Legacy precomputed child rows without a layer count describe one unit.
+        layers=child.get('ResponseLayerCount') or child.get('RequestedLayerCount') or 1
+        if layers not in (1,2,3):return None
+        units=Decimal(1)
+        for field in ('UnitsPerCarton','UnitsPerTertiary')[:layers-1]:
+            factor=number(child.get(field))
+            if factor is None or factor!=factor.to_integral_value() or factor>2147483647:return None
+            units*=factor
+        total+=count*gross/units
     return total if quantities is None or seen==set(quantities) else None
 
 

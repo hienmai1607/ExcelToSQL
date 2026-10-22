@@ -1,12 +1,120 @@
 import {test,expect,type Page} from '@playwright/test';
+import {pathLossRow} from '../src/grade-process-loss';
+const formulaRows=(inputs:any,weight='150')=>(inputs.ProcessLossMode==='GradePath'?Object.keys(inputs.ProcessLossFormulas??{}).map(path=>pathLossRow(inputs,path)):inputs.ProcessLosses??[]).map((r:any)=>({...r,LossPct:r.Ratios[0]??'0',WeightGrams:weight}));
 const rv='AAAAAAAAAAE=',version='0x0000000000000001';
 
+test('TCB selected raw quote opens Edit with Material locked and keeps the opportunity draft',async({page})=>{
+ const {dialog,writes}=await open(page,false,true,false,10,false,'Both','20DC',false,false,false,true),edits:any[]=[];
+ const row={ID:8,MaterialID:3,VendorID:null,CurrencyID:1,PriceBasis:'lbs',BaseUoM:'lbs',QuantityFrom:'0',UnitPrice:'2',ExchangeRateToUSD:'1',EffectiveFrom:'2026-10-21',Status:'Active',RowVersion:rv};
+ await page.route('**/api/inline-masters/raw-prices/8',route=>{
+  if(route.request().method()==='GET')return route.fulfill({json:{row,editable:true,lockedFields:['MaterialID']}});
+  const body=route.request().postDataJSON();edits.push(body);return route.fulfill({json:{results:[{RowNum:1,Status:'OK',NewID:8}]}});
+ });
+ await page.route('**/api/workbench/masters/lookups?*',route=>route.fulfill({json:{materials:[{ID:3,MaterialCode:'RAW-A',MaterialName:'Almonds',GradeID:2,UnitOfMeasure:'lbs',Status:'Active'}],uoms:[{ID:1,UoMCode:'lbs',Status:'Active'}],currencies:[{ID:1,CurrencyCode:'USD',Status:'Active'}],vendors:[],creators:[]}}));
+ const item=dialog.locator('#tcb-item-11');
+ await item.getByRole('button',{name:'Edit Raw Pricing master for 0/1/1',exact:true}).click();
+ const edit=page.getByRole('dialog',{name:'Edit raw material price',exact:true});
+ await expect(edit.getByLabel('Material',{exact:true})).toHaveValue('3');await expect(edit.getByLabel('Material',{exact:true})).toBeDisabled();
+ await edit.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('2.1');
+ await edit.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('dialog',{name:'Confirm master save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(edit).toHaveCount(0);expect(edits[0].payload.rows[0].MaterialID).toBe(3);expect(writes).toHaveLength(0);
+});
+
+test('TCB Add Master locks the linked Grade and Material and refreshes selections',async({page})=>{
+ const {dialog}=await open(page,false,true,false,10,false,'Both','20DC',false,false,false,true);
+ const rawMaterials:any[]=[{ID:3,MaterialCode:'RAW-A',MaterialName:'Almonds',GradeID:2,UnitOfMeasure:'lbs',Status:'Active'}];
+ const prices:any[]=[];
+ const writes:any[]=[];
+ const gradeRows=[{ID:1,GradeName:'Almonds',FinalGrade:false,Status:'Active'},{ID:2,GradeName:'NPX',ParentGradeID:1,FinalGrade:true,Status:'Active'}];
+ await page.route('**/api/workbench/masters/lookups?*',route=>route.fulfill({json:{materials:rawMaterials,rawGrades:gradeRows,uoms:[{ID:1,UoMCode:'lbs',UoMName:'Pounds',Status:'Active'}],currencies:[{ID:1,CurrencyCode:'USD',Status:'Active'}],vendors:[],creators:[]}}));
+ let refreshFailed=false;
+ await page.route('**/api/opportunity/grade-lookups',route=>{
+  if(!refreshFailed){refreshFailed=true;return route.fulfill({status:503,json:{detail:'Refresh unavailable'}})}
+  return route.fulfill({json:{rows:gradeRows,materials:rawMaterials}});
+ });
+ await page.route('**/api/raw-material/material/batch',route=>{
+  const body=route.request().postDataJSON();writes.push(body);
+  rawMaterials.push({...body.rows[0],ID:26,MaterialCode:'RAW-26',Status:'Active'});
+  return route.fulfill({json:{results:[{RowNum:body.rows[0].RowNum,Status:'OK',NewID:26}]}});
+ });
+ await page.route('**/api/raw-material/price/batch',route=>{
+  const body=route.request().postDataJSON();writes.push(body);
+  prices.push({PriceID:27,PriceVersion:version,RawGradeID:2,MaterialID:26,MaterialCode:'RAW-26',VendorName:'Vendor',QuantityFrom:0,QuantityTo:null,PriceBasis:'lbs',USDPerLb:'5.00'});
+  return route.fulfill({json:{results:[{RowNum:body.rows[0].RowNum,Status:'OK',NewID:27}]}});
+ });
+ await page.route('**/api/opportunity/items/11/commercial/preview',route=>route.fulfill({json:{grades:[{Path:'0/1/1',Grade:'NPX',RawGradeID:2,RawMaterialID:26,Proportion:'1'}],prices,saved:{RMCostUSDPerLb:null},LossProductPct:'0'}}));
+ const item=dialog.locator('#tcb-item-11');
+ await item.getByLabel('Raw Material 0/1/1',{exact:true}).selectOption('');
+ await item.getByRole('button',{name:'Add new Raw Material master for 0/1/1',exact:true}).click();
+ const material=page.getByRole('dialog',{name:'New raw material',exact:true});
+ await expect(material.getByLabel('Grade',{exact:true})).toHaveValue('2');
+ await expect(material.getByLabel('Grade',{exact:true})).toBeDisabled();
+ await material.getByLabel('Material name',{exact:true}).fill('New linked material');
+ await material.getByLabel('Base UoM',{exact:true}).selectOption('lbs');
+ await material.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('dialog',{name:'Confirm master save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(item.locator('.floating-notification.warning')).toContainText('Master saved, but choices could not be refreshed.');
+ await item.getByRole('button',{name:'Reload saved master choices',exact:true}).click();
+ await expect(item.getByLabel('Raw Material 0/1/1',{exact:true})).toHaveValue('26');
+ await expect(item.getByRole('button',{name:'Add new Raw Pricing master for 0/1/1',exact:true})).toBeEnabled();
+ await item.getByRole('button',{name:'Add new Raw Pricing master for 0/1/1',exact:true}).click();
+ const pricing=page.getByRole('dialog',{name:'New raw material price',exact:true});
+ await expect(pricing.getByLabel('Material',{exact:true})).toHaveValue('26');
+ await expect(pricing.getByLabel('Material',{exact:true})).toBeDisabled();
+ await expect(pricing.getByLabel('Price UoM',{exact:true})).toHaveValue('lbs');
+ await pricing.getByLabel('Vendor currency',{exact:true}).selectOption('1');
+ await pricing.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('5');
+ await pricing.getByLabel('Effective from',{exact:true}).fill('2026-10-21');
+ await pricing.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('dialog',{name:'Confirm master save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(item.getByLabel('Raw price item 11 grade 0/1/1',{exact:true})).toHaveValue('27:'+version+':5.00');
+ expect(writes[0].rows[0].GradeID).toBe(2);expect(writes[1].rows[0].MaterialID).toBe(26);
+});
+
+test('Recipe fields belong to Level 1 while child Process Loss stays on children',async({page})=>{
+ const {dialog,writes}=await open(page,false,true);
+ const child=dialog.locator('#tcb-item-11'),recipe=child.getByRole('region',{name:'Recipe Info',exact:true});
+ await expect(recipe.getByLabel('Loss Process % 0/1 item 11',{exact:true})).toHaveText('0%');
+ await expect(child.getByLabel('Process 0/1',{exact:true})).not.toBeChecked();
+ await expect(child.getByLabel('Process 0/1/1',{exact:true})).toBeChecked();
+ await recipe.getByRole('button',{name:'Toggle child grades 0/1 item 11',exact:true}).click();
+ await expect(recipe.locator('[data-process-path="0/1/1"] input')).toHaveCount(0);
+ await expect(recipe.getByLabel('Loss Process % 0/1/1 item 11',{exact:true})).toHaveText('0%');
+ await recipe.locator('[data-process-path="0/1"]').getByLabel('Processing ($/lbs)',{exact:true}).fill('.5');
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
+ await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(child.getByLabel('Total Product with Loss item 11')).toHaveText('2.50 USD');
+ expect(writes[0].CostInputs.MaterialCosts).toHaveLength(1);
+ expect(writes[0].CostInputs.MaterialCosts[0].Path).toBe('0/1');
+});
+
+test('Shared types copy the first percentage across stages where that type is selected',async({page})=>{
+ const {dialog,writes}=await open(page,false,true,false,10,false,'Both','20DC',true);
+ const section=dialog.getByRole('region',{name:'Process Loss item 11',exact:true});
+ for(const path of ['0/1/1','0/1/2']){
+  await section.getByRole('button',{name:'Add process type '+path+' item 11',exact:true}).click();
+  await section.getByLabel('Process type '+path+' L1 item 11',{exact:true}).selectOption('3');
+  if(path==='0/1/1')await section.getByLabel('Process loss '+path+' L1 item 11',{exact:true}).fill('7');
+ }
+ const first=section.getByLabel('Process loss 0/1/1 L1 item 11',{exact:true}),second=section.getByLabel('Process loss 0/1/2 L1 item 11',{exact:true});
+ await expect(first).toHaveValue('7');await expect(second).toHaveValue('7');
+ await first.fill('7');await expect(second).toHaveValue('7');await expect(second).toBeDisabled();
+ await first.fill('9');await expect(second).toHaveValue('9');
+ await section.getByRole('button',{name:'Add process type 0/1/2 item 11',exact:true}).click();
+ await section.getByLabel('Process loss 0/1/2 L2 item 11',{exact:true}).fill('2');
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
+ const rows=writes[0].CostInputs.ProcessLosses;
+ expect(rows.find((r:any)=>r.Path==='0/1/1').Ratios).toEqual(['9']);
+ expect(rows.find((r:any)=>r.Path==='0/1/2').Ratios).toEqual(['9','2']);
+});
 test('Recipe Info pairs raw and yield-adjusted prices, starts at Level 1 and uses neutral family colors',async({page},info)=>{
  await page.setViewportSize({width:1920,height:1080});
  const {dialog}=await open(page,false,true,false,10,false,'Both','20DC',true,true);
  const child=dialog.locator('#tcb-item-11');
  await child.getByLabel('Process 0/1',{exact:true}).check();
- await child.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
+ await child.getByLabel('Process 0/1/1',{exact:true}).uncheck();
+ await child.getByLabel('Process 0/1/2',{exact:true}).uncheck();
+ await child.getByRole('button',{name:'Add process type 0/1 item 11',exact:true}).click();
  await child.getByLabel('Process loss 0/1 L1 item 11',{exact:true}).fill('10');
  const recipe=child.getByRole('region',{name:'Recipe Info',exact:true});
  await expect(recipe.locator('[data-process-path="0/1/1"]')).toHaveCount(0);
@@ -16,6 +124,10 @@ test('Recipe Info pairs raw and yield-adjusted prices, starts at Level 1 and use
   await expect(recipe.getByLabel('RM with loss '+path+' item 11',{exact:true})).toHaveText(after);
  }
  const parent=recipe.locator('[data-process-path="0/1"]'),leaf=recipe.locator('[data-process-path="0/1/1"]'),other=recipe.locator('[data-process-path="0/2"]');
+ await expect(recipe.getByLabel('Loss Process % 0/1 item 11',{exact:true})).toHaveText('10%');
+ const beforeBox=(await parent.getByLabel('RM without loss 0/1 item 11',{exact:true}).boundingBox())!,afterBox=(await parent.getByLabel('RM with loss 0/1 item 11',{exact:true}).boundingBox())!;
+ expect(Math.abs((beforeBox.y+beforeBox.height/2)-(afterBox.y+afterBox.height/2))).toBeLessThan(3);
+ expect(await recipe.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
  const color=(row:typeof parent)=>row.evaluate(el=>getComputedStyle(el).backgroundColor);
  expect(await color(parent)).toBe(await color(leaf));
  expect(await color(parent)).not.toBe(await color(other));
@@ -69,6 +181,8 @@ test('Process Loss precedes hierarchical Recipe Info and applies grade yield onl
  const {dialog,writes}=await open(page,false,true,false,10,false,'Both','20DC',true);
  const child=dialog.locator('#tcb-item-11');
  await child.getByLabel('Process 0/1',{exact:true}).check();
+ await child.getByLabel('Process 0/1/1',{exact:true}).uncheck();
+ await child.getByLabel('Process 0/1/2',{exact:true}).uncheck();
  const loss=child.getByRole('region',{name:'Process Loss item 11',exact:true});
  const recipe=child.getByRole('region',{name:'Recipe Info',exact:true});
  await expect(recipe.locator('[data-process-path="0/1/1"]')).toHaveCount(0);
@@ -78,8 +192,8 @@ test('Process Loss precedes hierarchical Recipe Info and applies grade yield onl
  await expect(recipe.getByText('0/1 · Almonds',{exact:true})).toBeVisible();
  await expect(recipe.getByText('0/1/1 · NPX',{exact:true})).toBeVisible();
  await expect(recipe.getByText('0/1/2 · NPX',{exact:true})).toBeVisible();
- await loss.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
- await expect(loss.getByLabel('Loss type item 11 code L1',{exact:true})).toHaveValue('1:'+version);
+ await loss.getByRole('button',{name:'Add process type 0/1 item 11',exact:true}).click();
+ await expect(loss.getByLabel('Process type 0/1 L1 item 11',{exact:true})).toHaveValue('1');
  await expect(loss.locator('.process-loss-types input')).toHaveCount(0);
  await loss.getByLabel('Process loss 0/1 L1 item 11',{exact:true}).fill('10');
  await expect(loss.getByLabel('Process Loss result 0/1 item 11',{exact:true})).toHaveText('10%');
@@ -92,7 +206,7 @@ test('Process Loss precedes hierarchical Recipe Info and applies grade yield onl
  await expect(child.getByLabel('Total Product with Loss item 11',{exact:true})).toHaveText('4.28 USD');
  await loss.getByLabel('Process loss formula 0/1 item 11',{exact:true}).fill('1-(1-L1)');
  await expect(loss.getByLabel('Process Loss result 0/1 item 11',{exact:true})).toHaveText('—');
- await page.route('**/api/opportunity/items/11/loss-formula',route=>{const body=route.request().postDataJSON();return route.fulfill({json:{LossProductPct:'0',ProcessLossSnapshots:body.Inputs.ProcessLosses.map((r:any)=>({...r,LossPct:'10',WeightGrams:'150'}))}})});
+ await page.route('**/api/opportunity/items/11/loss-formula',route=>{const body=route.request().postDataJSON();return route.fulfill({json:{LossProductPct:'0',ProcessLossSnapshots:formulaRows(body.Inputs)}})});
  await loss.getByRole('button',{name:'Test all Process Loss item 11',exact:true}).click();
  await expect(loss.getByLabel('Process Loss result 0/1 item 11',{exact:true})).toHaveText('10%');
  await expect(parent).toContainText('4.28 USD');
@@ -100,27 +214,28 @@ test('Process Loss precedes hierarchical Recipe Info and applies grade yield onl
  await recipe.screenshot({path:info.outputPath('recipe-info.png')});
  await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
  await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(writes[0].CostInputs.ProcessLosses).toEqual([{Path:'0/1',Ratios:['10'],Formula:'1-(1-L1)'}]);
+ expect(writes[0].CostInputs.ProcessLosses.find((r:any)=>r.Path==='0/1')).toMatchObject({Ratios:['10']});
+ expect(writes[0].CostInputs.ProcessLossFormulas['0/1']).toBe('1-(1-L1)');
  expect(writes[0].Inputs.ProductLossFormula).toBeNull();
- expect(writes[0].Inputs.LossProcesses.find((s:any)=>s.ProcessType==='Processing').LossPct).toBe('0');
+ expect(writes[0].CostInputs.ProcessLosses.find((r:any)=>r.Path==='0/1').Codes[0].MasterID).toBe(1);
 });
 
-test('dormant child Process Loss is restored before save and only the effective parent is persisted',async({page})=>{
- const {dialog,writes}=await open(page,false,true);
- const child=dialog.locator('#tcb-item-11');
- await child.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
+test('child Process Loss remains active when its parent is also processed',async({page})=>{
+ const {dialog,writes}=await open(page,false,true),child=dialog.locator('#tcb-item-11');
+ await child.getByRole('button',{name:'Add process type 0/1/1 item 11',exact:true}).click();
  await child.getByLabel('Process loss 0/1/1 L1 item 11',{exact:true}).fill('8');
  await child.getByLabel('Process 0/1',{exact:true}).check();
- await child.getByLabel('Process loss 0/1 L1 item 11',{exact:true}).fill('3');
- await child.getByLabel('Process 0/1',{exact:true}).uncheck();
+ await expect(child.getByLabel('Process 0/1/1',{exact:true})).toBeChecked();
+ await expect(child.getByLabel('Process 0/1/1',{exact:true})).toBeEnabled();
  await expect(child.getByLabel('Process loss 0/1/1 L1 item 11',{exact:true})).toHaveValue('8');
+ await child.getByLabel('Process 0/1',{exact:true}).uncheck();
  await child.getByLabel('Process 0/1',{exact:true}).check();
- await expect(child.getByLabel('Process loss 0/1 L1 item 11',{exact:true})).toHaveValue('3');
- await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
- await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(writes[0].CostInputs.ProcessLosses).toEqual([{Path:'0/1',Ratios:['3'],Formula:''}]);
+ await expect(child.getByLabel('Process loss 0/1/1 L1 item 11',{exact:true})).toHaveValue('8');
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(writes[0].Grades.items.map((g:any)=>g.Process)).toEqual([true,true]);
+ expect(writes[0].CostInputs.ProcessLosses.find((r:any)=>r.Path==='0/1/1').Ratios).toEqual(['8']);
 });
-async function open(page:Page,failSecond=false,commercial=false,direct=false,root=10,analysis=false,loading='Both',salesContainer='20DC',branching=false,directRoot=false,missingMaterial=false){
+async function open(page:Page,failSecond=false,commercial=false,direct=false,root=10,analysis=false,loading='Both',salesContainer='20DC',branching=false,directRoot=false,missingMaterial=false,admin=false){
  const writes:any[]=[];
  const common={OpportunityID:1,OpportunityNumber:'OPP-LOSS',CustomerName:'Customer',HeaderStage:'Draft',HeaderRowVersion:rv,ItemStage:'Draft',ItemRowVersion:rv,AnnualUnit:1000,WeightGrams:150};
  const rows=[{...common,ItemID:10,ItemNumber:'1',ProductCode:'MIX',ProductName:'Mix parent',ResponseLayerCount:2},{...common,ItemID:11,ParentItemID:10,ItemNumber:'1.1',ProductCode:'CHILD-A',ProductName:'Child A',ResponseLayerCount:1},{...common,ItemID:12,ParentItemID:10,ItemNumber:'1.2',ProductCode:'CHILD-B',ProductName:'Child B',ResponseLayerCount:2},{...common,ItemID:13,ItemNumber:'2',ProductCode:'LOCKED',ProductName:'Locked product',ItemStage:'Approved',ResponseLayerCount:1}];
@@ -134,7 +249,7 @@ async function open(page:Page,failSecond=false,commercial=false,direct=false,roo
  let reject=failSecond;
  await page.route('**/api/**',route=>{
   const path=new URL(route.request().url()).pathname;
-  if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',user_id:1,is_admin:false,scopes:['Opportunity']}});
+  if(path.endsWith('/session'))return route.fulfill({json:{username:admin?'Admin':'Sales',user_id:1,is_admin:admin,scopes:admin?['Admin','Opportunity','RawMaterial']:['Opportunity']}});
   if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{},version:0}});
   if(path==='/api/opportunity/grid')return route.fulfill({json:{rows,total:1,page:1}});
   if(path==='/api/opportunity/grade-lookups')return route.fulfill({json:{rows:[{ID:1,GradeName:'Almonds',ParentGradeID:null,FinalGrade:false},{ID:2,GradeName:'NPX',ParentGradeID:1,FinalGrade:true},...(directRoot?[{ID:3,GradeName:'Chocolate',ParentGradeID:null,FinalGrade:true}]:[])],materials:[{ID:3,MaterialCode:'RAW-A',MaterialName:'Almonds',GradeID:2,Status:'Active'},...(directRoot?[{ID:4,MaterialCode:'RAW-B',MaterialName:'Candy Covered Chocolate',GradeID:3,Status:'Active'}]:[])]}});
@@ -148,8 +263,8 @@ async function open(page:Page,failSecond=false,commercial=false,direct=false,roo
   const match=path.match(/\/items\/(\d+)\/(tcb|loss-formula|loss-processes)$/);
   if(match){
    const id=Number(match[1]),row=rows.find(r=>r.ItemID===id)!;
-   if(match[2]==='tcb')return route.fulfill({json:{item:{ID:id,RowVersion:rv,DefaultPalletUSDPerEA:id===10?'12':null,HeaderStage:'Draft',ItemStage:row.ItemStage,IsMixParent:id===10,LossLayerCount:row.ResponseLayerCount,...(commercial&&id!==10?{ProductGradeSnapshot:JSON.stringify(snapshot),HasOpenPackagingRequest:id===12}:{})},saved:commercial?{Inputs:{RMRatio:'100',SeasoningRatio:'0',OilPct:'0',Prices:[...(direct?[{Path:'0/1/1',DirectUSDPerLb:'3.25'}]:[{Path:'0/1/1',PriceID:8,PriceVersion:version,ExpectedUSDPerLb:'2.00'}]),...(branching?[{Path:'0/1/2',DirectUSDPerLb:'4'}]:[])]}}:{},lossMasters:[{MasterID:1,MasterVersion:version,ProcessType:'Processing',ProcessName:'Sorting',Sequence:1,LossPct:'0'},{MasterID:2,MasterVersion:version,ProcessType:'Processing',ProcessName:'NPD Recipe',Sequence:2,LossPct:'0'},{MasterID:3,MasterVersion:version,ProcessType:'Processing',ProcessName:'Roasting',Sequence:3,LossPct:'0'}],grades:commercial&&id!==10?grades:[],prices:commercial?prices:[],gradeError:''}});
-   if(match[2]==='loss-formula'){const body=route.request().postDataJSON();return route.fulfill({json:{LossProductPct:'5',ProcessLossSnapshots:(body.Inputs.ProcessLosses??[]).map((r:any)=>({...r,LossPct:r.Ratios[0]??'0',WeightGrams:String(row.WeightGrams)}))}})}
+   if(match[2]==='tcb')return route.fulfill({json:{item:{ID:id,RowVersion:rv,DefaultPalletUSDPerEA:id===10?'12':null,HeaderStage:'Draft',ItemStage:row.ItemStage,IsMixParent:id===10,LossLayerCount:row.ResponseLayerCount,...(commercial&&id!==10?{ProductGradeSnapshot:JSON.stringify(snapshot),HasOpenPackagingRequest:id===12}:{})},saved:commercial?{Inputs:{RMRatio:'100',SeasoningRatio:'0',OilPct:'0',Prices:[...(direct?[{Path:'0/1/1',DirectUSDPerLb:'3.25'}]:[{Path:'0/1/1',PriceID:8,PriceVersion:version,ExpectedUSDPerLb:'2.00'}]),...(branching?[{Path:'0/1/2',DirectUSDPerLb:'4'}]:[])]}}:{},lossMasters:[{MasterID:1,MasterVersion:version,ProcessType:'Processing',ProcessName:'Sorting',Sequence:1,LossPct:'0'},{MasterID:2,MasterVersion:version,ProcessType:'Processing',ProcessName:'NPD Recipe',Sequence:2,LossPct:'0'},{MasterID:3,MasterVersion:version,ProcessType:'Processing',ProcessName:'Roasting',Shared:true,Sequence:3,LossPct:'0'}],grades:commercial&&id!==10?grades:[],prices:commercial?prices:[],gradeError:''}});
+   if(match[2]==='loss-formula'){const body=route.request().postDataJSON();return route.fulfill({json:{LossProductPct:'5',ProcessLossSnapshots:formulaRows(body.Inputs,String(row.WeightGrams))}})}
    const body=route.request().postDataJSON();writes.push({id,...body});
    if(reject&&id===12){reject=false;return route.fulfill({status:409,json:{detail:'Item changed. Refresh before saving.'}})}
    return route.fulfill({json:{RowVersion:'AAAAAAAAAAI='}});
@@ -217,7 +332,7 @@ test('TCB loss validation stays beside the ratio and summary focuses the correct
  await expect(ratio).toBeFocused();
  await ratio.fill('1');
  await expect(summary).toHaveCount(0);
- await dialog.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
+ await dialog.getByRole('button',{name:'Add process type 0/1/1 item 11',exact:true}).click();
  const product=dialog.getByLabel('Process loss 0/1/1 L1 item 11',{exact:true});
  await product.fill('3.123');
  await expect(product).toHaveAttribute('aria-invalid','true');
@@ -349,7 +464,7 @@ test('pricing is aligned inside the grades tree and Recipe Info never repeats ch
  await child.getByLabel('Process 0/1',{exact:true}).check();
  const process=child.getByRole('table',{name:'Recipe Info',exact:true});
  await expect(process.locator('[data-process-path]')).toHaveCount(1);
- await expect(process.getByRole('columnheader')).toHaveText(['Grade','Grade ratio','Line RM ($/lbs)','RM Ratio (%)','Seasoning/salt ($/lbs)','Seasoning/salt Ratio (%)','Oil ($/lbs)','Oil %','Processing ($/lbs)','Line product ($/lbs)']);
+ await expect(process.getByRole('columnheader')).toHaveText(['Grade','Grade ratio','Loss Process %','Line RM ($/lbs)','RM Ratio (%)','Seasoning/salt ($/lbs)','Seasoning/salt Ratio (%)','Oil ($/lbs)','Oil %','Processing ($/lbs)','Line product ($/lbs)']);
  await expect(process.getByRole('combobox')).toHaveCount(0);
  await expect(child.getByRole('combobox',{name:'Raw price item 11 grade 0/1/1',exact:true})).toHaveCount(1);
  for(const path of ['0/1/1','0/1/2']){
@@ -433,7 +548,7 @@ test('raw-only grades keep tree pricing and remain in hierarchical Recipe Info',
  const child=dialog.locator('#tcb-item-11');
  await child.getByLabel('Process 0/1/1',{exact:true}).uncheck();
  await child.getByLabel('Process 0/1/2',{exact:true}).uncheck();
- await expect(child.getByText('Tick Process on a grade to maintain its loss.',{exact:true})).toBeVisible();
+ await expect(child.locator('.process-loss-table')).toBeVisible();
  await expect(child.getByRole('table',{name:'Recipe Info',exact:true}).locator('[data-process-path]')).toHaveCount(1);
  await expect(child.getByLabel('Raw price item 11 grade 0/1/1',{exact:true})).toBeEnabled();
  await expect(child.getByLabel('Direct USD/lb item 11 grade 0/1/2',{exact:true})).toHaveValue('4');
@@ -458,7 +573,7 @@ test('multiple raw children share one parent processing panel and within-group r
  await expect(child.getByLabel('Ratio 0/1/2',{exact:true})).toHaveValue('70');
  await expect(first.getByLabel('Raw price item 11 grade 0/1/1',{exact:true})).toHaveValue('8:'+version+':2.00');
  await expect(second.getByLabel('Direct USD/lb item 11 grade 0/1/2',{exact:true})).toHaveValue('4');
- await expect(child.getByRole('table',{name:'Recipe Info',exact:true}).getByRole('columnheader')).toHaveCount(10);
+ await expect(child.getByRole('table',{name:'Recipe Info',exact:true}).getByRole('columnheader')).toHaveCount(11);
  await expect(child.getByRole('table',{name:'Recipe Info',exact:true}).getByLabel(/^Raw price item/)).toHaveCount(0);
  await expect(first.getByRole('button')).toHaveCount(0);
  await expect(second.getByRole('button')).toHaveCount(0);
@@ -469,7 +584,7 @@ test('multiple raw children share one parent processing panel and within-group r
  expect(writes).toHaveLength(0);
 });
 
-test('Process parent owns one recipe, hides children temporarily and drops dormant child settings only on save',async({page},info)=>{
+test('Level 1 recipe stays independent of which grade owns Process Loss',async({page},info)=>{
  const {dialog,writes}=await open(page,false,true);
  const child=dialog.locator('details').filter({hasText:'CHILD-A'});
  await child.getByRole('button',{name:'Toggle child grades 0/1 item 11',exact:true}).click();
@@ -478,8 +593,8 @@ test('Process parent owns one recipe, hides children temporarily and drops dorma
  const parentProcess=child.getByLabel('Process 0/1',{exact:true}),childProcess=child.getByLabel('Process 0/1/1',{exact:true});
  await expect(childProcess).toBeChecked();
  await parentProcess.check();
- await expect(childProcess).not.toBeChecked();
- await expect(childProcess).toBeDisabled();
+ await expect(childProcess).toBeChecked();
+ await expect(childProcess).toBeEnabled();
  await expect(dialog.getByRole('button',{name:'Load pricing for current grades',exact:true})).toHaveCount(0);
  await expect(dialog.getByLabel('Raw price item 11 grade 0/1/1',{exact:true})).toHaveValue('8:'+version+':2.00');
  await expect(dialog.getByRole('button',{name:'Cost details item 11 grade 0/1/1',exact:true})).toHaveCount(0);
@@ -489,7 +604,7 @@ test('Process parent owns one recipe, hides children temporarily and drops dorma
  await parentProcess.uncheck();
  await expect(childProcess).toBeChecked();
  await expect(childProcess).toBeEnabled();
- await expect(child.getByLabel('Processing ($/lbs)',{exact:true})).toHaveValue('.75');
+ await expect(child.getByLabel('Processing ($/lbs)',{exact:true})).toHaveValue('.5');
  await parentProcess.check();
  await expect(child.getByLabel('Processing ($/lbs)',{exact:true})).toHaveValue('.5');
  await child.locator('.commercial-price-table').screenshot({path:info.outputPath('process-parent.png')});
@@ -497,12 +612,12 @@ test('Process parent owns one recipe, hides children temporarily and drops dorma
  await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(dialog.getByText('Saved item settings for 1 item(s).',{exact:true})).toBeVisible();
  expect(writes).toHaveLength(1);
- expect(writes[0].Grades.items.map((g:any)=>g.Process)).toEqual([true,false]);
+ expect(writes[0].Grades.items.map((g:any)=>g.Process)).toEqual([true,true]);
  expect(writes[0].Prices).toEqual([{Path:'0/1/1',PriceID:8,PriceVersion:version,ExpectedUSDPerLb:'2.00'}]);
  expect(writes[0].CostInputs.MaterialCosts).toHaveLength(1);
  expect(writes[0].CostInputs.MaterialCosts[0]).toMatchObject({Path:'0/1',ProcessingUSDPerLb:'.5'});
  await parentProcess.uncheck();
- await expect(childProcess).not.toBeChecked();
+ await expect(childProcess).toBeChecked();
  await expect(dialog.getByRole('button',{name:'Cost details item 11 grade 0/1/1',exact:true})).toHaveCount(0);
 });
 
@@ -630,66 +745,43 @@ test('TCB Review launcher is parent-only in TCB Review and scopes standalone ite
  await expect(dialog.getByRole('tab')).toHaveCount(0);
 });
 
-test('Process Loss types are unique and its boxes align with the calculator in the table header',async({page},info)=>{
- await page.setViewportSize({width:1440,height:1000});
- const {dialog}=await open(page,false,true);
+test('process stage types are unique and percentage inputs remain readable',async({page},info)=>{
+ await page.setViewportSize({width:1440,height:1000});const {dialog}=await open(page,false,true);
  const section=dialog.getByRole('region',{name:'Process Loss item 11',exact:true});
- const add=section.getByRole('button',{name:'Add loss type item 11',exact:true});
- for(let i=1;i<=3;i++)await add.click();
- const first=section.getByLabel('Loss type item 11 code L1',{exact:true});
- const second=section.getByLabel('Loss type item 11 code L2',{exact:true});
- await expect(first).toHaveValue('1:'+version);
- await expect(second).toHaveValue('2:'+version);
- await expect(second.locator('option[value="1:'+version+'"]')).toBeDisabled();
- await expect(first.locator('option[value="2:'+version+'"]')).toBeDisabled();
+ const add=section.getByRole('button',{name:'Add process type 0/1/1 item 11',exact:true});
+ for(let i=0;i<3;i++)await add.click();
  await expect(add).toBeDisabled();
- const table=section.getByRole('table');
- await expect(table.getByRole('columnheader',{name:/Loss \(%\)/}).getByRole('button',{name:'Test all Process Loss item 11'})).toBeVisible();
- const boxes=await Promise.all([1,2,3].map(i=>section.getByLabel('Process loss 0/1/1 L'+i+' item 11',{exact:true}).boundingBox()));
- expect(boxes[0]!.width).toBeCloseTo(boxes[1]!.width,0);expect(boxes[1]!.width).toBeCloseTo(boxes[2]!.width,0);
- const formula=await section.getByLabel('Process loss formula 0/1/1 item 11',{exact:true}).boundingBox();
- expect(formula!.height).toBe(boxes[0]!.height);expect(formula!.width).toBeGreaterThan(boxes[0]!.width);
- await section.screenshot({path:info.outputPath('process-loss-header-layout.png')});
- await section.getByRole('button',{name:'Remove loss code L2 item 11',exact:true}).click();
- await expect(add).toBeEnabled();await add.click();
- await expect(section.getByLabel('Loss type item 11 code L3',{exact:true})).toHaveValue('2:'+version);
+ const first=section.getByLabel('Process type 0/1/1 L1 item 11',{exact:true});
+ await expect(first.locator('option[value="2"]')).toBeDisabled();
+ await expect(first.locator('option[value="3"]')).toBeDisabled();
+ await expect(section.locator('thead').getByRole('button',{name:'Test all Process Loss item 11',exact:true})).toBeVisible();
+ for(const i of [1,2,3]){const input=section.getByLabel('Process loss 0/1/1 L'+i+' item 11',{exact:true});await input.fill('0.12');await expect(input).toHaveValue('0.12');expect((await input.boundingBox())!.width).toBe(34)}
+ await section.screenshot({path:info.outputPath('process-stage-controls.png')});
 });
-
-test('loss types are shared while grade ratio columns renumber after removal',async({page})=>{
- const {dialog,writes}=await open(page,false,true);
- const section=dialog.getByRole('region',{name:'Process Loss item 11',exact:true});
- for(let i=1;i<=3;i++){
-  await section.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
-  await section.getByLabel('Process loss 0/1/1 L'+i+' item 11',{exact:true}).fill(String(4-i));
- }
- const table=section.getByRole('table');
- for(const code of ['L1 (%)','L2 (%)','L3 (%)'])await expect(table.getByRole('columnheader',{name:code,exact:true})).toBeVisible();
- await expect(section.locator('.process-loss-types input')).toHaveCount(0);
- const boxes=await Promise.all([1,2,3].map(i=>section.getByLabel('Process loss 0/1/1 L'+i+' item 11',{exact:true}).boundingBox()));
- expect(boxes[1]!.y).toBeCloseTo(boxes[0]!.y,0);expect(boxes[2]!.x).toBeGreaterThan(boxes[1]!.x);
- await section.getByRole('button',{name:'Remove loss code L2 item 11',exact:true}).click();
- await expect(table.getByRole('columnheader',{name:'L3 (%)',exact:true})).toHaveCount(0);
+test('row-local process types renumber only their own variables after removal',async({page})=>{
+ const {dialog,writes}=await open(page,false,true),section=dialog.getByRole('region',{name:'Process Loss item 11',exact:true});
+ for(let i=1;i<=3;i++){await section.getByRole('button',{name:'Add process type 0/1/1 item 11',exact:true}).click();await section.getByLabel('Process loss 0/1/1 L'+i+' item 11',{exact:true}).fill(String(4-i))}
+ await section.getByRole('button',{name:'Remove process type 0/1/1 L2 item 11',exact:true}).click();
  await expect(section.getByLabel('Process loss 0/1/1 L2 item 11',{exact:true})).toHaveValue('1');
- await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
- await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(writes[0].CostInputs.ProcessLosses[0].Ratios).toEqual(['3','1']);
- expect(writes[0].Inputs.LossProcesses.filter((s:any)=>s.ProcessType==='Processing').map((s:any)=>[s.Sequence,s.LossPct])).toEqual([[1,'0'],[2,'0']]);
+ await expect(section.getByLabel('Process loss 0/1/1 L3 item 11',{exact:true})).toHaveCount(0);
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
+ const row=writes[0].CostInputs.ProcessLosses.find((r:any)=>r.Path==='0/1/1');
+ expect(row.Ratios).toEqual(['3','1']);expect(row.Codes.map((c:any)=>c.MasterID)).toEqual([1,3]);
 });
-
 test('combined formula test invalidates stale results and never saves',async({page})=>{
  const {dialog,writes}=await open(page,false,true);
  const section=dialog.getByRole('region',{name:'Process Loss item 11',exact:true});
- await section.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
+ await section.getByRole('button',{name:'Add process type 0/1/1 item 11',exact:true}).click();
  const formula=section.getByLabel('Process loss formula 0/1/1 item 11',{exact:true});
  const ratio=section.getByLabel('Process loss 0/1/1 L1 item 11',{exact:true});
  const button=section.getByRole('button',{name:'Test all Process Loss item 11',exact:true});
  const result=section.getByLabel('Process Loss result 0/1/1 item 11',{exact:true});
- await page.route('**/api/opportunity/items/11/loss-formula',route=>{const body=route.request().postDataJSON();return route.fulfill({json:{LossProductPct:'0',ProcessLossSnapshots:body.Inputs.ProcessLosses.map((r:any)=>({...r,LossPct:r.Ratios[0],WeightGrams:'150'}))}})});
+ await page.route('**/api/opportunity/items/11/loss-formula',route=>{const body=route.request().postDataJSON();return route.fulfill({json:{LossProductPct:'0',ProcessLossSnapshots:formulaRows(body.Inputs)}})});
  await formula.fill('L1');await ratio.fill('5');await button.click();
  await expect(result).toHaveText('5%');expect(writes).toHaveLength(0);
  const boxes=await Promise.all([formula,button,result].map(el=>el.boundingBox()));
  expect(boxes[1]!.y).toBeLessThan(boxes[0]!.y);
- await expect(section.getByRole('columnheader',{name:/Loss \(%\)/}).getByRole('button',{name:'Test all Process Loss item 11'})).toBeVisible();
+ await expect(section.locator('thead').getByRole('button',{name:'Test all Process Loss item 11'})).toBeVisible();
  await ratio.fill('6');await expect(result).toHaveText('—');await button.click();await expect(result).toHaveText('6%');
  await formula.fill('L1+');await expect(result).toHaveText('—');
  await page.route('**/api/opportunity/items/11/loss-formula',route=>route.fulfill({status:422,json:{detail:'Invalid loss formula.'}}));
@@ -700,7 +792,8 @@ test('combined formula test invalidates stale results and never saves',async({pa
 test('one Process Loss calculator evaluates every active grade in one request',async({page})=>{
  const {dialog,writes}=await open(page,false,true,false,10,false,'Both','20DC',true);
  const section=dialog.getByRole('region',{name:'Process Loss item 11',exact:true});
- await section.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
+ await section.getByRole('button',{name:'Add process type 0/1/1 item 11',exact:true}).click();
+ await section.getByRole('button',{name:'Add process type 0/1/2 item 11',exact:true}).click();
  for(const [path,value] of [['0/1/1','5'],['0/1/2','9']]){
   await section.getByLabel('Process loss '+path+' L1 item 11',{exact:true}).fill(value);
   await section.getByLabel('Process loss formula '+path+' item 11',{exact:true}).fill('L1');
@@ -708,7 +801,7 @@ test('one Process Loss calculator evaluates every active grade in one request',a
  let calls=0;let paths:string[]=[];
  await page.route('**/api/opportunity/items/11/loss-formula',route=>{
   calls++;const body=route.request().postDataJSON();paths=body.Inputs.ProcessLosses.map((r:any)=>r.Path);
-  return route.fulfill({json:{LossProductPct:'0',ProcessLossSnapshots:body.Inputs.ProcessLosses.map((r:any)=>({...r,LossPct:r.Ratios[0],WeightGrams:'150'}))}});
+  return route.fulfill({json:{LossProductPct:'0',ProcessLossSnapshots:formulaRows(body.Inputs)}});
  });
  const button=section.getByRole('button',{name:'Test all Process Loss item 11',exact:true});
  await expect(section.getByRole('button',{name:/Test.*Process Loss/})).toHaveCount(1);
@@ -716,7 +809,7 @@ test('one Process Loss calculator evaluates every active grade in one request',a
  await button.click();
  await expect(section.getByLabel('Process Loss result 0/1/1 item 11',{exact:true})).toHaveText('5%');
  await expect(section.getByLabel('Process Loss result 0/1/2 item 11',{exact:true})).toHaveText('9%');
- expect(calls).toBe(1);expect(paths).toEqual(['0/1/1','0/1/2']);expect(writes).toHaveLength(0);
+ expect(calls).toBe(1);expect(paths).toEqual(['0/1/1','0/1/2','0']);expect(writes).toHaveLength(0);
 });
 
 test('Analysis help escapes scrolling table clipping and stays within the dialog',async({page})=>{
@@ -750,7 +843,7 @@ test('Analysis icon shows one child-only table, preserves edits and does not sav
  await expect(parent.getByLabel('Palletization ($/EA)',{exact:true})).toHaveValue('12');
  await child.getByRole('button',{name:'Toggle child grades 0/1 item 11',exact:true}).click();
  await child.getByLabel('Processing ($/lbs)',{exact:true}).fill('.5');
- await dialog.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
+ await dialog.getByRole('button',{name:'Add process type 0/1/1 item 11',exact:true}).click();
  await dialog.getByLabel('Process loss 0/1/1 L1 item 11',{exact:true}).fill('5');
  await dialog.getByLabel('Process loss formula 0/1/1 item 11',{exact:true}).fill('L1');
  const launcher=dialog.getByRole('button',{name:'Analysis',exact:true});
@@ -794,7 +887,7 @@ test('Analysis flags incomplete costs without writes and formula failures keep t
  await expect(fob.getByText('Incomplete',{exact:true})).toHaveCount(4);
  expect(writes).toHaveLength(0);
  await dialog.getByRole('button',{name:'Back to TCB inputs',exact:true}).click();
- await dialog.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
+ await dialog.getByRole('button',{name:'Add process type 0/1/1 item 11',exact:true}).click();
  await dialog.getByLabel('Process loss formula 0/1/1 item 11',{exact:true}).fill('L1+');
  await page.route('**/api/opportunity/items/11/loss-formula',route=>route.fulfill({status:422,json:{detail:'Invalid loss formula.'}}));
  await dialog.getByRole('button',{name:'Analysis',exact:true}).click();
@@ -818,7 +911,7 @@ test('Both combines loading costs in a single child Analysis table without separ
 
 test('Analysis uses Sales 40DC with a reference 20DC plan and divides Product cost by yield',async({page})=>{
  const {dialog,writes}=await open(page,false,true,false,10,true,'Pallet load','40DC');
- await dialog.getByRole('button',{name:'Add loss type item 11',exact:true}).click();
+ await dialog.getByRole('button',{name:'Add process type 0/1/1 item 11',exact:true}).click();
  await dialog.getByLabel('Process loss 0/1/1 L1 item 11',{exact:true}).fill('50');
  await dialog.getByRole('button',{name:'Analysis',exact:true}).click();
  const table=dialog.getByRole('table',{name:'Opportunity item analysis',exact:true});

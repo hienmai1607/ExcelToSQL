@@ -89,7 +89,8 @@ def split_shipment_edits(cursor, models, username):
         if current is None or current.OpportunityNumber != row.opportunity_number:
             raise ValueError("Shipment item belongs to another Opportunity or no longer exists. Refresh before saving.")
         if current.ParentItemID is not None:
-            raise ValueError("Shipment, Logistics, Co-Man and Others belong to the Mix parent.")
+            from shipment_ownership import validate_child_others
+            validate_child_others(row.ShipmentCostInfo.model_dump(mode="json") if row.ShipmentCostInfo else None)
         value = row.ShipmentCostInfo.model_dump(mode="json") if row.ShipmentCostInfo else None
         cursor.execute("EXEC dbo.usp_OpportunityItem_Fields_Save ?,?,?,?,0",
                        username, row.id, b64_to_bytes(row.row_version),

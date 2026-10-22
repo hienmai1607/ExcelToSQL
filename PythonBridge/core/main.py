@@ -60,6 +60,8 @@ from schemas import (
 )
 
 app = FastAPI(title="Opportunity/Product Bridge API")
+from inline_master_api import router as inline_master_router
+app.include_router(inline_master_router)
 from local_ai_api import router as local_ai_router
 import local_ai_chat  # Register private conversation routes before including the router.
 app.include_router(local_ai_router)
@@ -95,6 +97,8 @@ app.include_router(ports_router); app.include_router(category_router)
 app.include_router(tcb_router)
 app.include_router(tcb_versions_router)
 app.include_router(loss_process_router)
+from grade_loss_master_api import router as grade_loss_master_router
+app.include_router(grade_loss_master_router)
 _web_dist = Path(__file__).resolve().parents[1] / "webapp" / "dist"
 if _web_dist.is_dir():
     app.mount("/workbench", StaticFiles(directory=str(_web_dist), html=True), name="workbench")
@@ -321,7 +325,10 @@ def opportunity_batch(
             # Decimal objects let ODBC infer precision from the first TVP row.
             # Numeric text keeps later larger values and NULL sentinels exact;
             # the typed SQL TVP still performs DECIMAL conversion/validation.
-            str(r.annual_unit) if r.annual_unit is not None else None,
+            # Root quantities use the legacy INT TVP; SQL reads them back as
+            # DECIMAL(18,4). Preserve whole values without '.0000' or exponents.
+            # Fractional Mix child edits are handled before this TVP is sent.
+            format(r.annual_unit.to_integral_value(), 'f') if r.annual_unit is not None and r.annual_unit==r.annual_unit.to_integral_value() else str(r.annual_unit) if r.annual_unit is not None else None,
             str(safe_pct_awarded(r.est_pct_awarded)),
             str(safe_shelf_price(r.shelf_price)),
             "Draft",     # workflow stage is application-controlled; Excel is draft-only

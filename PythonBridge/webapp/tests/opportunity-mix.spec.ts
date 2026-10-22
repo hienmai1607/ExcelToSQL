@@ -125,9 +125,9 @@ test('Stage Summary formats request and review timestamps like Requested at',asy
  await page.getByRole('button',{name:'View details',exact:true}).click();
  await page.getByRole('button',{name:'Stage Summary',exact:true}).click();
  const root=page.getByRole('article',{name:'Stage for Item 1',exact:true});
- await expect(root).toContainText('06 Oct 2026, 10:15 AM');
- await expect(root).toContainText('06 Oct 2026, 11:15 AM');
- await expect(root).toContainText('06 Oct 2026, 12:15 PM');
+ await expect(root).toContainText('10/06/2026, 10:15 AM');
+ await expect(root).toContainText('10/06/2026, 11:15 AM');
+ await expect(root).toContainText('10/06/2026, 12:15 PM');
  await expect(root).not.toContainText('637466');
 });
 
@@ -202,7 +202,7 @@ test('mix parent slots offer only Secondary/Tertiary master orders and save cros
   {ID:15,PackagingOrders:['Primary','Secondary'],PackagingType:'PET jar',Shipping:false},
   {ID:16,PackagingOrder:'Secondary',PackagingType:'Child component',ParentTypeID:13,Shipping:false},
   {ID:17,PackagingOrder:'Tertiary',PackagingType:'Storage case',Shipping:false}
- ].map(t=>({Status:'Active',ParentTypeID:null,...t}));
+ ].map(t=>({Status:'Active',ParentTypeID:null,...t,PackagingOrders:[...(t.PackagingOrders??[t.PackagingOrder]),...(t.ID===11||t.ID===16?[]:['Primary Mix','Secondary Mix']),...(t.Shipping?['Tertiary Mix']:[])]}));
  await page.route('**/api/opportunity/lookups',route=>route.fulfill({json:{
   customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],
   products:[{ID:20,ProductCode:'PRD-MIX',ProductName:'Mixed nuts',CustomerID:1,IsMix:true}],
@@ -216,7 +216,7 @@ test('mix parent slots offer only Secondary/Tertiary master orders and save cros
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),root=form.getByRole('region',{name:'Item 1',exact:true});
  await root.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const component=form.getByRole('region',{name:'Item 1.1',exact:true});
- await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await component.getByText('Packaging requirements',{exact:true}).click();await component.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await component.getByText('Packaging requirements',{exact:true}).click();await component.getByText('Others Info',{exact:true}).click();
  for(const layer of ['Primary','Secondary'])await expect(root.getByLabel(layer+' Type',{exact:true}).locator('option')).toHaveText(['Choose '+layer.toLowerCase()+' type','Tray','Shipping case','Shipping carton','PET jar','Storage case']);
  await expect(root.getByLabel('Tertiary Type',{exact:true}).locator('option')).toHaveText(['Choose tertiary type','Shipping case','Shipping carton']);
  await expect(component.getByLabel('Primary Type',{exact:true}).locator('option')).toHaveText(['Choose primary type','Primary bag','PET jar']);
@@ -257,14 +257,14 @@ test('child final layer offers non-shipping types while the mix parent requires 
   mix_children:[],pallets:[],packagingTypes:[
    {ID:11,PackagingOrder:'Primary',PackagingType:'Pouch',ParentTypeID:null,Status:'Active',Shipping:false},
    {ID:12,PackagingOrder:'Secondary',PackagingType:'Jar',ParentTypeID:null,Status:'Active',Shipping:false},
-   {ID:13,PackagingOrder:'Secondary',PackagingType:'Carton',ParentTypeID:null,Status:'Active',Shipping:true}
+   {ID:13,PackagingOrder:'Secondary',PackagingOrders:['Secondary','Secondary Mix'],PackagingType:'Carton',ParentTypeID:null,Status:'Active',Shipping:true}
   ]}}));
  await page.getByRole('button',{name:'Edit Opportunity OPP-MIX',exact:true}).click();
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),root=form.getByRole('region',{name:'Item 1',exact:true});
  await root.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const component=form.getByRole('region',{name:'Item 1.1',exact:true});
  await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
- await component.getByText('Packaging requirements',{exact:true}).click();await component.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await component.getByText('Packaging requirements',{exact:true}).click();await component.getByText('Others Info',{exact:true}).click();
  await expect(root.getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','Carton']);
  await expect(component.getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','Jar','Carton']);
  await component.getByLabel('Secondary Type',{exact:true}).selectOption('12');
@@ -280,7 +280,7 @@ async function setup(page:Page,rows:unknown[]=[]){
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',scopes:['Opportunity'],is_admin:false,user_id:10}});
   if(path==='/api/workbench/preferences')return route.fulfill({json:{settings:{},version:0}});
   if(path==='/api/opportunity/grid')return route.fulfill({json:{rows,total:rows.length?1:0,page:1}});
-  if(path==='/api/opportunity/lookups')return route.fulfill({json:{packagingTypes:[{ID:11,PackagingOrder:'Primary',PackagingOrders:['Primary','Secondary'],PackagingType:'Pouch',ParentTypeID:null,Status:'Active'},{ID:12,PackagingOrder:'Primary',PackagingType:'Bag',ParentTypeID:null,Status:'Active'}],pallets:[{ID:1,PalletSize:"1.1x1.1M"},{ID:2,PalletSize:"1200x1000MM"}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:20,ProductCode:'PRD-MIX',ProductName:'Mixed nuts',CustomerID:1,ShelfLifeDays:365}],mix_children:[
+  if(path==='/api/opportunity/lookups')return route.fulfill({json:{packagingTypes:[{ID:11,PackagingOrder:'Primary',PackagingOrders:['Primary','Secondary','Primary Mix','Secondary Mix'],PackagingType:'Pouch',ParentTypeID:null,Status:'Active'},{ID:12,PackagingOrder:'Primary',PackagingOrders:['Primary','Primary Mix'],PackagingType:'Bag',ParentTypeID:null,Status:'Active'}],pallets:[{ID:1,PalletSize:"1.1x1.1M"},{ID:2,PalletSize:"1200x1000MM"}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:20,ProductCode:'PRD-MIX',ProductName:'Mixed nuts',CustomerID:1,ShelfLifeDays:365}],mix_children:[
    {ParentProductID:20,MixVersionID:7,ProductID:2,ProductCode:'PRD-ALM',ProductName:'Almonds',UnitQuantity:'1.2500',ShelfLifeDays:180},
    {ParentProductID:20,MixVersionID:7,ProductID:3,ProductCode:'PRD-CAS',ProductName:'Cashews',UnitQuantity:'0.1250',ShelfLifeDays:null}
   ]}});
@@ -299,9 +299,9 @@ test('new mix previews numbered children, calculates units and saves child packa
  const form=page.getByRole('dialog',{name:'New Opportunity',exact:true});
  await form.getByLabel('Customer *',{exact:true}).selectOption('1');
  await form.getByLabel('Description *',{exact:true}).fill('Mix launch');
- await form.getByLabel('Bid open *').fill('2026-09-01');await form.getByLabel('Bid close *').fill('2026-10-01');
+ await form.getByLabel('Bid open',{exact:true}).fill('2026-09-01');await form.getByLabel('Bid close',{exact:true}).fill('2026-10-01');
  await form.getByLabel('Exchange rate VND per USD *',{exact:true}).fill('25000');
- await form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true}).fill('1');
+ await expect(form.getByLabel('Exchange rate Customer Currency per USD *',{exact:true})).toHaveValue('1');
  const root=form.getByRole('region',{name:'Item 1',exact:true});
  await root.getByLabel('Product *').selectOption('20');
  await root.getByLabel('Annual units *').fill('10');
@@ -358,7 +358,7 @@ test('saved child remains editable while parent packaging is processing',async({
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true});
  await form.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const entry=form.getByRole('region',{name:'Item 1.1',exact:true});
- await entry.getByText('Packaging requirements',{exact:true}).click();await entry.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await entry.getByText('Packaging requirements',{exact:true}).click();await entry.getByText('Others Info',{exact:true}).click();
  await entry.getByLabel('Primary Type',{exact:true}).selectOption('12');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('OPP-MIX updated');
@@ -375,7 +375,7 @@ test('copy between mix parent and child respects parent-only logistics and Produ
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true});
  await form.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const root=form.getByRole('region',{name:'Item 1',exact:true}),entry=form.getByRole('region',{name:'Item 1.1',exact:true});
- await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await entry.getByText('Packaging requirements',{exact:true}).click();await entry.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
+ await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await entry.getByText('Packaging requirements',{exact:true}).click();await entry.getByText('Others Info',{exact:true}).click();
  await root.getByLabel('Container Type',{exact:true}).selectOption('20DC');
  await root.getByLabel('Loading request',{exact:true}).selectOption('Both');
  await root.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');
@@ -384,8 +384,8 @@ test('copy between mix parent and child respects parent-only logistics and Produ
  await entry.locator('.packaging-copy > button').click();await page.getByRole('dialog',{name:'Choose packaging source'}).getByLabel('Copy packaging from item').selectOption({label:'Item 1 - PRD-MIX - Mixed nuts'});
  await page.getByRole('dialog',{name:'Choose packaging source'}).getByRole('button',{name:'Copy packaging',exact:true}).click();
  await expect(entry.getByLabel('Primary Type',{exact:true})).toHaveValue('11');
- await expect(entry.getByLabel('Loading request',{exact:true})).toHaveAttribute('readonly','');
- await expect(entry.getByLabel('Container Type',{exact:true})).toHaveAttribute('readonly','');
+ await expect(entry.getByLabel('Loading request',{exact:true})).toHaveCount(0);
+ await expect(entry.getByLabel('Container Type',{exact:true})).toHaveCount(0);
  await expect(entry.getByLabel('Pallet size',{exact:true})).toHaveCount(0);
  await expect(entry.getByLabel('Shelf life (days)',{exact:true}).first()).toHaveValue('180');
  await expect(entry.getByLabel('Annual units',{exact:true})).toHaveValue('12.5');

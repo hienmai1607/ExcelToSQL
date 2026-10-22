@@ -6,14 +6,14 @@ PAGES = {
  "requests":"Packaging Requests","materials":"Packaging Material","prices":"Packaging Pricing",
  "packaging-types":"Packaging Types","packaging-dimensions":"Packaging Dimensions","pallets":"Pallet Master","containers":"Container Type Master",
  "raw-materials":"Raw Material","raw-prices":"Raw Pricing","raw-grades":"Raw Grade Master",
- "categories":"Category Master","loss-processes":"Loss Master","ports":"Ports of Entry",
+ "categories":"Category Master","loss-processes":"Process Types","loss-defaults":"Loss Process Master","ports":"Ports of Entry",
  "vendors":"Vendors","conversions":"Unit Conversions","uoms":"Units of Measure"}
 ADMIN_EDIT_ONLY = {"containers"}
 SCOPES = {"Admin","Customer","Product","Opportunity","Packaging","PackagingManager","RawMaterial"}
 DEFAULTS = {
  "Customer":{"customers":"edit","ports":"display"},
- "Product":{"products":"edit","categories":"display","loss-processes":"display"},
- "Opportunity":{"opportunities":"edit","requests":"display","ports":"display","loss-processes":"display"},
+ "Product":{"products":"edit","categories":"display","loss-processes":"display","loss-defaults":"display"},
+ "Opportunity":{"opportunities":"edit","requests":"display","ports":"display","loss-processes":"display","loss-defaults":"display"},
  "Packaging":{k:"edit" for k in ("grade-densities","requests","materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},
  "PackagingManager":{**{k:"display" for k in ("grade-densities","materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},"requests":"edit"},
  "RawMaterial":{k:"edit" for k in ("raw-materials","raw-prices","raw-grades","conversions")}}
@@ -31,7 +31,7 @@ def permission_scopes(permissions):
   if page=="opportunities":result.add("Opportunity")
   elif page in ("customers","ports"):result.add("Customer")
   elif page in ("products","categories"):result.add("Product")
-  elif page=="loss-processes":result.add("Opportunity")
+  elif page in ("loss-processes","loss-defaults"):result.add("Opportunity")
   elif page.startswith("raw-"):result.add("RawMaterial")
   else:result.add("Packaging" if level=="edit" else "PackagingManager")
   if page=="requests" and level=="edit":result.add("PackagingManager")
@@ -41,6 +41,9 @@ def can_edit(ctx,page):
  return ctx.is_admin or page not in ADMIN_EDIT_ONLY and (ctx.permissions is None or ctx.permissions.get(page)=="edit")
 
 def route_pages(path):
+ if path.startswith('/api/inline-masters/'):
+  parts=path.strip('/').split('/')
+  return (parts[2],) if len(parts)>2 and parts[2] in {'customers','products','categories','materials','raw-materials','raw-prices','raw-grades','vendors','packaging-types','packaging-dimensions','pallets','ports'} else ()
  parts=path.strip("/").split("/")
  if len(parts)<2:return ()
  # Lookup data needed by another permitted editor is not independent page access.
@@ -72,7 +75,7 @@ def route_pages(path):
  simple={"grade-densities":"grade-densities","customer":"customers","product":"products","opportunity":"opportunities","raw-material":"raw-materials",
  "raw-materials":"raw-materials","raw-prices":"raw-prices","raw-grades":"raw-grades","unit-conversions":"conversions",
  "pallets":"pallets","packaging-types":"packaging-types","packaging-dimensions":"packaging-dimensions",
- "categories":"categories","loss-processes":"loss-processes","ports":"ports"}
+ "categories":"categories","loss-defaults":"loss-defaults","loss-processes":"loss-processes","ports":"ports"}
  if resource in simple:return (simple[resource],)
  if resource=="raw" and len(parts)>2:return ({"material":"raw-materials","price":"raw-prices","grade":"raw-grades"}.get(parts[2],""),)
  if resource=="packaging":

@@ -35,10 +35,26 @@ test('unequal Mix quantities allocate shared costs equally without a parent colu
  b.row.WeightGrams='907.18474';
  const [scenario]=buildTCBAnalysis([root,a,b]),[first,second]=scenario.columns;
  expect(scenario.columns.map(c=>c.id)).toEqual([11,12]);
- for(const index of [2,3,5,6,7])expect(values(first)[index]).toBe(values(second)[index]);
+ for(const index of [2,3,7])expect(values(first)[index]).toBe(values(second)[index]);
  expect(values(first)[2]).toBe('0.06666667');expect(values(first)[3]).toBe('0.00333333');
- expect(values(first)[5]).toBe('0.06666667');expect(values(first)[7]).toBe('0.06666667');
+ expect(values(first)[5]).toBe('0.1');expect(values(second)[5]).toBe('0.2');expect(values(first)[7]).toBe('0.06666667');
 });
+test('child Others never inherit from parent and fixed costs use own awarded child units',()=>{
+ const root=draft(10,{mix:true,steps:[]}),a=draft(11),b=draft(12);
+ root.row.ProductMixSnapshot={items:[{ProductID:11,UnitQuantity:2},{ProductID:12,UnitQuantity:1}]};
+ root.row.ShipmentCostInfo={FobbingUSDPerContainer:'12000',PackingUSDPerLb:'999',InitialDesignUSD:'999999',OtherFixedCostsUSD:'999999'};
+ for(const child of [a,b]){child.row.ParentItemID=10;child.row.ShipmentCostInfo=root.row.ShipmentCostInfo}
+ a.row.OwnShipmentCostInfo={PackingUSDPerLb:'2',InitialDesignUSD:'100',OtherFixedCostsUSD:'200',InterestPct:'12',InterestDays:30,MarginMode:'USDPerLb',MarginUSDPerLb:'.5'};
+ b.row.OwnShipmentCostInfo=null;
+ const [first,second]=buildTCBAnalysis([root,a,b])[0].columns;
+ expect(values(first)[7]).toBe('4');expect(values(second)[7]).toBe('4');
+ expect(Number(values(first)[7])*2).toBe(8);
+ expect(values(first).slice(4,7)).toEqual(['2','0.1','0.2']);
+ expect(values(second).slice(4,7)).toEqual(['0','0','0']);
+ expect(values(first)[9]).toBe('0.5');expect(values(second)[9]).toBe('0');
+ expect(Number(values(first)[8])).toBeGreaterThan(0);expect(values(second)[8]).toBe('0');
+});
+
 test('Both has one child-only result with pallet plus floor cost',()=>{
  const drafts=pair();drafts[0].row.ConfigurationRequest='Both';
  drafts[0].row.ShipmentCostInfo={FloorLoadUSDPerMT:'100'};

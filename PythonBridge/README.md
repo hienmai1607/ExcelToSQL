@@ -6,7 +6,7 @@ Packaging PIC permissions: [migration 105 and deployment notes](docs/packaging-p
 
 Current user documentation: [User Guide](docs/user-guide.md)
 
-VM incremental upgrade from migration 116: [combined migrations 117-137 and VM move checklist](docs/vm-upgrade-117-to-137.md). Then apply [138 shipment customer currency](sql/138_shipment_customer_currency.sql) with matching API/frontend files; see [deployment notes](docs/opportunity-shipment-costs.md#shipment-customer-currency-update-138). AI remains temporarily disabled.
+Latest VM upgrade: [combined migrations 138-141 and VM move checklist](docs/vm-upgrade-138-to-141.md), for databases already through 137 (also rerunnable if 138 is applied). If the VM is only through 116, first use [combined migrations 117-137](docs/vm-upgrade-117-to-137.md). Deploy matching API/frontend files; see [shipment notes](docs/opportunity-shipment-costs.md#shipment-customer-currency-update-138), [TCB notes](docs/tcb-process-loss-and-recipe-info.md), and the [Opportunity audit report](docs/opportunity-replica-audit-2026-10-23.md). AI remains temporarily disabled.
 
 For databases already through migration 104: [combined migrations 105-116 and deployment notes](docs/vm-upgrade-105-to-116.md).
 

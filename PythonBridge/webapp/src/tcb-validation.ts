@@ -11,14 +11,19 @@ export function tcbInputIssues(d:Draft):TCBIssue[]{
   const codes=d.steps.filter(step=>step.ProcessType==='Processing'||step.ProcessType==='Sorting');
   if(new Set(codes.map(lossCodeIdentity)).size!==codes.length)issues.push({field:'Losses',message:'Select each Process Loss type only once. Remove or change duplicate loss codes.'});
  }
- const active=new Set(savedProcessTree(d.grades).filter(g=>g.Process).map(gradePath));
+ const active=new Set(['0',...savedProcessTree(d.grades).filter(g=>g.Process).map(gradePath)]);
  for(const row of (d.costingInputs.ProcessLosses??[]).filter(r=>active.has(r.Path))){
-  const count=d.steps.filter(s=>s.ProcessType==='Processing'||s.ProcessType==='Sorting').length;
+  const count=row.Codes?.length??d.steps.filter(s=>s.ProcessType==='Processing'||s.ProcessType==='Sorting').length;
+  if(row.Codes&&new Set(row.Codes.map(c=>c.MasterID??c.ProcessName)).size!==row.Codes.length)issues.push({field:'ProcessLoss:'+row.Path,message:'Choose each process type only once at this stage.'});
   if(row.Ratios.length!==count||row.Ratios.some(v=>!/^\d+(?:\.\d{1,2})?$/.test(v)||Number(v)<0||Number(v)>100))issues.push({field:'ProcessLoss:'+row.Path,message:'Enter one 0–100% ratio per loss code, with up to two decimals.'});
-  else if(!row.Formula?.trim()&&row.Ratios.some(v=>Number(v)===100))issues.push({field:'ProcessLoss:'+row.Path,message:'Process loss must leave a positive yield below 100% loss.'});
+  else if(d.costingInputs.ProcessLossMode!=='GradePath'&&!row.Formula?.trim()&&row.Ratios.some(v=>Number(v)===100))issues.push({field:'ProcessLoss:'+row.Path,message:'Process loss must leave a positive yield below 100% loss.'});
  }
  for(const price of d.selections)if(!price.PriceID&&'DirectUSDPerLb' in price&&(price.DirectUSDPerLb==null||!/^(?:\d{1,13}(?:\.\d{1,6})?|\.\d{1,6})$/.test(price.DirectUSDPerLb)))issues.push({field:'Price:'+price.Path,message:'Enter a non-negative direct USD/lb price (up to 6 decimals).'});
  if(!d.mix)for(const leaf of costGroups({...d.costingInputs,Prices:d.selections},d.quoteGrades,d.quotes).filter(g=>g.process)){
+  if(!d.costingInputs.MaterialCosts?.some(recipe=>recipe.Path===leaf.Path)){
+   const children=(d.costingInputs.MaterialCosts??[]).filter(recipe=>recipe.Path.startsWith(leaf.Path+'/'));
+   if(new Set(children.map(recipe=>JSON.stringify(productFields.map(([key])=>recipe[key]??d.costingInputs[key])))).size>1)issues.push({field:'Recipe:'+leaf.Path+':RMRatio',message:'Review this Level 1 recipe; saved child recipes differ.'});
+  }
   const i=materialRecipe(d.costingInputs,leaf.Path),prefix='Recipe:'+leaf.Path+':';
   for(const [key] of productFields){
    const value=i[key];

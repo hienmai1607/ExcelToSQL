@@ -196,6 +196,13 @@ test('editing a mix child density updates the parent total and persists after re
  await expect(editor.getByLabel('Relative mix carton efficiency %',{exact:true})).toHaveValue('75.00');
 });
 
+test('Mix missing composition never substitutes parent weight for efficiency',async({page})=>{
+ const {editor}=await setup(page,3,{IsMixParent:true,WeightGrams:750,NutDensity:'.5',UnitsPerCarton:12,UnitsPerTertiary:5,
+  ThirdPMType:'RSC',EfficiencyLayerCount:3,EfficiencyTypeName:'RSC',FinalLayerVolumeM3:'.002'});
+ await expect(editor.getByLabel('Mix Carton Efficiency (kg/m3)',{exact:true})).toHaveValue('');
+ await expect(editor.getByLabel('Relative mix carton efficiency %',{exact:true})).toHaveValue('');
+});
+
 test('mix missing child density keeps volume and relative blank, not a partial total',async({page})=>{
  const {editor}=await setup(page,1,{IsMixParent:true,WeightGrams:750,
   ProductMixSnapshot:JSON.stringify(efficiencyMix),MixResponseChildren:JSON.stringify(efficiencyChildren.slice(0,1)),

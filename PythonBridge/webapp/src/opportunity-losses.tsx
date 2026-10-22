@@ -20,10 +20,11 @@ import {TCBAnalysis} from './tcb-analysis';
 
 import './opportunity-losses.css';
 
-export type Draft={tcbVersion?:TCBVersion;row:Row;version:string;mix:boolean;readonly:boolean;layers:number;masters:LossStep[];steps:LossStep[];formula:string;grades:GradeItem[];baselineGrades:string;selections:TCBSelection[];baselinePrices:string;quoteGrades:TCBGrade[];quotes:Row[];costingInputs:TCBInputs;baselineCosts:string;pricingGradeKey:string;gradeLocked:boolean;baseline:string};
+export type Draft={tcbVersion?:TCBVersion;row:Row;version:string;mix:boolean;readonly:boolean;layers:number;masters:LossStep[];lossDefaults?:Row[];steps:LossStep[];formula:string;grades:GradeItem[];baselineGrades:string;selections:TCBSelection[];baselinePrices:string;quoteGrades:TCBGrade[];quotes:Row[];costingInputs:TCBInputs;baselineCosts:string;pricingGradeKey:string;gradeLocked:boolean;baseline:string};
 const signature=(d:Pick<Draft,'steps'|'formula'|'grades'|'selections'|'costingInputs'>)=>JSON.stringify({steps:d.steps,formula:d.formula,grades:d.grades,selections:d.selections,costs:activeCostInputs(d)});
 const label=(d:Draft)=>String(d.row.ItemNumber??d.row.ItemID)+' · '+d.row.ProductCode+' · '+d.row.ProductName;
-const payload=(d:Draft)=>({RowVersion:d.version,Inputs:{...(Array.isArray(d.costingInputs.ProcessLosses)?{ProcessLosses:activeCostInputs(d).ProcessLosses}:{}),ProductLossFormula:d.formula||null,LossProcesses:d.steps.map(s=>({...s,Sequence:Number(s.Sequence)}))}});
+const payload=(d:Draft)=>({RowVersion:d.version,Inputs:{...(Array.isArray(d.costingInputs.ProcessLosses)?{ProcessLosses:activeCostInputs(d).ProcessLosses,...(d.costingInputs.ProcessLossMode==='GradePath'?{ProcessLossMode:'GradePath',...(d.costingInputs.ProcessLossLayout==='Aligned'?{ProcessLossLayout:'Aligned'}:{}),ProcessLossFormulas:activeCostInputs(d).ProcessLossFormulas}:{})}:{}),ProductLossFormula:d.formula||null,LossProcesses:d.steps.map(s=>({...s,Sequence:Number(s.Sequence)}))}});
+const formulaPayload=(d:Draft)=>({...payload(d),...(JSON.stringify(d.grades)!==d.baselineGrades?{Grades:{items:savedProcessTree(d.grades)}}:{})});
 const commercialChanged=(d:Draft)=>JSON.stringify(d.grades)!==d.baselineGrades||JSON.stringify(d.selections)!==d.baselinePrices||JSON.stringify(activeCostInputs(d))!==d.baselineCosts;
 const commercialPayload=(d:Draft)=>({...payload(d),...(JSON.stringify(d.grades)!==d.baselineGrades?{Grades:{items:savedProcessTree(d.grades)}}:{}),Prices:d.selections,...(JSON.stringify(activeCostInputs(d))!==d.baselineCosts?{CostInputs:activeCostInputs(d)}:{})});
 export function TCBReview({rows,onClose,onSaved}:{rows:Row[];onClose:()=>void;onSaved:(id:number,version:string)=>void}){
@@ -58,7 +59,7 @@ export function TCBReview({rows,onClose,onSaved}:{rows:Row[];onClose:()=>void;on
    item.open=true;
    const group=[...item.querySelectorAll<HTMLElement>('[data-tcb-field]')].find(node=>node.dataset.tcbField===field)??item;
    let ancestor:HTMLElement|null=group;while(ancestor&&ancestor!==item){if(ancestor instanceof HTMLDetailsElement)ancestor.open=true;ancestor=ancestor.parentElement}
-   const control=group.matches('input,select')?group:group.querySelector<HTMLElement>('input:not(:disabled),select:not(:disabled),summary')??item.querySelector<HTMLElement>('summary');
+   const control=group.matches('input,select')?group:group.querySelector<HTMLElement>('[aria-invalid="true"]:not(:disabled)')??group.querySelector<HTMLElement>('input:not(:disabled),select:not(:disabled),summary')??item.querySelector<HTMLElement>('summary');
    control?.focus();group.scrollIntoView({block:'center',behavior:'smooth'});
   });
  }
@@ -74,10 +75,11 @@ export function TCBReview({rows,onClose,onSaved}:{rows:Row[];onClose:()=>void;on
   setFormulaResults(results=>{const next={...results};delete next[Number(d.row.ItemID)];return next});
   setDrafts(ds=>ds.map(x=>x.row.ItemID===d.row.ItemID?draftFromTCB(row,r.tcb,r.version):x));setReview(null);setMessage('');setError('');
  }
+ async function refreshGradeLookups(){setGradeLookups(await call<{rows:RawGradeOption[];materials:RawMaterialOption[]}>('/api/opportunity/grade-lookups'))}
  async function loadPrices(d:Draft){
   setBusy(true);setError('');
-  try{const result=await call<{grades:TCBGrade[];prices:Row[]}>(previewPath(d),previewPayload(d));setDrafts(ds=>ds.map(x=>x===d?{...x,quoteGrades:classifyProcessLeaves(x.grades,result.grades),quotes:result.prices,pricingGradeKey:JSON.stringify(x.grades)}:x))}
-  catch(e){setError((e as Error).message)}finally{setBusy(false)}
+  try{const result=await call<{grades:TCBGrade[];prices:Row[]}>(previewPath(d),previewPayload(d));setDrafts(ds=>ds.map(x=>x===d?{...x,quoteGrades:classifyProcessLeaves(x.grades,result.grades),quotes:result.prices,pricingGradeKey:JSON.stringify(x.grades)}:x));return true}
+  catch(e){setError((e as Error).message);return false}finally{setBusy(false)}
  }
  async function prepare(){
   if(busy||validation||!changed.length)return;setBusy(true);setError('');
@@ -97,11 +99,11 @@ export function TCBReview({rows,onClose,onSaved}:{rows:Row[];onClose:()=>void;on
  }
  async function showAnalysis(){
   if(busy||loading||review)return;setBusy(true);setError('');
-  try{const entries=await Promise.all(drafts.filter(d=>!d.mix&&d.formula).map(async d=>{const result=await call<{LossProductPct:string}>(d.tcbVersion?previewPath(d):'/api/opportunity/items/'+d.row.ItemID+'/loss-formula',d.tcbVersion?versionPayload(d):payload(d));return [Number(d.row.ItemID),result.LossProductPct] as const}));setFormulaResults(results=>({...results,...Object.fromEntries(entries)}));
+  try{const entries=await Promise.all(drafts.filter(d=>!d.mix&&d.formula).map(async d=>{const result=await call<{LossProductPct:string}>(d.tcbVersion?previewPath(d):'/api/opportunity/items/'+d.row.ItemID+'/loss-formula',d.tcbVersion?versionPayload(d):formulaPayload(d));return [Number(d.row.ItemID),result.LossProductPct] as const}));setFormulaResults(results=>({...results,...Object.fromEntries(entries)}));
    const context=await call<ComparisonReply>('/api/opportunity/items/'+drafts[0].row.ItemID+'/tcb-comparison');
    const evaluated=await Promise.all(drafts.map(async d=>{
-    if(!d.costingInputs.ProcessLosses?.some(r=>r.Formula?.trim()))return d;
-    const result=await call<{ProcessLossSnapshots?:GradeLossResult[];saved?:{ProcessLossSnapshots?:GradeLossResult[]}}>(d.tcbVersion?previewPath(d):'/api/opportunity/items/'+d.row.ItemID+'/loss-formula',d.tcbVersion?versionPayload(d):payload(d));
+    if(!d.costingInputs.ProcessLosses?.some(r=>r.Formula?.trim())&&!Object.values(d.costingInputs.ProcessLossFormulas??{}).some(v=>v.trim()))return d;
+    const result=await call<{ProcessLossSnapshots?:GradeLossResult[];saved?:{ProcessLossSnapshots?:GradeLossResult[]}}>(d.tcbVersion?previewPath(d):'/api/opportunity/items/'+d.row.ItemID+'/loss-formula',d.tcbVersion?versionPayload(d):formulaPayload(d));
     return {...d,costingInputs:{...d.costingInputs,ProcessLossResults:result.ProcessLossSnapshots??result.saved?.ProcessLossSnapshots??[],ProcessLossWeight:d.row.WeightGrams}};
    }));
    const others=context.entries?contextDrafts(context):[];
@@ -113,11 +115,11 @@ export function TCBReview({rows,onClose,onSaved}:{rows:Row[];onClose:()=>void;on
   if(busy||review)return;setBusy(true);setError('');
   const id=Number(d.row.ItemID);update(id,()=>d);
   try{
-   const selected=activeCostInputs(d).ProcessLosses??[],paths=new Set(selected.map(r=>r.Path));
-   const body=d.tcbVersion?{...versionPayload(d),CostInputs:{...activeCostInputs(d),ProcessLosses:selected}}:{...payload(d),Inputs:{...payload(d).Inputs,ProcessLosses:selected}};
+   const selected=activeCostInputs(d).ProcessLosses??[];
+   const body=d.tcbVersion?{...versionPayload(d),CostInputs:{...activeCostInputs(d),ProcessLosses:selected}}:{...formulaPayload(d),Inputs:{...payload(d).Inputs,ProcessLosses:selected}};
    const result=await call<{ProcessLossSnapshots?:GradeLossResult[];saved?:{ProcessLossSnapshots?:GradeLossResult[]}}>(d.tcbVersion?previewPath(d):'/api/opportunity/items/'+id+'/loss-formula',body);
    const values=result.ProcessLossSnapshots??result.saved?.ProcessLossSnapshots??[];
-   update(id,x=>({...x,costingInputs:{...x.costingInputs,ProcessLossResults:[...(x.costingInputs.ProcessLossResults??[]).filter(r=>!paths.has(r.Path)),...values],ProcessLossWeight:x.row.WeightGrams}}));
+   update(id,x=>({...x,costingInputs:{...x.costingInputs,ProcessLossResults:values,ProcessLossWeight:x.row.WeightGrams}}));
   }catch(e){setError((e as Error).message)}finally{setBusy(false)}
  }
  function renderProductLoss(d:Draft){
@@ -131,7 +133,7 @@ export function TCBReview({rows,onClose,onSaved}:{rows:Row[];onClose:()=>void;on
  {validationIssues.length>0&&<section className="tcb-validation-summary" role="region" aria-label="TCB validation summary"><h3>Check these fields before saving</h3><ul>{validationIssues.map((issue,index)=><li key={index}><button type="button" className="link" onClick={()=>focusIssue(issue.id,issue.field)}>{issue.name+': '+issue.message}</button></li>)}</ul></section>}
  {loading?<p role="status">Loading TCB Review…</p>:<>
  {analysis?<TCBAnalysis drafts={analysisDrafts.length?analysisDrafts:drafts} tested={formulaResults}/>:<>
- <OpportunityTCBTab drafts={drafts} lookups={gradeLookups} busy={busy} review={!!review} update={update} changeGrades={changeGrades} loadPrices={loadPrices} renderProductLoss={renderProductLoss} renderVersions={d=><TCBVersionControls d={d} dirty={signature(d)!==d.baseline} busy={busy||!!review} onWorking={setBusy} onMetadata={v=>setDrafts(ds=>ds.map(x=>x.row.ItemID===d.row.ItemID&&!x.tcbVersion?{...x,tcbVersion:v}:x))} onLoad={r=>loadVersion(d,r)} onActivated={token=>onSaved(Number(d.row.ItemID),token)}/>}/></>}
+ <OpportunityTCBTab refreshLookups={refreshGradeLookups} drafts={drafts} lookups={gradeLookups} busy={busy} review={!!review} update={update} changeGrades={changeGrades} loadPrices={loadPrices} renderProductLoss={renderProductLoss} renderVersions={d=><TCBVersionControls d={d} dirty={signature(d)!==d.baseline} busy={busy||!!review} onWorking={setBusy} onMetadata={v=>setDrafts(ds=>ds.map(x=>x.row.ItemID===d.row.ItemID&&!x.tcbVersion?{...x,tcbVersion:v}:x))} onLoad={r=>loadVersion(d,r)} onActivated={token=>onSaved(Number(d.row.ItemID),token)}/>}/></>}
  {review&&<section aria-label="Review Opportunity losses"><h3>Review changes</h3>{review.map(r=><p key={r.id}>{r.name+(r.loss?' · Product loss: '+r.loss+'%':' · Mix packaging losses')+(r.rm!==undefined?' · RM Cost: '+r.rm+(r.rm==='Unpriced'?'':' USD/lb'):'')}</p>)}<p>Changed items save individually. If a save fails, completed items remain saved and unsaved changes stay available to retry.</p></section>}
  <Notification value={message} onDismiss={()=>setMessage('')}/><Notification value={saveNotice?.value??''} severity={saveNotice?.severity} onDismiss={()=>setSaveNotice(null)}/>
  <div className="actions"><button disabled={busy} onClick={close}>Close</button>{review?<><button disabled={busy} onClick={()=>setReview(null)}>Back to editing</button><button className="primary" disabled={busy} onClick={save}>Confirm save</button></>:<button className="primary" disabled={busy||!!validation||!changed.length} onClick={prepare}>{busy?'Checking…':'Review & save'}</button>}</div>

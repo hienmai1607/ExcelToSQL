@@ -117,7 +117,7 @@ class API(unittest.TestCase):
  def test_palletization_always_copies_response_and_ignores_manual_override(self):
   for source,expected in ((Decimal("15.5"),Decimal("15.5")),(Decimal(0),Decimal(0)),(None,None)):
    item={**self.item,"DefaultPalletUSDPerEA":source,"TCBCostInfo":json.dumps({"Inputs":{"PalletUSDPerEA":"15"}})}
-   with patch.object(tcb_api,"item_read",return_value=item),patch.object(tcb_api,"active_loss_masters",return_value=[]):
+   with patch.object(tcb_api,"item_read",return_value=item),patch.object(tcb_api,"active_loss_masters",return_value=[]),patch.object(tcb_api,"active_loss_defaults",return_value=[]):
     result=tcb_api.read(1,self.ctx)
    self.assertEqual(result["saved"]["Inputs"]["PalletUSDPerEA"],str(expected) if expected is not None else None)
    inputs=Inputs(PalletUSDPerEA=999)

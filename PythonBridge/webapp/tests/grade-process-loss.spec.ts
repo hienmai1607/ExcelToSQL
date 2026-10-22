@@ -20,6 +20,7 @@ test('grade loss adjusts only raw cost, keeps Processing and rolls up every hier
  expect(quantityDisplay(rows[0].rm,8)).toBe('3.6');expect(quantityDisplay(rows[0].product,8)).toBe('3.18');
  expect(quantityDisplay(rows[1].rm,8)).toBe('4');expect(quantityDisplay(rows[2].rm,8)).toBe('2');
  expect(rows.map(row=>quantityDisplay(row.rmWithoutLoss,8))).toEqual(['3.24','3.6','1.8','2']);
+ expect(rows.map(row=>quantityDisplay(row.lossPct,8))).toEqual(['10','10','10','0']);
 });
 
 test('before-loss RM stays available when the loss is unknown and missing raw prices stay incomplete',()=>{
@@ -27,6 +28,8 @@ test('before-loss RM stays available when the loss is unknown and missing raw pr
  const rows=recipeRows(i,tree,grades,[]);
  expect(quantityDisplay(rows[0].rmWithoutLoss,8)).toBe('3.24');
  expect(rows[0].rm).toBeNull();
+ expect(rows[0].lossPct).toBeNull();expect(rows[1].lossPct).toBeNull();
+ expect(quantityDisplay(rows[3].lossPct,8)).toBe('0');
  expect(quantityDisplay(costs(i,grades,[]).rmWithoutLoss,8)).toBe('2.248');
  i.Prices=i.Prices.filter(price=>price.Path!=='0/1/2');
  const incomplete=recipeRows(i,tree,grades,[]);
@@ -46,7 +49,29 @@ test('custom Process Loss is unknown until tested and becomes stale after ratio,
  expect(processLossValue({...i,ProcessLosses:[{...i.ProcessLosses[0],Formula:'L1'}]},'0/1')).toBeNull();
 });
 
+test('parent loss matches the cost-implied change across differently priced child grades',()=>{
+ const items=tree.map(g=>({...g,Process:g.ParentID==='0/1'})),leaves=classifyProcessLeaves(items,grades),i=inputs();
+ i.ProcessLosses=[{Path:'0/1/1',Ratios:['10']},{Path:'0/1/2',Ratios:['20']}];
+ const rows=recipeRows(i,items,leaves,[]);
+ expect(quantityDisplay(rows[0].rmWithoutLoss,8)).toBe('3.24');expect(quantityDisplay(rows[0].rm,8)).toBe('3.65');
+ expect(quantityDisplay(rows[0].lossPct,8)).toBe('11.23287671');
+ expect(rows.slice(1).map(row=>quantityDisplay(row.lossPct,8))).toEqual(['10','20','0']);
+});
+
 test('100% loss remains unknown rather than producing Infinity or zero cost',()=>{
  const i=inputs();i.ProcessLosses=[{Path:'0/1',Ratios:['100']}];
  expect(costs(i,grades,[]).rm).toBeNull();expect(costs(i,grades,[]).product).toBeNull();
+});
+
+test('Recipe loss percentages use complete per-grade formulas without requiring a raw price',()=>{
+ const items=tree.map(g=>({...g,Process:g.ParentID==='0/1'})),leaves=classifyProcessLeaves(items,grades);
+ const i:TCBInputs={...defaultInputs(),ProcessLossMode:'GradePath',ProcessLossLayout:'Aligned',ProcessLosses:[{Path:'0/1/1',Ratios:['5']},{Path:'0/1/2',Ratios:['0']},{Path:'0',Ratios:['2']}],ProcessLossFormulas:{'0/1/1':'L1+L2','0/1/2':'L1+L2','0/2':'L2'},ProcessLossResults:[{Path:'0/1/1',Ratios:['5','2'],Formula:'L1+L2',LossPct:'7'},{Path:'0/1/2',Ratios:['0','2'],Formula:'L1+L2',LossPct:'2'},{Path:'0/2',Ratios:['0','2'],Formula:'L2',LossPct:'2'}]};
+ const rows=recipeRows(i,items,leaves,[]);
+ expect(rows[0].lossPct).toBeNull(); // Different child losses have no single calculated parent result.
+ expect(rows.slice(1).map(row=>quantityDisplay(row.lossPct,6))).toEqual(['7','2','2']);
+ expect(rows.every(row=>row.rm===null)).toBe(true);
+ const zero:TCBInputs={...i,ProcessLosses:i.ProcessLosses!.map(row=>({...row,Ratios:row.Ratios.map(()=>'0')})),ProcessLossResults:i.ProcessLossResults!.map(row=>({...row,Ratios:['0','0'],LossPct:'0'}))};
+ expect(recipeRows(zero,items,leaves,[]).map(row=>quantityDisplay(row.lossPct,6))).toEqual(['0','0','0','0']);
+ const stale={...i,ProcessLosses:i.ProcessLosses!.map(row=>row.Path==='0'?{...row,Ratios:['3']}:row)};
+ expect(recipeRows(stale,items,leaves,[]).every(row=>row.lossPct===null)).toBe(true);
 });

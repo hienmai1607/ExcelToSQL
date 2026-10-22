@@ -25,11 +25,12 @@ class LossMasterSave(BaseModel):
     ID: int | None = Field(None, ge=1)
     RowVersion: str | None = None
     Status: Literal["Active","Block"] = "Active"
+    Shared: bool = False
 
 def active_loss_masters(ctx):
     require(ctx,"Opportunity","Product")
     rows = execute(READ_AUTH + """SELECT ID MasterID,'Processing' ProcessType,ProcessType ProcessName,1 Sequence,CAST(0 AS DECIMAL(5,2)) LossPct,
-      CONVERT(VARCHAR(18),CONVERT(VARBINARY(8),RowVersion),1) MasterVersion
+      CONVERT(VARCHAR(18),CONVERT(VARBINARY(8),RowVersion),1) MasterVersion,Shared
       FROM dbo.LossProcessMaster WHERE Status='Active' ORDER BY ProcessType,ID;""",
       [ctx.username])[0]
     return [{**row,"LossPct":str(row["LossPct"])} for row in rows]
@@ -41,7 +42,7 @@ def read(page: int = Query(1,ge=1),page_size: int = Query(25,ge=1,le=500),
          ctx: AccessContext=Depends(get_access_context)):
     require(ctx,"Opportunity","Product")
     return listing("loss-processes",ctx,execute,READ_AUTH,"dbo.LossProcessMaster p",
-        "p.ID,p.ProcessType,p.Status,p.RowVersion,p.CreatedAt,p.UpdatedAt",
+        "p.ID,p.ProcessType,p.Shared,p.Status,p.RowVersion,p.CreatedAt,p.UpdatedAt",
         ["p.ProcessType"],search,status,page,page_size,sort)
 
 @router.post("/export")
@@ -52,6 +53,6 @@ def export(body: SharedExport,ctx: AccessContext=Depends(get_access_context)):
 @router.post("")
 def save(body: LossMasterSave,ctx: AccessContext=Depends(get_access_context)):
     require_page_edit(ctx,"loss-processes")
-    return {"rows":execute("EXEC dbo.usp_LossProcessMaster_Save ?,?,?,?,?,?,?",
+    return {"rows":execute("EXEC dbo.usp_LossProcessMaster_Save ?,?,?,?,?,?,?,?",
       [ctx.username,body.ID,rv(body.RowVersion,required=bool(body.ID)),body.ProcessType,
-       1,0,body.Status])[0]}
+       1,0,body.Status,body.Shared])[0]}

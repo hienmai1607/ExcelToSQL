@@ -25,19 +25,19 @@ class ProcessMath(unittest.TestCase):
   self.assertEqual(Decimal(result["RMCostUSDPerLb"]),Decimal("5.3"))
   self.assertEqual(Decimal(result["ProductUSDPerLb"]),Decimal("5.27"))
   self.assertEqual(len(result["PriceSnapshots"]),3)
-  self.assertEqual(len(result["MaterialCostSnapshots"]),1)
+  self.assertEqual(len(result["MaterialCostSnapshots"]),2)
   self.assertEqual(result["MaterialCostSnapshots"][0]["Path"],"0/1")
   self.assertEqual(Decimal(result["MaterialCostSnapshots"][0]["RMUSDPerLb"]),Decimal("3.5"))
- def test_unprocessed_nodes_never_apply_global_recipe(self):
+ def test_level_one_recipe_applies_independently_of_process_flags(self):
   items=tree()
   for g in items:g["Process"]=False
   result=calculate(Inputs(Prices=prices(),ProcessingUSDPerLb=20),leaves(items),{})
-  self.assertEqual(Decimal(result["ProductUSDPerLb"]),Decimal("5.3"))
-  self.assertEqual(result["MaterialCostSnapshots"],[])
- def test_nested_process_is_rejected(self):
+  self.assertEqual(Decimal(result["ProductUSDPerLb"]),Decimal("25.3"))
+  self.assertEqual(len(result["MaterialCostSnapshots"]),2)
+ def test_nested_process_is_retained(self):
   items=tree();items[1]["Process"]=True
-  with self.assertRaisesRegex(ValueError,"cannot also"):leaves(items)
-  with self.assertRaisesRegex(ValueError,"cannot also"):GradeTree(items=items)
+  self.assertEqual(json.loads(leaves(items)[0]["ProcessPaths"]),["0/1/1","0/1"])
+  self.assertTrue(GradeTree(items=items).items[1].Process)
  def test_only_applicable_recipe_is_saved_and_raw_prices_stay(self):
   inputs=Inputs(Prices=prices(),MaterialCosts=[dict(Path="0/1",ProcessingUSDPerLb=".2"),dict(Path="0/1/1",ProcessingUSDPerLb=99)])
   trim_process_recipes(inputs,tree(),leaves(tree()))
@@ -80,6 +80,12 @@ class ProcessVersion(unittest.TestCase):
  all=TCBVersions.all
  create=TCBVersions.create
  def test_grade_process_loss_saves_reopens_copies_and_activates_without_double_loss(self):
+  self.loss_version("Stages")
+ def test_complete_grade_formula_saves_reopens_copies_and_activates_once(self):
+  self.loss_version("GradePath")
+ def test_aligned_loss_columns_survive_version_save_copy_and_activation(self):
+  self.loss_version("GradePath","Aligned")
+ def loss_version(self,mode,layout="Local"):
   from unittest.mock import patch
   import tcb_api
   def grade(parent=None,final=True):
@@ -87,16 +93,18 @@ class ProcessVersion(unittest.TestCase):
   root=grade(final=False);a=grade(root);b=grade(root);raw=grade()
   items=tree()
   for node,master in zip(items,[root,a,b,raw]):node["RawGradeID"]=master
+  items[1]["Process"]=True
   self.cur.execute("UPDATE dbo.OpportunityItem SET ProductGradeSnapshot=? WHERE ID=?",json.dumps({"items":items}),self.item)
   master=self.cur.execute("INSERT dbo.LossProcessMaster(ProcessType,Sequence,LossPct,Status,CreatedBy) VALUES(?,1,0,'Active',?);SELECT CONVERT(INT,SCOPE_IDENTITY())","Recipe loss "+uuid4().hex[:12],self.actor).fetchval()
   token=self.cur.execute("SELECT CONVERT(VARCHAR(18),CONVERT(VARBINARY(8),RowVersion),1) FROM dbo.LossProcessMaster WHERE ID=?",master).fetchval()
-  definition=dict(MasterID=master,MasterVersion=token,ProcessType="Processing",ProcessName="Recipe loss",Sequence=1,LossPct="0")
+  definition=dict(MasterID=master,MasterVersion=token,ProcessType="Processing",ProcessName="Recipe loss",Sequence=1,LossPct="0",Shared=True)
   active=self.all()[0]
   body=versions.VersionSave(RowVersion=self.token(),VersionRowVersion=active["RowVersion"],Prices=prices(),Inputs={"LossProcesses":[definition]},
-   CostInputs={"ProcessLosses":[dict(Path="0/1",Ratios=[10],Formula="1-(1-L1)")],"MaterialCosts":[dict(Path="0/1",ProcessingUSDPerLb=".2")]})
+   CostInputs={"ProcessLossMode":mode,"ProcessLossLayout":layout,"ProcessLossFormulas":{"0/1/1":"L1+L2","0/1":"L2" if layout=="Aligned" else "L1","0/2":"0"} if mode=="GradePath" else {},"ProcessLosses":[dict(Path="0/1",Ratios=[10],Formula="1-(1-L1)"),dict(Path="0/1/1",Codes=[dict(MasterID=master,MasterVersion=token,ProcessName="Recipe loss",Shared=True)],Ratios=[10],Formula="L1")],"MaterialCosts":[dict(Path="0/1",ProcessingUSDPerLb=".2")]})
   master_lookup=patch.object(tcb_api,"active_loss_masters",return_value=[definition]);master_lookup.start();self.addCleanup(master_lookup.stop)
   result=versions.version_save(body,self.item,active["ID"],self.ctx)
-  expected=(Decimal("3.5")/Decimal(".9")+Decimal(".2"))*Decimal(".6")+Decimal("8")*Decimal(".4")
+  expected=((Decimal("2")/Decimal(".9")*Decimal(".25")+Decimal("4")*Decimal(".75"))/Decimal(".9")+Decimal(".2"))*Decimal(".6")+Decimal("8")*Decimal(".4")
+  if mode=="GradePath":expected=(Decimal("2")/Decimal(".8")*Decimal(".25")+Decimal("4")/Decimal(".9")*Decimal(".75")+Decimal(".2"))*Decimal(".6")+Decimal("8")*Decimal(".4")
   self.assertEqual(Decimal(result["saved"]["ProductUSDPerLb"]),expected)
   self.assertEqual(Decimal(result["saved"]["Inputs"]["LossProductPct"]),0)
   reopened=versions.version_read(self.item,active["ID"],self.ctx)
@@ -106,6 +114,10 @@ class ProcessVersion(unittest.TestCase):
   live=json.loads(self.cur.execute("SELECT TCBCostInfo FROM dbo.OpportunityItem WHERE ID=?",self.item).fetchval())
   self.assertEqual(Decimal(live["ProductUSDPerLb"]),expected)
   self.assertEqual(live["Inputs"]["ProcessLosses"][0]["Ratios"],["10"])
+  self.assertTrue(live["Inputs"]["LossProcesses"][0]["Shared"])
+  self.assertEqual(live["Inputs"]["ProcessLossMode"],mode)
+  self.assertEqual(live["Inputs"]["ProcessLossLayout"],layout)
+  if mode=="GradePath":self.assertEqual(live["Inputs"]["ProcessLossFormulas"]["0/1/1"],"L1+L2")
  def test_grouped_costs_save_reopen_copy_and_activate_with_only_parent_recipe(self):
   def grade(parent=None,final=True):
    return self.cur.execute("INSERT dbo.RawGrade(GradeName,Status,CreatedBy,ParentGradeID,FinalGrade) VALUES(?,'Active',?,?,?);SELECT CONVERT(INT,SCOPE_IDENTITY())","Process-"+uuid4().hex[:12],self.actor,parent,final).fetchval()
