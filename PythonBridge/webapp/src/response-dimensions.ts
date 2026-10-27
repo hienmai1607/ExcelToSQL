@@ -4,6 +4,15 @@ import {decimalDisplay} from './number-format';
 export type CapturedDimension={Name:string;Unit:string;Value:string};
 export type LayerDimensionCapture={PackagingTypeName:string;LayerCount:number;Dimensions:CapturedDimension[]};
 
+/** Diameter is a square shipping envelope, not an occupied-area formula. */
+export function shippingDimensionsMM(dimensions:CapturedDimension[]){
+ const measured:Record<string,number>={},factors:Record<string,number>={mm:1,cm:10,m:1000};
+ for(const d of dimensions){const name=d.Name.trim().toLowerCase(),factor=factors[d.Unit.trim().toLowerCase()],value=Number(d.Value);if(factor&&value>0&&Number.isFinite(value)&&measured[name]===undefined)measured[name]=value*factor;}
+ const diameter=measured.dia??measured.diameter;
+ if(!measured.length&&!measured.width&&diameter){measured.length=diameter;measured.width=diameter;}
+ return {length:measured.length||0,width:measured.width||0,height:measured.height||0};
+}
+
 export function savedLayerDimensions(captures:unknown,order:string,typeName:string,layers:number,preserveDraft=false):CapturedDimension[]{
  if(!captures||typeof captures!=='object')return [];
  const capture=(captures as Record<string,LayerDimensionCapture>)[order];

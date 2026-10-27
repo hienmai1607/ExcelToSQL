@@ -33,7 +33,7 @@ COLUMNS["raw-materials"]["Origin"]="Origin"
 COLUMNS["raw-materials"]["GradeName"]="Grade"
 COLUMNS["materials"]["PackagingType"]="Packaging Type"
 COLUMNS["materials"].pop("Description",None)
-COLUMNS["materials"].update(TareWeight="Tare weight",TareWeightBasis="Tare basis")
+COLUMNS["materials"].update(TareWeight="Tare weight",TareWeightBasis="Tare basis",MaxPayloadKG="Max gross payload (kg)")
 COLUMNS["raw-grades"]={"ParentGradeName":"Parent grade","GradeName":"Grade name","FinalGrade":"Final grade","Status":"Status",**AUDIT}
 FILTERS["raw-grades"]={"search","status","created_by"}
 MASTER_REQUIRED_COLUMNS["raw-grades"]=("GradeName","FinalGrade")
@@ -66,9 +66,9 @@ def check_layout(entity,layout):
  # Upgrade saved profiles and existing download layouts when fields are retired.
  if entity=="packaging-types":
   layout.columns=list(dict.fromkeys([*layout.columns,*TYPE_FLAGS]))
-  layout.columns=[c for c in layout.columns if c not in ("TareWeight","PriceBasis","CopyDim","PackagingOrder")]
-  layout.sort=[s for s in layout.sort if s.column not in ("TareWeight","PriceBasis","CopyDim","PackagingOrder")]
-  layout.column_widths={k:v for k,v in layout.column_widths.items() if k not in ("TareWeight","PriceBasis","CopyDim","PackagingOrder")}
+  layout.columns=[c for c in layout.columns if c not in ("TareWeight","PriceBasis","CopyDim","PackagingOrder","PrimaryMix","SecondaryMix","TertiaryMix")]
+  layout.sort=[s for s in layout.sort if s.column not in ("TareWeight","PriceBasis","CopyDim","PackagingOrder","PrimaryMix","SecondaryMix","TertiaryMix")]
+  layout.column_widths={k:v for k,v in layout.column_widths.items() if k not in ("TareWeight","PriceBasis","CopyDim","PackagingOrder","PrimaryMix","SecondaryMix","TertiaryMix")}
  if entity=="products":
   layout.columns=[c for c in layout.columns if c not in ("Grade","MixRatioPct")]
   layout.sort=[s for s in layout.sort if s.column not in ("Grade","MixRatioPct")]

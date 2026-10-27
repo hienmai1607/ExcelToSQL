@@ -115,7 +115,7 @@ class Audit:
    new=self.ok(dims.save(dims.DimensionSave(**values),self.ctx),table)
   elif table=='PackagingMaterial':
    dimension=self.clone('PackagingDimension',r.get('MaterialDimensionID'))
-   values={k:r.get(k) for k in ('Description','UnitOfMeasure','TareWeight','TareWeightBasis','MaterialD1','MaterialD2','MaterialD3')}
+   values={k:r.get(k) for k in ('Description','UnitOfMeasure','TareWeight','TareWeightBasis','MaterialD1','MaterialD2','MaterialD3','MaxPayloadKG')}
    values.update(MaterialName=self.tag+' '+r['MaterialName'],PackagingTypeID=self.clone('PackagingType',r['PackagingTypeID']),MaterialDimensionID=dimension,MaterialDimensionRowVersion=b64(self.one('PackagingDimension',dimension)['RowVersion']) if dimension else None,Status='Active')
    new=self.master(table,pkg.MaterialBatch,pkg.material_save,values,table)
   elif table in ('RawMaterialPrice','PackagingPrice'):
@@ -336,7 +336,7 @@ class Audit:
   dim_seed=self.one('PackagingDimension',1609047)
   dimension_map={};type_ids={}
   for order,shipping in [('Primary',False),('Secondary',True)]:
-   kind=self.master('type',types.PackagingTypeBatch,types.packaging_type_save,dict(PackagingType=self.tag+' Control '+order,PackagingOrders=[order,order+' Mix'],FinalComponent=True,CopyDim=True,Shipping=shipping,PriceBasis='Count',Status='Active'),'PackagingType')
+   kind=self.master('type',types.PackagingTypeBatch,types.packaging_type_save,dict(PackagingType=self.tag+' Control '+order,PackagingOrders=[order,'Tertiary','Quaternary'],FinalComponent=True,CopyDim=True,Shipping=shipping,PriceBasis='Count',Status='Active'),'PackagingType')
    definition=dict(PackagingTypeID=kind,D1='Length',D2='Width',D3='Height',D1UoMID=dim_seed['D1UoMID'],D2UoMID=dim_seed['D2UoMID'],D3UoMID=dim_seed['D3UoMID'],Status='Active')
    if shipping:definition.update(OccupiedM2Formula='D1*D2/1000000',OccupiedM3Formula='D1*D2*D3/1000000000')
    dimension_map[order]=self.ok(dims.save(dims.DimensionSave(**definition),self.ctx),'PackagingDimension');type_ids[order]=kind
@@ -358,7 +358,7 @@ class Audit:
    self.track('OpportunityItem',item['ID']);self.maps[('OpportunityItem',old['ID'])]=item['ID']
    self.close(item['AnnualUnit'],1000*q,'10094 child annual quantity '+str(i))
    info=dict(PackingUSDPerLb=str(Decimal('.2')+Decimal('.1')*i),InitialDesignUSD=str(100*(i+1)),OtherFixedCostsUSD=str(50*(i+1)),InterestPct='12',InterestDays=30,MarginMode='Percent',MarginPct='10')
-   body=OpportunityBatchRequest(header_rows=[],item_rows=[dict(RowNum=1,Command='U',ID=item['ID'],RowVersion=b64(item['RowVersion']),OpportunityNumber=number,ShipmentCostInfo=info,PackagingLayerCount=2,PrimaryTypeID=type_ids['Primary'],SecondaryTypeID=type_ids['Secondary'],NumberOfPrimary=10)])
+   body=OpportunityBatchRequest(header_rows=[],item_rows=[dict(RowNum=1,Command='U',ID=item['ID'],RowVersion=b64(item['RowVersion']),OpportunityNumber=number,ShipmentCostInfo=info,PackagingLayerCount=2,PrimaryTypeID=type_ids['Primary'],SecondaryTypeID=type_ids['Secondary'],NumberOfPrimary=1)])
    result=main.opportunity_batch(body,self.ctx.username,True,self.ctx.scopes)
    self.check(result['item_results'][0]['Status']=='OK','10094 child-only Others Info saved '+str(i))
   all_items=[parent_item,*[self.maps[('OpportunityItem',c['ID'])] for c in children]]
@@ -371,7 +371,7 @@ class Audit:
     body=dict(PackagingOrder=order,LayerCount=2,PackagingTypeID=type_ids[order],components=[dict(PriceID=p['ID'],PriceRowVersion=b64(p['RowVersion']),Quantity=1)])
     value=pricing.preview(response_id,pricing.Calculation(**body),self.pic_ctx)['calculation'];body['Fingerprint']=value['Fingerprint'];calculations.append(body)
    shipping=dict(CartonsPerLayer=1,ResponsePalletSize='1000x1200mm',ResponsePalletStacking='Single',ResponseMaxPalletHeightMM=1500,SelectedContainerType='20DC') if owner=='parent' else {}
-   self.response(response_id,ResponseLayerCount=2,FirstPMType=self.one('PackagingType',type_ids['Primary'])['PackagingType'],SecondPMType=self.one('PackagingType',type_ids['Secondary'])['PackagingType'],UnitsPerCarton=4 if owner=='parent' else 10,PricingCalculations=calculations,**shipping)
+   self.response(response_id,ResponseLayerCount=2,FirstPMType=self.one('PackagingType',type_ids['Primary'])['PackagingType'],SecondPMType=self.one('PackagingType',type_ids['Secondary'])['PackagingType'],UnitsPerCarton=4 if owner=='parent' else 1,PricingCalculations=calculations,**shipping)
   response_id=self.maps[('ResponseFor',parent_item)]
   price=self.one('PackagingPrice',self.clone('PackagingPrice',15987));material=self.one('PackagingMaterial',price['MaterialID'])
   snapshot=pallet.save(response_id,pallet.Selection(PalletSize='1000x1200mm',PalletMaterialID=material['ID'],ItemRowVersion=b64(self.one('PackagingConfigurationRequestItem',response_id)['RowVersion']),components=[dict(PriceID=price['ID'],RowVersion=b64(price['RowVersion']),MaterialRowVersion=b64(material['RowVersion']),Quantity=1,AreaM2='1.2')]),self.pic_ctx)
@@ -384,8 +384,8 @@ class Audit:
   self.geometry_oracle(plan['Result'],parsed(container['Specifications']))
   loaded=Decimal(plan['Result']['loaded_units']);cartons=Decimal(plan['Result']['cartons'])
   self.close(plan['Result']['net_kg'],Decimal('2381.34')*4*cartons/1000,'10094 independent container net weight')
-  # Six child units per Mix, each with .01 kg bag + .2/10 kg carton share.
-  gross_per_mix=Decimal('2.38134')+6*(Decimal('.01')+Decimal('.2')/10)+Decimal('.05')
+  # Six child units per Mix, each with .01 kg bag + .2 kg carton share.
+  gross_per_mix=Decimal('2.38134')+6*(Decimal('.01')+Decimal('.2'))+Decimal('.05')
   gross_per_carton=gross_per_mix*4+Decimal('.4')
   self.close(plan['Result']['gross_kg'],(gross_per_carton*2+15)*loaded,'10094 independent container gross weight including nested child packaging')
   self.approve(request)
@@ -426,7 +426,7 @@ class Audit:
   self.step('10094 compare all child TCB cells with independent Decimal oracle')
   for index,old in enumerate(children):
    row=next(r for r in rows if r['ItemID']==self.maps[('OpportunityItem',old['ID'])]);weight=Decimal(str(old['ProductNetWeightGrams']))/Decimal('453.59237');q=Decimal(quantities[index])
-   values=dict(TCBProductPerUnit=products[index]*weight,TCBSelfPackagingPerUnit=Decimal('.1')/Decimal('.99')+Decimal(1)/10/Decimal('.98'),TCBParentPackagingPerUnit=parent_pm,TCBPalletPerUnit=Decimal(15)/pallet_units,TCBPackingPerUnit=(Decimal('.2')+Decimal('.1')*index)*weight,TCBInitialDesignPerUnit=Decimal(100*(index+1))/(500*q),TCBFixedCostsPerUnit=Decimal(50*(index+1))/(500*q),TCBFobbingPerUnit=Decimal(1200)/container_units)
+   values=dict(TCBProductPerUnit=products[index]*weight,TCBSelfPackagingPerUnit=Decimal('.1')/Decimal('.99')+Decimal(1)/Decimal('.98'),TCBParentPackagingPerUnit=parent_pm,TCBPalletPerUnit=Decimal(15)/pallet_units,TCBPackingPerUnit=(Decimal('.2')+Decimal('.1')*index)*weight,TCBInitialDesignPerUnit=Decimal(100*(index+1))/(500*q),TCBFixedCostsPerUnit=Decimal(50*(index+1))/(500*q),TCBFobbingPerUnit=Decimal(1200)/container_units)
    values['TCBInterestPerUnit']=sum(values.values())*Decimal('.12')*30/360
    values['TCBMarginPerUnit']=sum(values.values())*Decimal('.1')
    fob=sum(values.values());values.update(TCBFOBPerUnit=fob,TCBFOBCustomerPerUnit=fob)

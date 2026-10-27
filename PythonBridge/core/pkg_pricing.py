@@ -20,8 +20,8 @@ class Component(PricingInput):
 
 
 class Calculation(PricingInput):
-    PackagingOrder: Literal["Primary", "Secondary", "Tertiary"]
-    LayerCount: int | None = Field(None,ge=1,le=3)
+    PackagingOrder: Literal["Primary", "Secondary", "Tertiary", "Quaternary"]
+    LayerCount: int | None = Field(None,ge=1,le=4)
     PackagingTypeID: int = Field(ge=1, le=2147483647)
     SquareMeterUoMID: int | None = Field(None, ge=1, le=2147483647)
     DimensionID: int | None = Field(None, ge=1, le=2147483647)

@@ -21,7 +21,8 @@ def copied_geometry(root,price,dimensions,units,conversion):
  for key in SLOTS:
   name=str(target.get(key+"Name") or "").strip().casefold()
   if not name:values[key]=None;continue
-  matches=[slot for slot in SLOTS if str(source.get(slot+"Name") or "").strip().casefold()==name]
+  # Same definition: slot identity is authoritative, including legacy duplicate labels.
+  matches=[key] if source["ID"]==target["ID"] else [slot for slot in SLOTS if str(source.get(slot+"Name") or "").strip().casefold()==name]
   if len(matches)!=1 or price.get("Material"+matches[0]) is None:
    raise HTTPException(422,"Copy Dim. needs one maintained material measurement matching "+str(target[key+"Name"])+".")
   slot=matches[0];value=Decimal(str(price["Material"+slot]))

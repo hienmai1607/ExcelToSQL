@@ -26,6 +26,7 @@ export function palletBaseHeight(values:Record<string,string>):number{
 }
 export function palletLayers(values:Record<string,string>):string{
  const planned=savedLoadPlan(values.LoadPlanJSON);if(planned)return String(planned.Result.pallet_layers);
+ if(values.LayersPerPallet&&/^[1-9]\d*$/.test(values.LayersPerPallet))return values.LayersPerPallet;
  const raw=values.HeightMM;
  if(!raw)return /^(0|[1-9]\d{0,9})$/.test(values.LayersPerPallet||'')&&BigInt(values.LayersPerPallet)<=2147483647n?values.LayersPerPallet:'';
  const height=weightValue(raw),maximum=values.ResponseMaxPalletHeightMM;
@@ -38,11 +39,14 @@ export function palletLayers(values:Record<string,string>):string{
 export function packingWeights(netWeight:unknown,values:Record<string,string>,configuration?:unknown){
  const layers=layerCount(values.ResponseLayerCount),primary=weightValue(values.ApplicableNetWeightGrams||netWeight);
  const secondary=layers>=2?multiply(primary,unitCount(values.UnitsPerCarton)):null;
- const tertiary=layers===3?multiply(secondary,unitCount(values.UnitsPerTertiary)):null;
- const last=[primary,secondary,tertiary][layers-1];
+ const tertiary=layers>=3?multiply(secondary,unitCount(values.UnitsPerTertiary)):null;
+ const quaternary=layers===4?multiply(tertiary,unitCount(values.UnitsPerQuaternary)):null;
+ const last=[primary,secondary,tertiary,quaternary][layers-1];
  const primaryUnits=layers===1?1n:unitCount(values.UnitsPerCarton),secondaryUnits=layers<3?1n:unitCount(values.UnitsPerTertiary);
+ const tertiaryUnits=layers<4?1n:unitCount(values.UnitsPerQuaternary);
+ const allUnits=primaryUnits!==null&&secondaryUnits!==null&&tertiaryUnits!==null?primaryUnits*secondaryUnits*tertiaryUnits:null;
  const cartonsPerLayer=unitCount(values.CartonsPerLayer),count=palletLayers(values),layersPerPallet=count!==''?BigInt(count):null;
- let unitsPerPallet=primaryUnits!==null&&secondaryUnits!==null&&cartonsPerLayer!==null&&layersPerPallet!==null?primaryUnits*secondaryUnits*cartonsPerLayer*layersPerPallet:null;
+ let unitsPerPallet=allUnits!==null&&cartonsPerLayer!==null&&layersPerPallet!==null?allUnits*cartonsPerLayer*layersPerPallet:null;
  let pallet=multiply(multiply(last,cartonsPerLayer),layersPerPallet);
  const load=loadSections(configuration);
  const cartons=unitCount(values.CartonsPerLayer),containerCount=containerLayers(values);
@@ -50,10 +54,10 @@ export function packingWeights(netWeight:unknown,values:Record<string,string>,co
  const pallets=values.SelectedContainerType&&values.PalletsPerContainer==='0'?0n:unitCount(values.PalletsPerContainer);
  let containerCartons=load.pallet&&pallets!==null&&cartons!==null&&layersPerPallet!==null?pallets*cartons*layersPerPallet*(values.ResponsePalletStacking==='Double'?2n:1n):load.floor?unitCount(values.CartonsPerContainer):null;
  const planned=savedLoadPlan(values.LoadPlanJSON);
- if(planned){containerCartons=BigInt(planned.Result.cartons);pallet=multiply(last,BigInt(planned.Result.cartons_per_pallet));unitsPerPallet=primaryUnits!==null&&secondaryUnits!==null?primaryUnits*secondaryUnits*BigInt(planned.Result.cartons_per_pallet):null}
+ if(planned){containerCartons=BigInt(planned.Result.cartons);pallet=multiply(last,BigInt(planned.Result.cartons_per_pallet));unitsPerPallet=allUnits!==null?allUnits*BigInt(planned.Result.cartons_per_pallet):null}
  const container=multiply(last,containerCartons);
  const floor=load.floor?multiply(last,unitCount(values.CartonsPerContainer)):null;
- return {primary:display(primary),secondary:display(secondary),tertiary:display(tertiary),layersPerPallet:count,layersPerContainer:containerCount,unitsPerPallet:unitsPerPallet?.toLocaleString('en-US')||'',
+ return {primary:display(primary),secondary:display(secondary),tertiary:display(tertiary),quaternary:display(quaternary),layersPerPallet:count,layersPerContainer:containerCount,unitsPerPallet:unitsPerPallet?.toLocaleString('en-US')||'',
   palletKG:display(pallet?{...pallet,scale:pallet.scale+3}:null),
   containerCartons:containerCartons?.toLocaleString('en-US')??'',
   containerKG:display(container?{...container,scale:container.scale+3}:null),

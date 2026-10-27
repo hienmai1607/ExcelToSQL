@@ -71,6 +71,25 @@ test('normal packaging tree shows layers, dimensions, price flow and one unified
  await expect(page.getByRole('table',{name:'Opportunity items',exact:true})).toBeVisible();expect(writes).toEqual([]);
 });
 
+test('captured VND pallet cost uses Opportunity USD exchange rate without requiring load quantities',async({page})=>{
+ const {open,writes}=await setup(page,{...normal,CartonsPerLayer:null,LayersPerPallet:null,PalletPricingJSON:JSON.stringify({ID:77,UnitPrice:'400000',CurrencyCode:'VND',UnitUSDPrice:null})});
+ const dialog=await open();
+ const pallet=dialog.getByRole('table',{name:'Palletization details',exact:true});
+ await expect(pallet.getByRole('row').filter({hasText:/^Pallet cost/})).toContainText('400,000.00 VND (16.00 USD)');
+ expect(writes).toEqual([]);
+});
+test('each container shows separate Fobbing and Freight fees with USD equivalents even before loading is configured',async({page},info)=>{
+ const {open,writes}=await setup(page,{...normal,ConfigurationRequest:'Floor load',ContainerRequest:'Dry'},[],false,
+  {CustomerCurrencyCode:'EUR',ExchangeRateCustomerCurrencyPerUSD:'.8',ShipmentCostInfo:JSON.stringify({FobbingUSDPerContainer:'35',FreightUSDPerContainer:'1200'})});
+ const dialog=await open(),container=dialog.getByRole('article',{name:'Container Load 40DC',exact:true});
+ await expect(container).toContainText('Not configured');
+ await expect(container.getByRole('row').filter({hasText:/^Fobbing fee \/ Container/})).toContainText('28.00 EUR (35.00 USD)');
+ await expect(container.getByRole('row').filter({hasText:/^Freight \/ Container/})).toContainText('960.00 EUR (1,200.00 USD)');
+ await container.scrollIntoViewIfNeeded();
+ expect(await container.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+ await container.screenshot({path:info.outputPath('container-commercial-costs.png')});
+ expect(writes).toEqual([]);
+});
 test('summary displays gross below net for every parent and child layer without writes',async({page})=>{
  const {open,writes}=await setup(page,{...mix,PrimaryGrossWeightKG:'5.78885',SecondaryGrossWeightKG:'10.88885'},[
   {...children[0],PrimaryGrossWeightKG:'0.160123456',SecondaryGrossWeightKG:'0.580370368'},
@@ -111,6 +130,13 @@ for(const family of ['Dry','Reefer'])test('container tree respects '+family+' fa
  await expect(dialog.getByRole('region',{name:'Container Load branch',exact:true})).toBeVisible();
  await expect(dialog.getByRole('region',{name:'Palletization branch',exact:true})).toBeVisible();
  await expect(dialog.locator('.summary-container h4')).toHaveText(family==='Dry'?['20DC','40DC','40HC']:['20RC','40RHC']);
+});
+
+test('Opportunity summary shares only checked alternatives even outside the requested type',async({page})=>{
+ const {open}=await setup(page,{...normal,ContainerRequest:'40DC',ResponseContainerFamily:'40DC',ShipmentContainerSizeFT:'40FT',ConfigurationRequest:'Floor load',ContainerLoadProfiles:JSON.stringify({'40DC':{CartonsPerContainerFloor:100,Proposal:true},'20RC':{CartonsPerContainerFloor:80,Proposal:true},'40HC':{CartonsPerContainerFloor:120,Proposal:false}})});
+ const dialog=await open();
+ await expect(dialog.locator('.summary-container h4')).toHaveText(['40DC','20RC']);
+ await expect(dialog.getByRole('region',{name:'Container Load branch',exact:true})).toBeVisible();
 });
 
 test('hidden responses and denied access show incomplete data, never a fabricated zero cost',async({page})=>{
@@ -177,7 +203,7 @@ test('USD customer prices appear once without a duplicate USD equivalent',async(
 });
 
 test('packaging summary remains usable on narrow screens',async({page})=>{
- const {open}=await setup(page,mix,children);await page.setViewportSize({width:390,height:844});const dialog=await open();
+ const {open}=await setup(page,{...mix,PalletPricingJSON:{UnitPrice:'400000',CurrencyCode:'VND'}},children,false,{ShipmentCostInfo:{FobbingUSDPerContainer:'35',FreightUSDPerContainer:'1200'}});await page.setViewportSize({width:390,height:844});const dialog=await open();
  await expect(dialog.getByRole('region',{name:'Smallest unit packaging costs'})).toContainText('92.00 VND');
  expect(await dialog.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
  await expect(dialog.getByRole('button',{name:'Close Packaging Summary'})).toBeInViewport();

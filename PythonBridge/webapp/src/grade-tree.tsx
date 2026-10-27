@@ -30,7 +30,7 @@ export function GradeTree({rawGrades=[],rawMaterials=[],items,busy,readonly,disa
   return <ul className="grade-tree-branches" aria-label={'Children of '+parent}>{(children.get(parent)||[]).map(item=>{
    const id=parent+'/'+item.ID,hasChildren=children.has(id),finalGrade=rawGrades.some(g=>g.ID===item.RawGradeID&&g.FinalGrade===true);
    const parentGrade=items.find(p=>p.ParentID+'/'+p.ID===parent)?.RawGradeID;
-   const options=parent==='0'?rawGrades:rawGrades.filter(g=>!!parentGrade&&g.ParentGradeID===parentGrade);
+   const options=parent==='0'?rawGrades.filter(g=>g.ParentGradeID==null):rawGrades.filter(g=>!!parentGrade&&g.ParentGradeID===parentGrade);
 
    return <li key={id}><div className="grade-tree-node" data-grade-path={id} style={{minHeight:aligned.rows[id]?.minHeight}}>
     <div className="grade-tree-node-heading"><small>{id}</small><label className="grade-process-toggle"><input type="checkbox" aria-label={'Process '+id} checked={!!processItems.find(g=>g.ParentID+'/'+g.ID===id)?.Process} disabled={readonly||disabled} onChange={e=>onChange(item,{Process:e.target.checked})}/>Process</label>{hasChildren&&<span className="grade-tree-node-summary">{total(id)}<small>{children.get(id)!.length} child{children.get(id)!.length===1?'':'ren'}</small></span>}{!readonly&&<div className="grade-tree-actions">

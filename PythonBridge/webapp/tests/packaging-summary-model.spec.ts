@@ -1,5 +1,44 @@
 import {test,expect} from '@playwright/test';
-import {productSummary,buildPackagingSummary,costDisplay,sumCosts,scaleCost,quantity,quantityDisplay,loadPackagingSummary,opportunityCurrency,type SummaryRow} from '../src/packaging-summary-model';
+import {productSummary,buildPackagingSummary,costDisplay,sumCosts,scaleCost,quantity,quantityDisplay,loadPackagingSummary,opportunityCurrency,palletCost,containerFee,type SummaryRow} from '../src/packaging-summary-model';
+
+test('saved pallet pricing supports local-only snapshots, captured USD and explicit zero',()=>{
+ const usd=opportunityCurrency({CustomerCurrencyCode:'USD',ExchangeRateVNDPerUSD:'25000'});
+ const local={PalletPricingJSON:JSON.stringify({UnitPrice:'400000',CurrencyCode:'VND',UnitUSDPrice:null})};
+ expect(costDisplay(palletCost(local,usd),usd)).toBe('16.00 USD');
+ expect(costDisplay(palletCost({PalletPricingJSON:{UnitPrice:'400000',CurrencyCode:'VND',UnitUSDPrice:'12'}},usd),usd)).toBe('12.00 USD');
+ expect(costDisplay(palletCost({PalletPricingJSON:{UnitPrice:'400000',CurrencyCode:'VND',UnitUSDPrice:'0'}},usd),usd)).toBe('0.00 USD');
+ const eur=opportunityCurrency({CustomerCurrencyCode:'EUR',ExchangeRateVNDPerUSD:'25000',ExchangeRateCustomerCurrencyPerUSD:'.8'});
+ expect(costDisplay(palletCost(local,eur),eur)).toBe('12.80 EUR (16.00 USD)');
+ const aud=opportunityCurrency({CustomerCurrencyCode:'AUD',ExchangeRateVNDPerUSD:'25000',ExchangeRateCustomerCurrencyPerUSD:'1.595'});
+ expect(costDisplay(palletCost(local,aud),aud)).toBe('25.52 AUD (16.00 USD)');
+});
+
+test('pallet currency conversion never invents a price or exchange rate',()=>{
+ const usd=opportunityCurrency({CustomerCurrencyCode:'USD'});
+ for(const raw of [null,'broken',{},[],{UnitPrice:'400000',CurrencyCode:'VND'},{UnitPrice:'10',CurrencyCode:'EUR'}]){
+  expect(palletCost({PalletPricingJSON:raw},usd).complete).toBe(false);
+ }
+ for(const rate of [null,'0','-1','NaN']){
+  expect(palletCost({PalletPricingJSON:{UnitPrice:'400000',CurrencyCode:'VND'}},{...usd,vndPerUSD:rate}).complete).toBe(false);
+ }
+ expect(costDisplay(palletCost({PalletPricingJSON:{UnitPrice:'0',CurrencyCode:'USD'}},usd),usd)).toBe('0.00 USD');
+ const vnd=opportunityCurrency({CustomerCurrencyCode:'VND'});
+ expect(costDisplay(palletCost({PalletPricingJSON:{UnitPrice:'400000',CurrencyCode:'VND'}},vnd),vnd)).toBe('400,000.00 VND (USD unavailable)');
+});
+
+test('container fees read parent Opportunity shipment values, preserve zero and stay out of packaging totals',()=>{
+ const exchange=opportunityCurrency({CustomerCurrencyCode:'EUR',ExchangeRateCustomerCurrencyPerUSD:'.8'});
+ const row={ShipmentCostInfo:JSON.stringify({FobbingUSDPerContainer:'35',FreightUSDPerContainer:'1200'})};
+ expect(costDisplay(containerFee(row,'FobbingUSDPerContainer',exchange),exchange)).toBe('28.00 EUR (35.00 USD)');
+ expect(costDisplay(containerFee(row,'FreightUSDPerContainer',exchange),exchange)).toBe('960.00 EUR (1,200.00 USD)');
+ expect(costDisplay(containerFee({ShipmentCostInfo:{FreightUSDPerContainer:'0'}},'FreightUSDPerContainer',exchange),exchange)).toBe('0.00 EUR (0.00 USD)');
+ expect(containerFee({},'FreightUSDPerContainer',exchange).complete).toBe(false);
+ expect(containerFee(row,'FreightUSDPerContainer',{...exchange,customerPerUSD:null}).complete).toBe(false);
+ expect(containerFee({FreightUSDPerContainer:'99',ShipmentCostInfo:{FreightUSDPerContainer:null}},'FreightUSDPerContainer',exchange).complete).toBe(false);
+ const usd=opportunityCurrency({CustomerCurrencyCode:'USD'});
+ expect(costDisplay(containerFee({FreightUSDPerContainer:'100'},'FreightUSDPerContainer',usd),usd)).toBe('100.00 USD');
+ expect(productSummary({...root,...row}).total).toEqual(productSummary(root).total);
+});
 
 const root:SummaryRow={ItemID:101,RequestID:9,OpportunityItemID:10,ProductID:20,ProductCode:'PRD-ROOT',
  ResponseLayerCount:3,FirstPMType:'Bag',SecondPMType:'Box',ThirdPMType:'Carton',

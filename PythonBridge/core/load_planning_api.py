@@ -82,7 +82,7 @@ def pallet_prices(ctx:AccessContext=Depends(get_access_context)):
 
 def pallet_prices_from_cursor(cur):
     rows=select(cur,"""SELECT p.ID,p.MaterialID,p.RowVersion,m.MaterialCode,m.MaterialName,
-        p.QuantityFrom,p.QuantityTo,p.UnitUSDPrice,p.PriceBasis,m.UnitOfMeasure,m.TareWeight,m.TareWeightBasis,m.RowVersion MaterialRowVersion,
+        p.QuantityFrom,p.QuantityTo,p.UnitUSDPrice,p.PriceBasis,m.UnitOfMeasure,m.TareWeight,m.TareWeightBasis,m.MaxPayloadKG,m.RowVersion MaterialRowVersion,
         m.MaterialDimensionRowVersion,d.RowVersion DimensionRowVersion,
         m.MaterialD1,m.MaterialD2,m.MaterialD3,d.D1Name,d.D2Name,d.D3Name,
         u1.UoMCode D1Unit,u2.UoMCode D2Unit,u3.UoMCode D3Unit,
@@ -111,7 +111,7 @@ def pallet_prices_from_cursor(cur):
             if name in ("length","width","height") and row["Material"+key] and row[key+"Factor"]:
                 values[name]=str(Decimal(str(row["Material"+key]))*Decimal(str(row[key+"Factor"])))
         if len(values)==3 and row["MaterialDimensionRowVersion"]==row["DimensionRowVersion"]:
-            result.append({**{k:row[k] for k in ("ID","RowVersion","MaterialID","MaterialCode","MaterialName","VendorName","QuantityFrom","QuantityTo","UnitUSDPrice","PriceBasis","UnitOfMeasure","TareWeight","TareWeightBasis","MaterialRowVersion")},"Dimensions":values})
+            result.append({**{k:row[k] for k in ("ID","RowVersion","MaterialID","MaterialCode","MaterialName","VendorName","QuantityFrom","QuantityTo","UnitUSDPrice","PriceBasis","UnitOfMeasure","TareWeight","TareWeightBasis","MaterialRowVersion","MaxPayloadKG")},"Dimensions":values})
     for row in result:
         row["RowVersion"]=encode(row["RowVersion"])
         row["MaterialRowVersion"]=encode(row["MaterialRowVersion"])
@@ -134,24 +134,25 @@ def response_dimensions(cur,item_id):
     from packaging_efficiency import captured_layer_dimensions
     row=select(cur,"SELECT * FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",item_id)[0][0]
     snapshots={p['PackagingOrder']:p['SnapshotJSON'] for p in select(cur,"SELECT PackagingOrder,SnapshotJSON FROM dbo.PkgPricingMaster WHERE RequestItemID=? AND IsCurrent=1",item_id)[0]}
-    order=('Primary','Secondary','Tertiary')[int(row.get('ResponseLayerCount') or row.get('RequestedLayerCount') or 2)-1]
+    order=('Primary','Secondary','Tertiary','Quaternary')[int(row.get('ResponseLayerCount') or row.get('RequestedLayerCount') or 2)-1]
     captures=captured_layer_dimensions(row,snapshots).get(order,{}).get('Dimensions',[])
     measured={}
     for d in captures:
         name=d['Name'].strip().lower()
-        if name not in ('length','width','height'):continue
+        if name not in ('length','width','height','dia','diameter'):continue
         factor=Decimal(1) if d['Unit'].lower()=='mm' else cur.execute("SELECT Factor FROM dbo.fn_UnitConversion(?,N'MM',NULL,NULL,NULL)",d['Unit']).fetchval()
-        if factor is not None:measured[name]=Decimal(d['Value'])*Decimal(str(factor))
+        if factor is not None:measured.setdefault(name,Decimal(d['Value'])*Decimal(str(factor)))
     if not captures:
         measured={key:row.get(field) for key,field in [('length','LengthMM'),('width','WidthMM'),('height','HeightMM')]}
-    try:return Dimensions.model_validate(measured).model_dump(mode='json')
+    from shipping_geometry import shipping_envelope
+    try:return Dimensions.model_validate(shipping_envelope(measured)).model_dump(mode='json')
     except ValueError:return None
 
 
 def net_load_kg(snapshot,cartons):
     """Goods only, using the confirmed final packaging layer, never gross/tare."""
     if snapshot is None:return None
-    order="Tertiary" if snapshot.get("NoOfTertiaryUnit") is not None else "Secondary" if snapshot.get("NoOfSecondaryUnit") is not None else "Primary"
+    order="Quaternary" if snapshot.get("NoOfQuaternaryUnit") is not None else "Tertiary" if snapshot.get("NoOfTertiaryUnit") is not None else "Secondary" if snapshot.get("NoOfSecondaryUnit") is not None else "Primary"
     grams=snapshot.get(order+"NetWeightGrams")
     if grams is None:return None
     weight=Decimal(str(grams))
@@ -166,7 +167,7 @@ def calculate(cur,body,item_id=None):
     spec=Specification.model_validate_json(row["Specifications"])
     data=body.Inputs.model_dump()
     if item_id is not None:
-        saved_response=select(cur,"SELECT ConfigurationRequest,CartonsPerLayer,ResponseMaxPalletHeightMM,ResponsePalletStacking FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",item_id)[0][0]
+        saved_response=select(cur,"SELECT ConfigurationRequest,CartonsPerLayer,LayersPerPallet,ResponseMaxPalletHeightMM,ResponsePalletStacking FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",item_id)[0][0]
         requirement=saved_response["ConfigurationRequest"]
         modes={"Pallet load":{"pallet"},"Floor load":{"floor"},"Both":{"pallet","floor"}}.get(requirement,{"pallet"})
         if body.Inputs.mode not in modes:raise HTTPException(422,"Loading mode must follow the request requirement: "+str(requirement)+".")
@@ -176,9 +177,9 @@ def calculate(cur,body,item_id=None):
         # Item plans are proposals from saved response data, never manual weight/settings overrides.
         data.update(weight_source="response",rotate=True,pallet_payload_kg=None,
             double_stack=False,stackable=False,pallet=None,pallet_kg=None,
-            cartons_per_layer=None,max_pallet_height=None)
+            cartons_per_layer=None,layers_per_pallet=None,pallet_max_gross_kg=None,max_pallet_height=None)
         if data["mode"]=="pallet":
-            if not saved_response["CartonsPerLayer"] or not saved_response["ResponseMaxPalletHeightMM"]:
+            if not saved_response["ResponseMaxPalletHeightMM"]:
                 raise HTTPException(422,"Save response cartons per layer and maximum pallet height before planning.")
             double=saved_response["ResponsePalletStacking"]=="Double"
             data.update(cartons_per_layer=saved_response["CartonsPerLayer"],
@@ -205,6 +206,7 @@ def calculate(cur,body,item_id=None):
         from packaging_weight import material_tare
         area=Decimal(str(data['pallet']['length']))*Decimal(str(data['pallet']['width']))/Decimal(1000000)
         data['pallet_kg']=material_tare(price.get('TareWeight'),price.get('TareWeightBasis'),1,area)
+        data['pallet_max_gross_kg']=price.get('MaxPayloadKG')
     assembly=None
     if body.Inputs.mode=='pallet' and item_id is not None:
         from pallet_pricing_api import snapshot_sql
@@ -213,6 +215,9 @@ def calculate(cur,body,item_id=None):
         if assembly and assembly['PalletSize']==saved['ResponsePalletSize']:
             data['pallet']=assembly['Dimensions']
             data['pallet_kg']=assembly['TareKG']
+            data['pallet_max_gross_kg']=cur.execute('SELECT MaxPayloadKG FROM dbo.PackagingMaterial WHERE ID=?',assembly.get('PalletMaterialID')).fetchval()
+            if data['pallet_max_gross_kg'] is None:raise HTTPException(422,'Maintain maximum gross payload on the selected Pallet material before planning.')
+            data['layers_per_pallet']=saved_response.get('LayersPerPallet') if item_id is not None else None
         else:assembly=None
         if assembly is None:
             raise HTTPException(422,"Save matching pallet pricing in the response before planning.")

@@ -5,6 +5,8 @@ Prepared: 13 September 2026
 
 This package moves the Excel-to-SQL bridge from a personal workstation into a controlled company environment. It supports a new, dedicated SQL Server database and a centrally hosted FastAPI service. It does not automatically upgrade an unknown existing database.
 
+For an **existing VM database through migration 141**, use the [142-147 upgrade checklist](../../docs/vm-upgrade-142-to-147.md) and [combined SQL bundle](../../sql/deploy/upgrade_142_to_147_vm.sql), not the fresh installer. Older VM baselines must first apply the earlier bundles linked in that checklist. Deploy matching API and compiled UI files from the same commit.
+
 ## Package contents
 
 | Item | Purpose |

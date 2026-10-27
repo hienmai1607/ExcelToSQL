@@ -60,6 +60,28 @@ test('Shipping parent exposes only occupied formulas and fixes D3 as Height',asy
  expect(state.writes[0]).not.toHaveProperty('SquareMeterFormula');
 });
 
+test('Shipping allows Diameter and Height without D2 and preserves the compact three-slot layout',async({page})=>{
+ const state=await setup(page);const dialog=await edit(page);
+ await dialog.getByLabel('D1',{exact:true}).fill('Dia');
+ await dialog.getByLabel('D2',{exact:true}).fill('');
+ await expect(dialog.getByLabel('D2 Unit',{exact:true})).toHaveValue('');
+ await expect(dialog.getByLabel('D2 Unit',{exact:true})).toBeDisabled();
+ await expect(dialog.getByLabel('D2',{exact:true})).not.toHaveAttribute('required','');
+ await dialog.getByLabel('Occupied m² fx',{exact:true}).fill('D1*D1/1000000');
+ await dialog.getByLabel('Occupied m³ fx',{exact:true}).fill('D1*D1*D3/1000000000');
+ const boxes=await Promise.all(['D1','D2','D3'].map(name=>dialog.getByLabel(name,{exact:true}).boundingBox()));
+ expect(boxes.every(box=>box&&Math.abs(box.y-boxes[0]!.y)<2)).toBe(true);
+ await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
+ await expect.poll(()=>state.writes.length).toBe(1);
+ expect(state.writes[0]).toMatchObject({D1:'Dia',D2:null,D2UoMID:null,D3:'Height',D3UoMID:2});
+});
+test('Blank D2 is rejected when an occupied formula still uses D2',async({page})=>{
+ const state=await setup(page);const dialog=await edit(page);
+ await dialog.getByLabel('D2',{exact:true}).fill('');
+ await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
+ await expect(dialog).toContainText('Define a name and unit for D2 used in the formula.');
+ expect(state.writes).toHaveLength(0);
+});
 test('Add belongs to Dimension ID and the editor Close stays visible while scrolling',async({page})=>{
  await setup(page);await page.setViewportSize({width:1280,height:600});
  const table=page.getByRole('table',{name:'Packaging dimensions'});
@@ -202,7 +224,7 @@ test('Concurrency conflict leaves draft open without automatic retries',async({p
 });
 test('One shared output UoM is saved and sent to both formula previews',async({page})=>{
  const state=await setup(page,{child:true});const dialog=await edit(page,true);
- const unit=dialog.getByLabel('Formula output UoM',{exact:true});
+ const unit=dialog.getByLabel('Output Uom',{exact:true});
  await expect(unit).toHaveCount(1);await expect(unit).toHaveValue('3');
  await values(page);
  await dialog.getByLabel('Material D1 Test value',{exact:true}).fill('1000');
@@ -222,10 +244,10 @@ test('One shared output UoM is saved and sent to both formula previews',async({p
 });
 test('Active conversion formulas cannot save without shared output UoM',async({page})=>{
  const state=await setup(page,{child:true});const dialog=await edit(page,true);
- await dialog.getByLabel('Formula output UoM',{exact:true}).selectOption('');
+ await dialog.getByLabel('Output Uom',{exact:true}).selectOption('');
  await dialog.getByRole('button',{name:'Save dimension',exact:true}).click();
  expect(state.writes).toHaveLength(0);
- await expect(dialog.getByLabel('Formula output UoM',{exact:true})).toBeFocused();
+ await expect(dialog.getByLabel('Output Uom',{exact:true})).toBeFocused();
 });
 
 test('shared child can choose geometry from either parent without overwriting supplier dimensions',async({page})=>{
@@ -246,5 +268,5 @@ test('dimension measurement units only offer Length/Distance while output units 
   const units=dialog.getByLabel(name,{exact:true});
   await expect(units.locator('option')).toHaveText(['Choose UoM','m','mm']);
  }
- await expect(dialog.getByLabel('Formula output UoM',{exact:true}).locator('option[value="3"]')).toHaveCount(1);
+ await expect(dialog.getByLabel('Output Uom',{exact:true}).locator('option[value="3"]')).toHaveCount(1);
 });

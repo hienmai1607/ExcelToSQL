@@ -65,3 +65,28 @@ dialog.load-planner h2{font-size:20px;margin:0}
  .load-planner .load-container-table th,.load-planner .load-container-table td{padding:3px 2px;font-size:10px}
  .load-planner .load-container-dimensions{white-space:normal}
 }
+/* Stack details beside a growing scene and anchor comparisons below it. */
+@media(min-width:851px){
+ .app dialog.load-planner .load-planner-layout{grid-template-columns:300px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;align-content:stretch}
+ .app .load-planner .load-planner-controls{display:block;overflow:auto}
+ .app .load-planner .load-planner-preview{min-height:0;overflow:auto}
+ .app .load-planner .load-scene{flex:1;min-height:0;display:flex;flex-direction:column}
+ .app .load-planner .load-scene canvas{flex:1;min-height:180px;height:0}
+ .app .load-planner .load-container-table{align-self:end}
+}
+@media(min-width:851px){
+ .app .load-planner .load-planner-controls input{height:24px;min-height:24px;padding:2px 6px}
+ .app .load-planner .load-planner-controls label{font-size:11px;gap:2px;margin-bottom:2px}
+ .app .load-planner .load-planner-controls>fieldset{margin:4px 0;padding:4px 6px}
+ .app .load-planner .load-planner-controls>fieldset>label{display:grid;grid-template-columns:minmax(0,1fr) 110px;align-items:center}
+ .app .load-planner .load-planner-controls>fieldset>label:last-child:has(input[aria-label="Loaded pallet dimension (mm)"]){display:flex}
+}
+@media(min-width:851px) and (max-height:800px){
+ .app dialog.load-planner .load-planner-layout{grid-template-columns:420px minmax(0,1fr)}
+ .app .load-planner .load-planner-controls{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px}
+ .app .load-planner .load-planner-controls>fieldset>label{grid-template-columns:minmax(0,1fr) 75px}
+}
+.load-section-legend{display:flex;flex-direction:column;gap:2px;font-size:11px;line-height:1.35}
+.load-section-legend small{display:block}
+.load-section-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.load-detail-key{background:#499d91}.load-group-key{background:#799eaf;border:1px solid #36576b}

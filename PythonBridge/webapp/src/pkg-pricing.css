@@ -39,3 +39,30 @@
 .pricing-calculator-layout>.customer-editor-heading{flex:none}
 .pricing-calculator-body{flex:1;min-height:0;overflow:auto;padding:0 2px 12px;overscroll-behavior:contain}
 .pricing-calculator-layout>.pricing-calculator-actions{position:static;flex:none;margin:0;padding:12px 0 0;border-top:1px solid var(--border);background:var(--surface)}
+.pricing-calculator-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.pricing-calculator-actions .pricing-total{flex:1;margin:0;padding:0;gap:8px 18px;font-size:.85rem;min-width:0}
+.pricing-calculator-buttons{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0}
+.response-sections .pricing-type-field>.add-master-button{width:28px;height:32px;min-width:28px;min-height:32px;max-width:28px;max-height:32px;padding:4px;align-self:center}
+.pallet-pricing-dialog .pricing-catalog input[type=checkbox]{width:auto;min-height:0}
+.pallet-pricing-dialog .pricing-catalog small{display:block}
+
+/* This compact popup does not use the shared full-bleed editor header. */
+dialog.pkg-pricing-dialog.packaging-reference-dialog[open]>.customer-editor-heading{position:static;margin:0 0 12px;padding:0 0 12px;gap:12px}
+.packaging-reference-dialog label,.packaging-reference-dialog input,.packaging-reference-dialog select{min-width:0;max-width:100%}
+.packaging-reference-dialog .actions{flex-wrap:wrap}
+.packaging-reference-dialog .panel{overflow-wrap:anywhere}
+.packaging-reference-dialog label.reference-copy-toggle{display:flex;flex-direction:row;align-items:center;gap:8px;margin:12px 0}
+.packaging-reference-dialog .reference-copy-toggle input{width:auto;min-height:0}
+.packaging-reference-dialog .reference-copy-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;padding:12px}
+.reference-copy-preview h3{margin:0 0 6px}
+.reference-copy-preview p{margin:0}
+.floor-load-proposals{margin-top:12px;border-top:1px solid var(--border,#dce5e5);padding-top:8px}
+.floor-load-proposals h4{display:flex;align-items:center;gap:8px;margin:0 0 8px}
+.floor-load-proposals table{width:100%}
+.floor-proposal-details{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px}
+.floor-proposal-details input{max-width:150px}
+.app dialog.load-planner.floor-load-view{height:min(850px,96dvh);overflow:hidden}
+.floor-load-view>.floor-load-proposals{flex:1;min-height:0;padding:0;margin:4px 0;border:0}
+.floor-load-view .load-container-table input[type=checkbox],.load-container-table input[type=checkbox]{width:16px;height:16px;min-height:16px;accent-color:var(--primary,#1a706a)}
+@media(max-width:850px){.floor-load-view>.floor-load-proposals{overflow:auto;min-height:0}.floor-load-view .load-container-table{overflow:auto;flex:none}.floor-load-view .load-container-table table{min-width:620px}}
+.floor-load-view>.record-action-bar,.floor-load-view>label{flex:none}

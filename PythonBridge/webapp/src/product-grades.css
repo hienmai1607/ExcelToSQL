@@ -192,3 +192,7 @@
  .tcb-process-row>td:first-child{grid-column:1/-1}
 }
 @media(max-width:550px){.tcb-process-info-table .tcb-process-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Keep structure dialogs wide even when shared dialog styles load later. */
+.app dialog.dialog.grade-dialog{width:96vw;max-width:96vw;max-height:94dvh;box-sizing:border-box}
+.app .grade-dialog .grade-tree-scroll{max-height:calc(94dvh - 240px);min-height:240px}
+@media(max-width:700px){.app .grade-dialog .grade-tree-scroll{max-height:55dvh;min-height:180px}}

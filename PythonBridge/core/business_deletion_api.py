@@ -34,7 +34,7 @@ TARGETS={
  'raw-prices':Target('RawMaterialPrice','raw-prices','ID',('PriceID','RawMaterialPriceID')),
  'raw-grades':Target('RawGrade','raw-grades','GradeName',('RawGradeID','GradeID')),
  'vendors':Target('Vendor','vendors','VendorName',('VendorID',)),
- 'packaging-types':Target('PackagingType','packaging-types','PackagingType',('PackagingTypeID','PrimaryTypeID','SecondaryTypeID','TertiaryTypeID','TypeID')),
+ 'packaging-types':Target('PackagingType','packaging-types','PackagingType',('PackagingTypeID','PrimaryTypeID','SecondaryTypeID','TertiaryTypeID','QuaternaryTypeID','TypeID')),
  'packaging-dimensions':Target('PackagingDimension','packaging-dimensions','ID',('DimensionID','ParentDimensionID','MaterialDimensionID','SupplierDimensionID')),
  'pallets':Target('Pallet','pallets','ID',('PalletID','LegacyPalletID')),
  'conversions':Target('UnitConversion','conversions','ID',('ConversionID','UnitConversionID')),

@@ -103,6 +103,7 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
         LEFT JOIN dbo.PkgPricingMaster primary_pricing ON primary_pricing.RequestItemID=i.ID AND primary_pricing.PackagingOrder='Primary' AND primary_pricing.IsCurrent=1
         LEFT JOIN dbo.PkgPricingMaster secondary_pricing ON secondary_pricing.RequestItemID=i.ID AND secondary_pricing.PackagingOrder='Secondary' AND secondary_pricing.IsCurrent=1
         LEFT JOIN dbo.PkgPricingMaster tertiary_pricing ON tertiary_pricing.RequestItemID=i.ID AND tertiary_pricing.PackagingOrder='Tertiary' AND tertiary_pricing.IsCurrent=1
+        LEFT JOIN dbo.PkgPricingMaster quaternary_pricing ON quaternary_pricing.RequestItemID=i.ID AND quaternary_pricing.PackagingOrder='Quaternary' AND quaternary_pricing.IsCurrent=1
         OUTER APPLY(SELECT TOP(1) p.PalletAreaMM2 FROM dbo.v_PalletSizeChoice p JOIN dbo.UoM u ON u.ID=p.UoMID
           WHERE p.PalletSize=i.ResponsePalletSize AND p.Status='Active' AND u.Status='Active' ORDER BY p.ID) efficiency_pallet
         WHERE (? IS NULL OR h.ID=?) AND (? IS NULL OR i.Stage=?)
@@ -127,6 +128,7 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
                 child.RequestedLayerCount,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerCarton END UnitsPerCarton,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerTertiary END UnitsPerTertiary,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerQuaternary END UnitsPerQuaternary,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN {layer_sql('child')} END LayerTareJSON,
               CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN COALESCE(child.ApplicableNetWeightGrams,child.WeightGrams) END ApplicableNetWeightGrams,
               CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN CONVERT(VARCHAR(40),child.NutDensity) END NutDensity
@@ -134,8 +136,9 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
              WHERE child.RequestID=i.RequestID AND child_oi.ParentItemID=oi.ID FOR JSON PATH,INCLUDE_NULL_VALUES)
           END MixResponseChildren,CAST(CASE WHEN oi.ParentItemID IS NULL AND EXISTS(SELECT 1 FROM dbo.OpportunityMixSnapshot ms WHERE ms.ParentItemID=oi.ID) THEN 1 ELSE 0 END AS BIT) IsMixParent,
           i.PrimaryTypeID,i.PrimaryTypeName,i.SecondaryTypeID,i.SecondaryTypeName,i.SecondaryTransparency,i.NumberOfPrimary,
-          i.RequestedLayerCount,i.TertiaryTypeID,i.TertiaryTypeName,i.TertiaryTransparency,i.NumberOfSecondary,
-          i.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
+          i.RequestedLayerCount,dbo.fn_RequestPackagingLayerStart(i.ID) PackagingLayerStart,dbo.fn_RequestRequestedPackagingLayerStart(i.ID) RequestedPackagingLayerStart,i.QuaternaryTypeID,i.QuaternaryTypeName,i.QuaternaryTransparency,i.NumberOfTertiary,i.TertiaryTypeID,i.TertiaryTypeName,i.TertiaryTransparency,i.NumberOfSecondary,
+          i.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,i.QuaternaryRecyclableRequirement,i.QuaternaryRecycledContent,i.QuaternaryMetalizedAluminum,i.QuaternarySpecialComments,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ReferenceSetupJSON END ReferenceSetupJSON,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponseLayerCount END ResponseLayerCount,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.SelectedContainerType END SelectedContainerType,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ContainerLoadProfiles END ContainerLoadProfiles,
@@ -150,8 +153,11 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponseMaxPalletHeightMM END ResponseMaxPalletHeightMM,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ResponseDefaultsInitialized END ResponseDefaultsInitialized,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ThirdPMType END ThirdPMType,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.FourthPMType END FourthPMType,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.ThirdPMMOQ END ThirdPMMOQ,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.FourthPMMOQ END FourthPMMOQ,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.UnitsPerTertiary END UnitsPerTertiary,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.UnitsPerQuaternary END UnitsPerQuaternary,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.NutDensity END NutDensity,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.UsedVolumeML END UsedVolumeML,
           i.PalletSize,
@@ -169,14 +175,18 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN secondary_pricing.UnitUSDPrice END SecondaryPriceUSDPerUnit,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN secondary_pricing.CurrencyCode END SecondaryPriceCurrencyCode,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN tertiary_pricing.UnitPrice END TertiaryPricePerUnit,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN quaternary_pricing.UnitPrice END QuaternaryPricePerUnit,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN tertiary_pricing.UnitUSDPrice END TertiaryPriceUSDPerUnit,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN quaternary_pricing.UnitUSDPrice END QuaternaryPriceUSDPerUnit,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN tertiary_pricing.CurrencyCode END TertiaryPriceCurrencyCode,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN quaternary_pricing.CurrencyCode END QuaternaryPriceCurrencyCode,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN primary_pricing.SnapshotJSON END PrimaryLayerPricingSnapshot,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN secondary_pricing.SnapshotJSON END SecondaryLayerPricingSnapshot,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN tertiary_pricing.SnapshotJSON END TertiaryLayerPricingSnapshot,
+          CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN quaternary_pricing.SnapshotJSON END QuaternaryLayerPricingSnapshot,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN
             CASE COALESCE(i.ResponseLayerCount,i.RequestedLayerCount) WHEN 1 THEN primary_pricing.SnapshotJSON
-              WHEN 2 THEN secondary_pricing.SnapshotJSON ELSE tertiary_pricing.SnapshotJSON END END FinalLayerPricingSnapshot,
+              WHEN 2 THEN secondary_pricing.SnapshotJSON WHEN 3 THEN tertiary_pricing.SnapshotJSON ELSE quaternary_pricing.SnapshotJSON END END FinalLayerPricingSnapshot,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN efficiency_pallet.PalletAreaMM2 END EfficiencyPalletAreaMM2,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.Cost END PMCost,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN currency.CurrencyCode END PMCostCurrencyCode,

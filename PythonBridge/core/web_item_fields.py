@@ -8,10 +8,10 @@ REQUEST_FIELDS = {
     "RequestedLayerCount", "PalletSize", "PalletStacking", "MaxPalletHeightMM",
     "ContainerRequest", "ConfigurationRequest", "PrimaryTypeName", "Transparency",
     "SecondaryTypeName", "NumberOfPrimary", "SecondaryTransparency", "TertiaryTypeName",
-    "NumberOfSecondary", "TertiaryTransparency", "ShelfLifeDays", "RecyclableRequirement",
+    "NumberOfSecondary", "TertiaryTransparency", "NumberOfTertiary", "QuaternaryTypeName", "QuaternaryTransparency", "ShelfLifeDays", "RecyclableRequirement",
     "RecycledContent", "MetalizedAluminum", "SpecialComments",
 }
-REQUEST_FIELDS |= {prefix+field for prefix in ("Secondary","Tertiary") for field in
+REQUEST_FIELDS |= {prefix+field for prefix in ("Secondary","Tertiary","Quaternary") for field in
     ("RecyclableRequirement","RecycledContent","MetalizedAluminum","SpecialComments")}
 REQUEST_FIELDS.discard("ShelfLifeDays")
 RESPONSE_FIELDS = {
@@ -21,13 +21,14 @@ RESPONSE_FIELDS = {
     "FirstPMType", "FirstPMMOQ", "PrimaryPricePerUnit", "PrimaryPriceCurrencyCode",
     "SecondPMType", "SecondPMMOQ", "SecondaryPricePerUnit", "SecondaryPriceCurrencyCode",
     "ThirdPMType", "ThirdPMMOQ", "TertiaryPricePerUnit", "TertiaryPriceCurrencyCode",
+    "FourthPMType", "FourthPMMOQ", "QuaternaryPricePerUnit", "QuaternaryPriceCurrencyCode", "NoOfQuaternaryUnit", "QuaternaryNetWeightGrams",
     "ResponsePalletSize", "ResponsePalletStacking", "ResponseMaxPalletHeightMM", "HeightMM",
     "CartonsPerLayer", "LayersPerPallet", "UnitsPerPallet", "NetWeightPerPalletKG",
     "PalletsPerContainer", "CalculatedCartonsPerContainer",
     "NetWeightPerContainerKG",
 }
 CALCULATED_FIELDS = {
-    "ApplicableNetWeightGrams",
+    "ApplicableNetWeightGrams", "NoOfQuaternaryUnit", "QuaternaryNetWeightGrams",
     "UsedVolumeML",  # Mix parents aggregate across child responses, not the SQL density column.
     "LayersPerContainer",
     "NoOfPrimaryUnit", "NoOfSecondaryUnit", "NoOfTertiaryUnit", "PrimaryNetWeightGrams",

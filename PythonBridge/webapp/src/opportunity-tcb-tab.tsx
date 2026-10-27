@@ -13,7 +13,7 @@ import {lossFieldIssues,processOptions} from './loss-processes';
 export function OpportunityTCBTab({drafts,renderProductLoss,renderVersions,...props}:Omit<CommercialProps,'d'>&{drafts:Draft[];renderProductLoss:(d:Draft)=>ReactNode;renderVersions?:(d:Draft)=>ReactNode}){
  const {busy,review,update}=props;
  return <div aria-label="TCB Review items">{drafts.map(d=>{
-  const id=Number(d.row.ItemID),disabled=d.readonly||busy||review,i=d.costingInputs,lossIssues=disabled?[]:lossFieldIssues(d.steps,processOptions(d.mix,d.layers));
+  const id=Number(d.row.ItemID),disabled=d.readonly||busy||review,i=d.costingInputs,lossIssues=disabled?[]:lossFieldIssues(d.steps,processOptions(d.mix,d.layers,Number(d.row.PackagingLayerStart)||1));
   const calc=costs({...i,Prices:d.selections},d.quoteGrades,d.quotes);
   const gradesReady=d.pricingGradeKey===JSON.stringify(d.grades);
   return <details open id={'tcb-item-'+id} key={id} className={'tcb-item'+(d.row.ParentItemID?' loss-child':'')}><summary className="tcb-item-title">{String(d.row.ItemNumber??id)+' · '+d.row.ProductCode+' · '+d.row.ProductName}{d.readonly?' · Read only':''}</summary>

@@ -13,8 +13,8 @@ def read_plan(row):
 # Inputs that determine physical loading, not notes or selected container/output totals.
 DEPENDENCY_FIELDS=(
     'ConfigurationRequest','WeightGrams','ApplicableNetWeightGrams','ResponseLayerCount',
-    'RequestedLayerCount','FirstPMType','SecondPMType','ThirdPMType','UnitsPerCarton',
-    'UnitsPerTertiary','LengthMM','WidthMM','HeightMM','CartonsPerLayer',
+    'RequestedLayerCount','FirstPMType','SecondPMType','ThirdPMType','FourthPMType','UnitsPerCarton',
+    'UnitsPerTertiary','UnitsPerQuaternary','LengthMM','WidthMM','HeightMM','CartonsPerLayer','LayersPerPallet',
     'ResponsePalletMaterialID','ResponsePalletSize','ResponsePalletStacking','ResponseMaxPalletHeightMM','PalletPricingID',
 )
 

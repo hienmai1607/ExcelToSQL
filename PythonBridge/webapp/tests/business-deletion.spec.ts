@@ -52,13 +52,13 @@ test('unknown network outcome cannot be blindly resubmitted',async({page})=>{
  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
  await expect(page.getByRole('button',{name:'Delete material MAT-3',exact:true})).toHaveCount(0);
 });
-test('request header deletion uses its dedicated header row version',async({page})=>{
+test('Packaging Requests has no header Delete action',async({page})=>{
  const writes=await setup(page);
  await page.route('**/api/workbench/requests?**',route=>route.fulfill({json:{rows:[{RequestID:3,RequestNumber:'PCR-3',HeaderRowVersion:version,RequestStatus:'Open',ItemCount:0}],total:1,page:1}}));
  await page.getByRole('button',{name:'Packaging Requests',exact:true}).click();
- await page.getByRole('button',{name:'Delete request PCR-3',exact:true}).click();
- await page.getByRole('dialog',{name:'Confirm permanent deletion',exact:true}).getByRole('button',{name:'Delete permanently',exact:true}).click();
- await expect.poll(()=>writes.length).toBe(1);expect(writes[0]).toEqual({ID:3,RowVersion:version});
+ await expect(page.getByRole('button',{name:'Edit request PCR-3',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Delete request PCR-3',exact:true})).toHaveCount(0);
+ expect(writes).toEqual([]);
 });
 
 test('trash stays hidden for unavailable records',async({page})=>{

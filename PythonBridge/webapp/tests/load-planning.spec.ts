@@ -15,6 +15,7 @@ async function setup(page:Page,availableContainers=[container],session:Record<st
   if(p==='/api/packaging/requests')return route.fulfill({json:{rows:[row],total:1,page:1}});
   if(p.endsWith('/weights'))return route.fulfill({json:{CartonGrossWeightKG:'3.1'}});
   if(p==='/api/load-planning/containers')return route.fulfill({json:{rows:availableContainers}});
+  if(p.endsWith('/floor-capacity'))return route.fulfill({json:{rows:availableContainers.map(c=>({ContainerID:c.ID,Code:c.Code,Inputs:{...inputs,mode:'floor',container:c.Specifications},Result:{...result,cartons:100,gross_kg:310,container_tiers:11,container_layer:Array.from({length:98},(_,i)=>({x:Math.floor(i/7)*400,y:i%7*300,length:400,width:300}))}}))}});
   if(p==='/api/load-planning/pallet-prices')return route.fulfill({json:{rows:[{ID:9,RowVersion:version,MaterialCode:'PAL-1',MaterialName:'Euro pallet',Dimensions:{length:1200,width:800,height:140},PriceBasis:'EA',TareWeight:'20',TareWeightBasis:'kg/EA',MaterialRowVersion:version}]}});
   if(p.endsWith('/preview')||p.endsWith('/save')){writes.push(route.request().postDataJSON());return route.fulfill({json:{ID:7,Inputs:route.request().postDataJSON().Inputs,Result:result}})}
   if(p==='/api/packaging/response/batch'){writes.push(route.request().postDataJSON());return route.fulfill({json:{results:[{RowNum:1,Status:'OK',NewRowVersion:version}]}})}
@@ -205,7 +206,7 @@ test('automatic previews compare all containers with bounded calls and reuse res
  await expect(table.getByRole('row')).toHaveCount(6);
  await expect(table.getByText('Calculating…',{exact:true})).toHaveCount(0);
  const row=table.getByRole('row').filter({has:page.getByRole('button',{name:'View 40HC',exact:true})});
- await expect(row.getByRole('cell')).toHaveText(['40HC','5,900 × 2,350 × 2,390','6','150','Unknown','370.368','28,000','15%']);
+ await expect(row.getByRole('cell')).toHaveText(['40HC','5,900 × 2,350 × 2,390','','6','150','Unknown','370.368','28,000','15%']);
  expect(calls.sort()).toEqual([1,2,3,4,5]);expect(maxActive).toBeLessThanOrEqual(2);
  await table.getByRole('button',{name:'View 40HC',exact:true}).click();
  await expect(dialog.getByLabel('Container type',{exact:true})).toHaveValue('3');
@@ -240,21 +241,64 @@ test('one failed container does not hide other results and can be retried',async
 
 test('late results from the previous mode cannot replace the selected mode',async({page})=>{
  await setup(page,[container],undefined,'Both');
- let releaseFloor:(()=>void)|undefined;
+ let releasePallet:(()=>void)|undefined;
  await page.route('**/api/load-planning/items/1/preview',async route=>{
   const body=route.request().postDataJSON();
-  if(body.Inputs.mode==='floor')await new Promise<void>(resolve=>{releaseFloor=resolve});
+  if(body.Inputs.mode==='pallet')await new Promise<void>(resolve=>{releasePallet=resolve});
   await route.fulfill({json:{Inputs:body.Inputs,Result:{...result,cartons:body.Inputs.mode==='floor'?100:550}}});
  });
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true}),table=dialog.getByRole('table',{name:'Container load summary'});
- await expect.poll(()=>!!releaseFloor).toBe(true);
+ const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
  await dialog.getByLabel('Loading mode',{exact:true}).selectOption('pallet');
- await expect(table).toContainText('550');
- releaseFloor!();
- await expect(dialog.getByLabel('Loading mode',{exact:true})).toHaveValue('pallet');
- await expect(table).toContainText('550');
- await expect(table).not.toContainText('100');
+ await expect.poll(()=>!!releasePallet).toBe(true);
+ await dialog.getByLabel('Loading mode',{exact:true}).selectOption('floor');
+ const table=dialog.getByRole('table',{name:'Proposed floor loads'});
+ await expect(table).toContainText('100');
+ releasePallet!();
+ await expect(dialog.getByLabel('Loading mode',{exact:true})).toHaveValue('floor');
+ await expect(table).toContainText('100');
+ await expect(table).not.toContainText('550');
+});
+
+test('pallet Proposal ticks share multiple captured container options, not just the current preview',async({page})=>{
+ const writes=await setup(page,[container,{...container,ID:2,Code:'40HC'}]);
+ await page.getByRole('button',{name:'3D container load',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
+ await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).toBeChecked();
+ await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).toBeDisabled();
+ await expect(dialog.getByLabel('Proposal 40HC',{exact:true})).toBeEnabled();
+ await dialog.getByLabel('Proposal 40HC',{exact:true}).check();
+ await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).toBeChecked();
+ await expect(dialog.getByLabel('Proposal 40HC',{exact:true})).toBeChecked();
+ await expect(dialog.getByRole('button',{name:'Close',exact:true})).toBeEnabled();
+ await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect.poll(()=>writes.some(w=>w.rows)).toBe(true);
+ const payload=writes.find(w=>w.rows).rows[0];
+ expect(payload.ContainerLoadProfiles['20DC'].Proposal).toBe(true);expect(payload.ContainerLoadProfiles['40HC'].Proposal).toBe(true);expect(payload.ContainerLoadProfiles['40DC'].Proposal).toBe(false);
+});
+
+test('viewing another mode does not replace a checked floor proposal; an explicit tick does',async({page})=>{
+ const writes=await setup(page,[container],undefined,'Both',{SelectedContainerType:'20DC',CartonsPerContainer:8,ContainerLoadProfiles:JSON.stringify({'20DC':{CartonsPerContainerFloor:8,Proposal:true}})});
+ await page.getByRole('button',{name:'3D container load',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
+ await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).toBeChecked();
+ await dialog.getByLabel('Loading mode',{exact:true}).selectOption('pallet');
+ await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
+ await expect.poll(()=>writes.some(w=>w.Inputs?.mode==='pallet')).toBe(true);
+ await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).not.toBeChecked();
+ await dialog.getByLabel('Loading mode',{exact:true}).selectOption('floor');
+ await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).toBeChecked();
+ await expect(dialog.getByLabel('Floor preview Cartons / Container',{exact:true})).toHaveValue('8');
+ await dialog.getByLabel('Loading mode',{exact:true}).selectOption('pallet');
+ await dialog.getByLabel('Proposal 20DC',{exact:true}).check();
+ await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).toBeChecked();
+ await dialog.getByLabel('Loading mode',{exact:true}).selectOption('floor');
+ await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).not.toBeChecked();
+ await expect(dialog.getByLabel('Floor preview Cartons / Container',{exact:true})).toHaveValue('8');
+ await dialog.getByLabel('Proposal 20DC',{exact:true}).check();
+ await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).toBeChecked();
 });
 
 test('3D shows only read-only pallet gross, carton count and loaded dimensions',async({page})=>{
@@ -342,7 +386,7 @@ test('failed automatic capture keeps the viewer open and does not save the respo
  await expect(page.getByRole('dialog',{name:'Edit Packaging request',exact:true}).getByLabel('Container type',{exact:true})).toHaveValue('');
 });
 
-test('Both requirement captures viewed previews without persisting the response',async({page})=>{
+test('Both retains pallet captures and applies floor counts explicitly without persisting the response',async({page})=>{
  const writes=await setup(page,[container,{...container,ID:2,Code:'40HC',SizeFT:40}],undefined,'Both');
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'3D load planner',exact:true});
@@ -352,17 +396,17 @@ test('Both requirement captures viewed previews without persisting the response'
  await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
  await dialog.getByLabel('Container type',{exact:true}).selectOption('2');
  await dialog.getByLabel('Loading mode',{exact:true}).selectOption('floor');
- await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
- await dialog.getByLabel('Container type',{exact:true}).selectOption('1');
+ await expect(dialog.getByRole('table',{name:'Proposed floor loads'})).toBeVisible();
+ await dialog.getByRole('button',{name:'View 20DC',exact:true}).click();
  await expect(dialog.getByLabel('Loading mode',{exact:true})).toHaveValue('floor');
- await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await expect(dialog.getByRole('img',{name:'3D floor arrangement 20DC'})).toBeVisible();
+ await dialog.getByRole('button',{name:'Use carton count',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  await expect(editor.getByLabel('Container type',{exact:true})).toHaveValue('20DC');
  expect(writes.every(w=>w.Inputs)).toBe(true);
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
- await expect(dialog.getByLabel('Container type',{exact:true})).toHaveValue('1');
- await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
+ await expect(dialog.getByLabel('Floor preview Cartons / Container',{exact:true})).toHaveValue('100');
+ await expect(dialog.getByRole('img',{name:'3D floor arrangement 20DC'})).toBeVisible();
 });
 for(const [requirement,mode] of [['Pallet load','pallet'],['Floor load','floor']])test('viewer locks loading mode to '+requirement,async({page})=>{
  const writes=await setup(page,[container],undefined,requirement);
@@ -374,9 +418,15 @@ for(const [requirement,mode] of [['Pallet load','pallet'],['Floor load','floor']
  await expect(dialog.getByLabel('Loading mode',{exact:true})).toBeDisabled();
  await expect(dialog.getByLabel('Loading mode',{exact:true}).locator('option')).toHaveCount(1);
  await expect(dialog.getByText(/Saved container setups/)).toHaveCount(0);
- await dialog.getByLabel('Container type',{exact:true}).selectOption('1');
- await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
- expect(writes[0].Inputs.mode).toBe(mode);
+ if(mode==='floor'){
+  await dialog.getByRole('button',{name:'View 20DC',exact:true}).click();
+  await expect(dialog.getByRole('img',{name:'3D floor arrangement 20DC'})).toBeVisible();
+  expect(writes).toHaveLength(0);
+ }else{
+  await dialog.getByLabel('Container type',{exact:true}).selectOption('1');
+  await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
+  expect(writes[0].Inputs.mode).toBe(mode);
+ }
  await expect(dialog.getByRole('button',{name:/Save|Apply/i})).toHaveCount(0);
 });
 
@@ -389,8 +439,7 @@ test('changing mode automatically refreshes preview and mobile view stays within
  const writes=await setup(page,[container],undefined,'Both');
  await page.getByRole('button',{name:'3D container load',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'3D load planner'});
- await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
- await expect(dialog.getByLabel('carton length',{exact:true})).toHaveAttribute('readonly','');
+ await expect(dialog.getByRole('img',{name:'3D floor arrangement 20DC'})).toBeVisible();
  await dialog.getByLabel('Loading mode',{exact:true}).selectOption('pallet');
  await expect.poll(()=>writes.some(w=>w.Inputs?.mode==='pallet')).toBe(true);
  await expect(dialog.getByRole('img',{name:'3D container load layout'})).toBeVisible();
@@ -426,8 +475,8 @@ test('packing preview distinguishes proven layer maximum from overall 3D optimal
 });
 
 
-test('Packaging Manager can open review details without editing or saving',async({page})=>{
- const writes=await setup(page,undefined,{username:'Manager',user_id:2,is_admin:false,scopes:['PackagingManager'],permissions:{requests:'edit'}},'Pallet load',{ItemStage:'Pending Review',FirstPMType:'Box',FirstPMMOQ:1000});
+test('Packaging Manager can open completed response details without editing or saving',async({page})=>{
+ const writes=await setup(page,undefined,{username:'Manager',user_id:2,is_admin:false,scopes:['PackagingManager'],permissions:{requests:'edit'}},'Pallet load',{ItemStage:'Approved',FirstPMType:'Box',FirstPMMOQ:1000});
  await page.route('**/api/packaging/items/1/pricing/history',route=>route.fulfill({json:{snapshots:[{header:{ID:10,PackagingOrder:'Primary',PackagingTypeName:'Box',IsCurrent:true,UnitPrice:'12',FinalMOQ:'1000',CurrencyCode:'VND'},components:[{MaterialCode:'PKG-SAVED',MaterialName:'Saved liner',Quantity:'2',ProductMOQ:'1000',ProductUnitPrice:'12',CurrencyCode:'VND'}]}]}}));
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  await expect(editor.getByRole('button',{name:'3D container load',exact:true})).toBeEnabled();
@@ -497,6 +546,11 @@ test('five container dimensions and totals fit desktop without scrollbars',async
    expect(measured.horizontal,JSON.stringify(size)).toBeLessThanOrEqual(2);
    expect(measured.vertical,JSON.stringify({size,measured})).toBeLessThanOrEqual(2);
   }
+  const scene=await dialog.getByRole('img',{name:'3D container load layout'}).boundingBox();
+  const controls=await dialog.locator('.load-planner-controls').boundingBox();
+  expect(scene!.width).toBeGreaterThan(size.width*.55);
+  expect(scene!.height).toBeGreaterThan(size.height*(size.height>800?.4:.24));
+  expect(scene!.x).toBeGreaterThanOrEqual(controls!.x+controls!.width);
   const summary=await table.boundingBox(),close=await dialog.getByRole('button',{name:'Close',exact:true}).boundingBox();
   expect(summary!.y+summary!.height).toBeLessThanOrEqual(close!.y);
  }

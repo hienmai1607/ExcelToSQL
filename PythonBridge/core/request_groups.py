@@ -1,11 +1,12 @@
 """Atomic parent-family workflow actions; product identity never defines membership."""
 from fastapi import HTTPException
+from contextlib import nullcontext
 from db import bytes_to_b64
 
-def perform_group(item_id,payload,ctx,assignment=False):
+def perform_group(item_id,payload,ctx,assignment=False,cursor=None):
     from packaging_api import get_raw_cursor,rv
     from packaging_fields import consume
-    with get_raw_cursor() as cur:
+    with (nullcontext(cursor) if cursor is not None else get_raw_cursor()) as cur:
         owns=cur.execute('SELECT @@TRANCOUNT').fetchval()==0
         cur.execute('SET QUOTED_IDENTIFIER ON; SET XACT_ABORT ON; '+('BEGIN TRANSACTION' if owns else 'SAVE TRANSACTION RequestFamily'))
         try:
@@ -51,9 +52,19 @@ def perform_group(item_id,payload,ctx,assignment=False):
                     WHERE ID IN(SELECT value FROM OPENJSON(?)) AND Stage<>? AND
                     (NULLIF(LTRIM(RTRIM(FirstPMType)),N'') IS NULL OR FirstPMMOQ IS NULL
                     OR (COALESCE(ResponseLayerCount,RequestedLayerCount)>=2 AND (NULLIF(LTRIM(RTRIM(SecondPMType)),N'') IS NULL OR UnitsPerCarton IS NULL OR SecondPMMOQ IS NULL))
-                    OR (COALESCE(ResponseLayerCount,RequestedLayerCount)>=3 AND (NULLIF(LTRIM(RTRIM(ThirdPMType)),N'') IS NULL OR UnitsPerTertiary IS NULL OR ThirdPMMOQ IS NULL)))
+                    OR (COALESCE(ResponseLayerCount,RequestedLayerCount)>=3 AND (NULLIF(LTRIM(RTRIM(ThirdPMType)),N'') IS NULL OR UnitsPerTertiary IS NULL OR ThirdPMMOQ IS NULL))
+                    OR (COALESCE(ResponseLayerCount,RequestedLayerCount)>=4 AND (NULLIF(LTRIM(RTRIM(FourthPMType)),N'') IS NULL OR UnitsPerQuaternary IS NULL OR FourthPMMOQ IS NULL)))
                     ORDER BY ID""",json.dumps([r[0] for r in group]),payload.TargetStage).fetchone()
                 if incomplete:raise HTTPException(422,'Complete packaging type, units and calculated MOQ for request item '+str(incomplete[0])+'. No family stages were changed.')
+            if not assignment and payload.TargetStage in ('Pending Review','Approved'):
+                from container_loading import validate_saved_proposals
+                validate_saved_proposals(cur,[r[0] for r in group])
+                from packaging_layers import validate_saved_families
+                from pallet_capacity_api import validate_saved_pallets
+                validate_saved_families(cur,[r[0] for r in group])
+                validate_saved_pallets(cur,[r[0] for r in group],complete=True)
+                from floor_capacity_api import validate_saved_floor
+                validate_saved_floor(cur,[r[0] for r in group],complete=True)
             results=[]
             for row in group:
                 try:

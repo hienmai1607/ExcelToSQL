@@ -4,10 +4,10 @@ import {Modal,FieldLabel} from './ui';
 import {IconButton as ButtonIcon} from './icons';
 import {dimensionDisplay} from './response-dimensions';
 import {decimalDisplay} from './number-format';
-import {allowedContainerTypes,parseContainerProfiles} from './container-loading';
+import {allowedContainerTypes,parseContainerProfiles,containerTypes} from './container-loading';
 import {loadSections} from './packing-way';
 import {containerPlans,savedLoadPlan} from './load-plan-values';
-import {opportunityCurrency,costDisplay,quantityDisplay,quantity,multiply,divide,scaleCost,objectValue,loadPackagingSummary,type Cost,type ProductSummary,type PackagingSummary as Summary,type SummaryRow,type OpportunityCurrency} from './packaging-summary-model';
+import {opportunityCurrency,palletCost,containerFee,costDisplay,quantityDisplay,quantity,multiply,divide,scaleCost,objectValue,loadPackagingSummary,type Cost,type ProductSummary,type PackagingSummary as Summary,type SummaryRow,type OpportunityCurrency} from './packaging-summary-model';
 import './packaging-summary.css';
 
 const shown=(value:unknown,places=6)=>decimalDisplay(value,places)??'—';
@@ -34,13 +34,14 @@ function Layers({product,title,exchange,focus=false,allocated,label='Total packa
   })}</ol>}
  </section>;
 }
-function Logistics({summary,exchange}:{summary:Summary;exchange:OpportunityCurrency}){
+function Logistics({summary,exchange,commercial}:{summary:Summary;exchange:OpportunityCurrency;commercial:SummaryRow}){
  const price=(cost:Cost)=>costDisplay(cost,exchange);
  const root=summary.root.row,load=loadSections(root.ConfigurationRequest),profiles=parseContainerProfiles(root.ContainerLoadProfiles),results=objectValue(root.ContainerLoadResults);
  const plans=containerPlans(root.ContainerPlansJSON),selected=savedLoadPlan(root.LoadPlanJSON);
  if(selected?.Code&&!plans[selected.Code])plans[selected.Code]=selected;
  const cartons=quantity(root.CartonsPerLayer),layers=quantity(root.LayersPerPallet,true),cartonsPerPallet=cartons&&layers?multiply(cartons,layers):null;
- const containers=allowedContainerTypes(root.ResponseContainerFamily??root.ContainerRequest,root.ShipmentContainerSizeFT);
+ const proposed=Array.isArray(root.ProposedContainerTypes)?root.ProposedContainerTypes:Object.values(profiles).some(p=>p.Proposal!=null)?Object.keys(profiles).filter(code=>profiles[code].Proposal==='1'):null;
+ const containers=proposed==null?allowedContainerTypes(root.ResponseContainerFamily??root.ContainerRequest,root.ShipmentContainerSizeFT):containerTypes.filter(code=>proposed.includes(code));
  const branches=(floor:boolean)=><div className="summary-container-branches">{containers.map(kind=>{
   const plan=plans[kind],matchingPlan=plan?.Inputs.mode===(floor?'floor':'pallet')?plan:null;
   const profile=profiles[kind]??(root.SelectedContainerType===kind?{PalletsPerContainer:root.PalletsPerContainer==null?null:String(root.PalletsPerContainer),CartonsPerContainer:root.CalculatedCartonsPerContainer==null?null:String(root.CalculatedCartonsPerContainer)}:{});
@@ -55,6 +56,8 @@ function Logistics({summary,exchange}:{summary:Summary;exchange:OpportunityCurre
     <Detail label="Carton / Container" value={shown(displayedCartons)}/>
     <Detail label="Net weight / Container (kg)" value={shown(weight)}/>
     <Detail label="Packaging subtotal / Container" value={price(scaleCost(summary.root.total,quantity(displayedCartons,true)))}/>
+    <Detail label="Fobbing fee / Container" value={price(containerFee(commercial,'FobbingUSDPerContainer',exchange))} help="Opportunity Fobbing fee per container in USD, converted using Opportunity exchange rates. Shown separately from packaging subtotals."/>
+    <Detail label="Freight / Container" value={price(containerFee(commercial,'FreightUSDPerContainer',exchange))} help="Opportunity Freight per container in USD, converted using Opportunity exchange rates. Shown separately from packaging subtotals."/>
    </tbody></table>
   </article>;
  })}</div>;
@@ -67,7 +70,7 @@ function Logistics({summary,exchange}:{summary:Summary;exchange:OpportunityCurre
      <Detail label="Cartons / pallet" value={quantityDisplay(cartonsPerPallet)}/><Detail label="Pallet height (mm)" value={shown(root.PalletHeightMM)}/>
      <Detail label="Net weight / pallet (kg)" value={shown(root.NetWeightPerPalletKG)}/>
      <Detail label="Packaging subtotal / pallet" value={price(scaleCost(summary.root.total,cartonsPerPallet))}/>
-     <Detail label="Pallet cost" value="Not configured — excluded" help="Reserved for future Pallet Master pricing. An unset pallet cost is not treated as zero."/>
+     <Detail label="Pallet cost" value={root.PalletPricingJSON?price(palletCost(root,exchange)):'Not configured — excluded'} help="Saved pallet pricing per pallet, not today\'s master price. Captured USD is used when available; otherwise Opportunity exchange rates apply. Excluded from packaging subtotals."/>
     </tbody></table></article>{load.pallet&&<><div className="summary-edge">× Pallets / Container</div>{branches(false)}</>}</section>}
    {load.floor&&<section className="summary-loading-branch" aria-label="Container Load branch"><div className="summary-node summary-floor"><h3>Container Load</h3><p>× Last-layer cartons / Container</p></div><div className="summary-edge">Containers</div>{branches(true)}</section>}
   </div>
@@ -87,7 +90,7 @@ export function PackagingSummary({row,rows,opportunity,onClose}:{row:Row;rows:Ro
   <header className="customer-editor-heading"><div><h2>Packaging Summary</h2><p>{productName(root||row)} · {String(root?.PackagingRequestNumber||'No linked PCR')}</p></div><ButtonIcon icon="close" label="Close Packaging Summary" onClick={onClose}/></header>
   <div className="packaging-summary-body">
    {loading?<p role="status">Loading all linked PCR responses…</p>:error?<p role="alert">{error}</p>:summary&&<>
-    <p className="summary-disclaimer">Read-only PCR snapshot. Costs exclude pallet cost. Prices are shown in {exchange.currency||'the Opportunity customer currency'} using Opportunity exchange rates{exchange.currency&&exchange.currency!=='USD'?' with USD equivalents alongside':''}; monetary values are rounded to 2 decimals for display only.</p>
+    <p className="summary-disclaimer">Read-only summary of saved PCR packaging and Opportunity commercial costs. Packaging subtotals exclude pallet cost, Fobbing and Freight; these are shown separately. Prices are shown in {exchange.currency||'the Opportunity customer currency'} using Opportunity exchange rates{exchange.currency&&exchange.currency!=='USD'?' with USD equivalents alongside':''}; monetary values are rounded to 2 decimals for display only.</p>
     {summary.issues.length>0&&<div className="summary-warnings" role="status"><strong>Cost summary is incomplete.</strong><ul>{summary.issues.map(issue=><li key={issue}>{issue}</li>)}</ul></div>}
     <section className="summary-tree" aria-label="Packaging response tree">
      {summary.mix&&<><div className="summary-mix-children">{summary.children.map((child,index)=><div className="summary-child-branch" key={String(child.product.row.ProductID??index)}>
@@ -95,7 +98,7 @@ export function PackagingSummary({row,rows,opportunity,onClose}:{row:Row;rows:Ro
       <div className="summary-edge summary-mix-edge">{quantityDisplay(child.quantity)} × smallest product units <span>from captured Mix ratio</span>{child.quantity&&child.product.units&&<span>Equivalent to {quantityDisplay(divide(child.quantity,child.product.units))} × final child packages</span>}</div>
      </div>)}</div><div className="summary-mix-join" aria-hidden="true">↓</div></>}
      <Layers exchange={exchange} product={summary.root} title={(summary.mix?'Mix Product: ':'')+productName(summary.root.row)} allocated={summary.totalPerMix} label={summary.mix?'Total packaging / mix unit':'Total packaging / smallest unit'}/>
-     {summary.root.layers.length>0&&<Logistics summary={summary} exchange={exchange}/>}
+     {summary.root.layers.length>0&&<Logistics summary={summary} exchange={exchange} commercial={root||{}}/>}
     </section>
     <section className="summary-unit-costs" aria-label="Smallest unit packaging costs"><h3>Packaging cost / smallest product unit</h3>
      {summary.mix&&<p>Shared parent packaging is allocated equally per smallest unit: parent packaging cost / mix unit ÷ total captured child quantity.</p>}

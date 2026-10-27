@@ -47,7 +47,7 @@ export function TCBReview({rows,onClose,onSaved}:{rows:Row[];onClose:()=>void;on
  },[rows]);
  const changed=drafts.filter(d=>!d.readonly&&signature(d)!==d.baseline);
  const validationIssues=drafts.filter(d=>!d.readonly).flatMap(d=>{
-  const losses=lossFieldIssues(d.steps,processOptions(d.mix,d.layers)),grades=JSON.stringify(d.grades)!==d.baselineGrades?gradeError(d.grades):'';
+  const losses=lossFieldIssues(d.steps,processOptions(d.mix,d.layers,Number(d.row.PackagingLayerStart)||1)),grades=JSON.stringify(d.grades)!==d.baselineGrades?gradeError(d.grades):'';
   return [...losses.map(issue=>({field:issue.index<0?'Losses':'Loss:'+issue.index,message:issue.message})),...(grades?[{field:'Grades',message:grades}]:[]),...(commercialChanged(d)?tcbInputIssues(d):[])].map(issue=>({...issue,id:Number(d.row.ItemID),name:label(d)}));
  });
  const validation=validationIssues.length>0;

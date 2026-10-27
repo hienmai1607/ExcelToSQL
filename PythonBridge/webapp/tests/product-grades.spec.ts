@@ -536,3 +536,35 @@ test('material cards align to their source grade boxes across sibling rows',asyn
  await expect(dialog.getByLabel('Raw Material 0/3',{exact:true})).toBeVisible();
  await page.screenshot({path:'test-results/aligned-grade-materials.png',fullPage:true});
 });
+
+test('Level 1 offers only parentless grades and structure uses the available width',async({page})=>{
+ const {product}=await setup(page);
+ await page.route('**/products/7/grades',r=>r.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Draft',RowVersion:rv}],items:[{VersionID:3,ParentID:'0',ID:1,Grade:'Root',RawGradeID:gradeID('Root'),RatioPct:'100'}]}}));
+ await page.getByRole('button',{name:'Grades for product 7'}).click();
+ const dialog=page.getByRole('dialog',{name:'Product grades',exact:true});
+ const root=dialog.getByLabel('Grade 0/1',{exact:true});
+ await expect(root.locator('option[value="'+gradeID('Root')+'"]')).toBeEnabled();
+ await expect(root.locator('option[value="'+gradeID('Child')+'"]')).toHaveCount(0);
+ await dialog.getByRole('button',{name:'Add child grade to 0/1',exact:true}).click();
+ const child=dialog.getByLabel('Grade 0/1/1',{exact:true});
+ await expect(child.locator('option[value="'+gradeID('Child')+'"]')).toBeEnabled();
+ await expect(child.locator('option[value="'+gradeID('Root')+'"]')).toHaveCount(0);
+ for(const width of [1920,984,390]){
+  await page.setViewportSize({width,height:1080});
+  const box=await dialog.boundingBox();
+  expect(box!.width).toBeGreaterThan(width*.9);
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x+box!.width).toBeLessThanOrEqual(width);
+ }
+});
+
+test('a saved child grade at Level 1 must be reselected before saving',async({page})=>{
+ const {product}=await setup(page);
+ await page.route('**/products/7/grades',r=>r.fulfill({json:{product,versions:[{ID:3,Version:1,Status:'Draft',RowVersion:rv}],items:[{VersionID:3,ParentID:'0',ID:1,Grade:'Child',RawGradeID:gradeID('Child'),RatioPct:'100'}]}}));
+ await page.getByRole('button',{name:'Grades for product 7'}).click();
+ const dialog=page.getByRole('dialog',{name:'Product grades',exact:true});
+ await expect(dialog.getByLabel('Grade 0/1',{exact:true}).locator('option:checked')).toHaveAttribute('disabled','');
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('Level 1 grades must have no parent');
+ await expect(page.getByRole('dialog',{name:'Confirm grade save',exact:true})).toHaveCount(0);
+});

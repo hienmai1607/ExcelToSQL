@@ -4,8 +4,8 @@ from decimal import Decimal, InvalidOperation, localcontext
 from dimension_formula import area_formula, volume_formula, formula_variables
 from mix_efficiency import mix_totals
 
-ORDERS = ("Primary", "Secondary", "Tertiary")
-TYPE_FIELDS = ("FirstPMType", "SecondPMType", "ThirdPMType")
+ORDERS = ("Primary", "Secondary", "Tertiary", "Quaternary")
+TYPE_FIELDS = ("FirstPMType", "SecondPMType", "ThirdPMType", "FourthPMType")
 EFFICIENCY_FIELDS = {
     "PalletHeightMM", "CartonEfficiencyKGM3", "RelativeCartonEfficiencyPct",
     "PalletUtilizationPct", "PalletHeightEfficiencyPct",
@@ -50,7 +50,7 @@ def saved_geometry(row, snapshot):
     empty = {"AreaM2": None, "VolumeM3": None}
     try:
         data = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
-        if not isinstance(data, dict) or layers not in (1, 2, 3):
+        if not isinstance(data, dict) or layers not in (1, 2, 3, 4):
             return empty
         captured_layers = data.get("Context", {}).get("Request", {}).get("ConfirmedLayerCount")
         if (data.get("PackagingOrder") != ORDERS[layers-1]
@@ -95,7 +95,7 @@ def response_efficiency(row, packing, geometry, pallet_area_mm2):
     values = {key: None for key in EFFICIENCY_FIELDS}
     layers = row.get("ResponseLayerCount") or row.get("RequestedLayerCount") or 2
     last = decimal_value(packing.get(
-        ("PrimaryNetWeightGrams", "SecondaryNetWeightGrams", "TertiaryNetWeightGrams")[layers-1]), zero=True)
+        ("PrimaryNetWeightGrams", "SecondaryNetWeightGrams", "TertiaryNetWeightGrams", "QuaternaryNetWeightGrams")[layers-1]), zero=True)
     volume = decimal_value(geometry.get("VolumeM3"))
     area = decimal_value(geometry.get("AreaM2"))
     density = decimal_value(row.get("NutDensity"))

@@ -257,8 +257,8 @@ def preview_volume(payload: VolumeTest, ctx: AccessContext = Depends(get_access_
     if not sets[1] or not sets[1][0]['Shipping'] or sets[1][0]['Status']!='Active':
         return {'CubicMeters':None,'CalculationStatus':'Volume formula requires an active Shipping Packaging Type.'}
     active={u['ID'] for u in sets[0] if u['Status']=='Active' and u['Category']=='Length/Distance'}
-    if any(not getattr(payload,name) or getattr(payload,name+'UoMID') not in active for name in DIMENSIONS):
-        return {'CubicMeters':None,'CalculationStatus':'Shipping types require D1, D2 and D3 names and active units.'}
+    if any(not getattr(payload,name) or getattr(payload,name+'UoMID') not in active for name in ('D1','D3')) or any(getattr(payload,name) and getattr(payload,name+'UoMID') not in active for name in DIMENSIONS):
+        return {'CubicMeters':None,'CalculationStatus':'Shipping types require D1 and D3 names and active units; D2 is optional unless used in the formula.'}
     try:
         values={name:getattr(payload,'Test'+name) for name in formula_variables(payload.VolumeFormula)}
         return {'CubicMeters':str(volume_formula(payload.VolumeFormula,values)),'CalculationStatus':'Ready'}

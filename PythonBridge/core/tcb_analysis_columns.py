@@ -1,5 +1,6 @@
 """Read-only saved TCB Analysis values shared by Opportunity grid and workbook."""
 import json
+from pallet_currency import pallet_usd
 from decimal import Decimal, localcontext
 from fractions import Fraction as F
 from container_loading import container_types
@@ -94,9 +95,9 @@ def saved(row):
 
 def final_units(row):
     count = row.get("ResponseLayerCount")
-    if count not in (1,2,3): return None
+    if count not in (1,2,3,4): return None
     result = F(1)
-    for key in ("UnitsPerCarton","UnitsPerTertiary")[:count-1]:
+    for key in ("UnitsPerCarton","UnitsPerTertiary","UnitsPerQuaternary")[:count-1]:
         n = num(row.get(key))
         if n is None or n.denominator != 1: return None
         result *= n
@@ -107,7 +108,7 @@ def loss(inputs, field):
     if not isinstance(processes,list): return ratio(inputs, field)
     mapping = {"Sorting":"LossProductPct","Processing":"LossProductPct"}
     mapping.update({prefix+layer+"Packaging":prefix+layer+"LossPct"
-                    for prefix in ("","Mix") for layer in ("Primary","Secondary","Tertiary")})
+                    for prefix in ("","Mix") for layer in ("Primary","Secondary","Tertiary","Quaternary")})
     result = F(1)
     for step in processes:
         if not isinstance(step,dict): return None
@@ -119,12 +120,12 @@ def loss(inputs, field):
 
 def packaging(row, owner):
     count = row.get("ResponseLayerCount")
-    if count not in (1,2,3): return None
+    if count not in (1,2,3,4): return None
     inputs = obj(saved(row).get("Inputs"))
     total, units = F(0), F(1)
-    for i,layer in enumerate(("Primary","Secondary","Tertiary")[:count]):
+    for i,layer in enumerate(("Primary","Secondary","Tertiary","Quaternary")[:count]):
         if i:
-            n = num(row.get("UnitsPerCarton" if i == 1 else "UnitsPerTertiary"))
+            n = num(row.get(("UnitsPerCarton","UnitsPerTertiary","UnitsPerQuaternary")[i-1]))
             if n is None or n.denominator != 1: return None
             units *= n
         price = num(row.get(layer+"PricePerUnit"),True)
@@ -187,7 +188,7 @@ def add_tcb_columns(rows):
         parent_pm = per(packaging(root,root),total) if root.get("IsMixParent") else F(0)
         def container(key): return per(optional(shipping,key),container_units) if resolved else None
         def pallet(key): return per(optional(shipping,key),pallet_units) if resolved else None
-        pallet_price=root.get("DefaultPalletUSDPerEA") if "DefaultPalletUSDPerEA" in root else obj(root.get("PalletPricingJSON")).get("UnitUSDPrice") if "PalletPricingJSON" in root else inputs.get("PalletUSDPerEA")
+        pallet_price=root.get("DefaultPalletUSDPerEA") if "DefaultPalletUSDPerEA" in root else pallet_usd(root.get("PalletPricingJSON"),root) if "PalletPricingJSON" in root else inputs.get("PalletUSDPerEA")
         pallet_cost = None if not resolved else F(0) if mode=="Floor load" else per(num(pallet_price,True),pallet_units)
         currency = str(root.get("CustomerCurrencyCode") or "").upper()
         rate = F(1) if currency=="USD" else num(root.get("ExchangeRateVNDPerUSD" if currency=="VND" else "ExchangeRateCustomerCurrencyPerUSD")) if currency else None

@@ -1,13 +1,14 @@
 """Shared packaging-order membership and cumulative layer vocabulary."""
 import json
 
-ORDERS = ('Primary', 'Secondary', 'Tertiary')
-TYPE_FLAGS = {'Primary':'Primary','Secondary':'Secondary','Tertiary':'Tertiary','PrimaryMix':'Primary Mix','SecondaryMix':'Secondary Mix','TertiaryMix':'Tertiary Mix','Palletization':'Pallet'}
+ORDERS = ('Primary', 'Secondary', 'Tertiary', 'Quaternary')
+TYPE_FLAGS = {'Primary':'Primary','Secondary':'Secondary','Tertiary':'Tertiary','Quaternary':'Quaternary','Palletization':'Pallet'}
 TYPE_ORDERS = tuple(TYPE_FLAGS.values())
 RESPONSE_ORDER_FIELDS = (
     ('Primary', 'FirstPMType', 'FirstPMMOQ'),
     ('Secondary', 'SecondPMType', 'SecondPMMOQ'),
     ('Tertiary', 'ThirdPMType', 'ThirdPMMOQ'),
+    ('Quaternary', 'FourthPMType', 'FourthPMMOQ'),
 )
 
 

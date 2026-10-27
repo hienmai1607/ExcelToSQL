@@ -24,6 +24,8 @@ class PlanInput(BaseModel):
     pallet_kg: Decimal | None = Field(None, ge=0, le=100000, allow_inf_nan=False)
     max_pallet_height: Decimal | None = Field(None, gt=0, le=20000, decimal_places=3)
     pallet_payload_kg: Decimal | None = Field(None, gt=0, le=100000, allow_inf_nan=False)
+    pallet_max_gross_kg: Decimal | None = Field(None,gt=0,le=100000,allow_inf_nan=False)
+    layers_per_pallet: int | None = Field(None,gt=0,le=20000)
     cartons_per_layer: int | None = Field(None, gt=0, le=20000)
     container: Dimensions
     payload_kg: Decimal | None = Field(None, gt=0, le=1000000, allow_inf_nan=False)
@@ -73,6 +75,14 @@ def plan(p: PlanInput):
             cartons_per_pallet=limited
         if cartons_per_pallet and pallet_layer:
             pallet_layers=(cartons_per_pallet+len(pallet_layer)-1)//len(pallet_layer)
+        if p.pallet_max_gross_kg is not None:
+            from pallet_capacity import pallet_capacity
+            capacity=pallet_capacity(len(pallet_fit.positions()),int((max_height-p.pallet.height)//p.carton.height),
+                p.carton_kg,p.pallet_kg,p.pallet_max_gross_kg,p.cartons_per_layer,p.layers_per_pallet)
+            pallet_layer=pallet_fit.positions()[:capacity["cartons_per_layer"]]
+            pallet_layers=capacity["pallet_layers"];cartons_per_pallet=capacity["cartons_per_pallet"]
+        elif p.layers_per_pallet is not None:
+            raise ValueError("Manual Layers / pallet require a maintained pallet maximum gross payload.")
         loaded_height=p.pallet.height+pallet_layers*p.carton.height
         unit_length,unit_width=p.pallet.length,p.pallet.width
         unit_weight=(p.pallet_kg+p.carton_kg*cartons_per_pallet) if p.pallet_kg is not None and p.carton_kg is not None else None

@@ -1,13 +1,13 @@
 import {test,expect,type Page} from '@playwright/test';
 import {selectableType} from '../src/packaging-orders';
 const rv='AAAAAAAAAAE=';
-test('regular and Mix eligibility are independent for parents and child units',()=>{
+test('cumulative eligibility maps parent slots after the deepest child',()=>{
  const regular={PackagingOrders:['Primary'],Shipping:true};
- const mix={PackagingOrders:['Primary Mix'],Shipping:true};
+ const parent={PackagingOrders:['Tertiary','Quaternary'],Shipping:true};
  expect(selectableType(regular,'Primary',1,false,false)).toBe(true);
- expect(selectableType(regular,'Primary',1,false,true)).toBe(false);
- expect(selectableType(mix,'Primary',1,false,true)).toBe(true);
- expect(selectableType(mix,'Primary',1,true,false)).toBe(false);
+ expect(selectableType(regular,'Primary',1,false,true,3)).toBe(false);
+ expect(selectableType(parent,'Primary',2,false,true,3)).toBe(true);
+ expect(selectableType(parent,'Secondary',2,false,true,3)).toBe(true);
  expect(selectableType(regular,'Primary',1,true,false)).toBe(true);
 });
 
@@ -22,13 +22,13 @@ test('Palletization derives Single and root dimension copying without a separate
  expect(state.writes[0].rows[0]).toMatchObject({PackagingOrders:['Pallet'],CopyDim:true,FinalComponent:true,Shipping:false});
 });
 
-test('regular, Mix and logistics flags form three checkbox rows on desktop and mobile',async({page})=>{
+test('four canonical layer flags wrap cleanly with logistics on desktop and mobile',async({page})=>{
  await setup(page);await open(page);await page.getByRole('button',{name:'Edit packaging type 1',exact:true}).click();
  const form=page.getByRole('dialog',{name:'Edit packaging type',exact:true});
  await expect(form.getByRole('button',{name:'Add new Packaging Type master',exact:true})).toHaveCount(0);
  for(const width of [1920,390]){
   await page.setViewportSize({width,height:width===390?844:1080});
-  const rows=[['Primary order','Secondary order','Tertiary order'],['Primary Mix order','Secondary Mix order','Tertiary Mix order'],['Shipping','Palletization order','Single']];
+  const rows=width===390?[['Primary order','Secondary order'],['Tertiary order','Quaternary order'],['Shipping','Palletization order','Single']]:[['Primary order','Secondary order','Tertiary order','Quaternary order'],['Shipping','Palletization order','Single']];
   let previous=-1;
   for(const names of rows){
    const boxes=await Promise.all(names.map(name=>form.getByRole('checkbox',{name,exact:true}).boundingBox()));
@@ -51,14 +51,14 @@ test('root Single automatically sends CopyDim true',async({page})=>{
  expect(state.writes[0].rows[0]).toMatchObject({FinalComponent:true,CopyDim:true});
 });
 
-test('Mix-only layer selections save independently from regular layers',async({page})=>{
+test('Quaternary-only types save without retired Mix flags',async({page})=>{
  const state=await setup(page);await open(page);await page.getByRole('button',{name:'New packaging type',exact:true}).click();
  const form=page.getByRole('dialog',{name:'New packaging type',exact:true});
- await form.getByLabel('Packaging Type',{exact:true}).fill('Mix-only primary');
- await form.getByRole('checkbox',{name:'Primary Mix order',exact:true}).check();
+ await form.getByLabel('Packaging Type',{exact:true}).fill('Quaternary carton');
+ await form.getByRole('checkbox',{name:'Quaternary order',exact:true}).check();
  await expect(form.getByRole('checkbox',{name:'Primary order',exact:true})).not.toBeChecked();
  await form.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(state.writes[0].rows[0].PackagingOrders).toEqual(['Primary Mix']);
+ expect(state.writes[0].rows[0].PackagingOrders).toEqual(['Quaternary']);
 });
 
 test('Shipping is editable for roots and cleared when assigning a parent',async({page})=>{
@@ -107,7 +107,7 @@ test('Packaging maintains types without tare weight',async({page})=>{
  const state=await setup(page,'Packaging');await open(page);
  await expect(page.getByRole('cell',{name:'1,234.123',exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'New packaging type',exact:true}).click();
- await expect(page.getByRole('group',{name:'Packaging orders'}).getByRole('checkbox')).toHaveCount(7);
+ await expect(page.getByRole('group',{name:'Packaging orders'}).getByRole('checkbox')).toHaveCount(5);
  await expect(page.getByLabel('Price Basis',{exact:true})).toHaveCount(0);
  await page.getByRole('checkbox',{name:'Primary order',exact:true}).check();
  await expect(page.getByLabel('Tare weight (g)',{exact:true})).toHaveCount(0);
@@ -117,15 +117,16 @@ test('Packaging maintains types without tare weight',async({page})=>{
  expect(state.writes[0].rows[0]).toEqual({RowNum:1,Command:'C',ID:null,RowVersion:null,ParentTypeIDs:[],PackagingOrders:['Primary'],PackagingType:'Film',Shipping:false,FinalComponent:false,CopyDim:false});
 });
 
-test('one type can support all three orders and persist the selected set',async({page})=>{
+test('one type can support all four orders and persist the selected set',async({page})=>{
  const state=await setup(page);await open(page);await page.getByRole('button',{name:'Edit packaging type 1'}).click();
  await expect(page.getByRole('checkbox',{name:'Primary order',exact:true})).toBeChecked();
  await page.getByRole('checkbox',{name:'Secondary order',exact:true}).check();
  await page.getByRole('checkbox',{name:'Tertiary order',exact:true}).check();
+ await page.getByRole('checkbox',{name:'Quaternary order',exact:true}).check();
  await page.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('dialog')).toHaveCount(0);
- expect(state.writes[0].rows[0].PackagingOrders).toEqual(['Primary','Secondary','Tertiary']);
+ expect(state.writes[0].rows[0].PackagingOrders).toEqual(['Primary','Secondary','Tertiary','Quaternary']);
  expect(state.writes[0].rows[0]).not.toHaveProperty('PackagingOrder');
 });
 test('only layer selection and type name are required',async({page})=>{

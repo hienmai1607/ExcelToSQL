@@ -18,7 +18,7 @@ export const productFields=[
  ['SeasoningRatio','Seasoning/salt Ratio (%)'],['OilUSDPerLb','Oil ($/lbs)'],
  ['OilPct','Oil %'],['ProcessingUSDPerLb','Processing ($/lbs)']
 ] as const;
-export const defaultInputs=():TCBInputs=>({Prices:[],RMRatio:'100',SeasoningUSDPerLb:null,SeasoningRatio:'0',OilUSDPerLb:null,OilPct:'0',ProcessingUSDPerLb:'0',LossProductPct:'0',PrimaryLossPct:'0',SecondaryLossPct:'0',TertiaryLossPct:'0',MixPrimaryLossPct:'0',MixSecondaryLossPct:'0',MixTertiaryLossPct:'0',PalletUSDPerEA:null});
+export const defaultInputs=():TCBInputs=>({Prices:[],RMRatio:'100',SeasoningUSDPerLb:null,SeasoningRatio:'0',OilUSDPerLb:null,OilPct:'0',ProcessingUSDPerLb:'0',LossProductPct:'0',PrimaryLossPct:'0',SecondaryLossPct:'0',TertiaryLossPct:'0',QuaternaryLossPct:'0',MixPrimaryLossPct:'0',MixSecondaryLossPct:'0',MixTertiaryLossPct:'0',PalletUSDPerEA:null});
 const zero=()=>quantity('0',true)!;
 const hundred=quantity('100')!;
 export function materialRecipe(inputs:TCBInputs,path:string):Record<string,unknown>{
@@ -142,6 +142,14 @@ export function recipeRows(inputs:TCBInputs,items:GradeItem[],grades:TCBGrade[],
 export function palletizationValue(row:Row,inputs:TCBInputs):unknown{
  if(row.ParentItemID)return null;
  if('DefaultPalletUSDPerEA' in row)return row.DefaultPalletUSDPerEA;
- if('PalletPricingJSON' in row)return objectValue(row.PalletPricingJSON).UnitUSDPrice??null;
+ if('PalletPricingJSON' in row){
+  const snapshot=objectValue(row.PalletPricingJSON);if(snapshot.UnitUSDPrice!=null)return snapshot.UnitUSDPrice;
+  const price=quantity(snapshot.UnitPrice,true),currency=snapshot.CurrencyCode;
+  if(currency==='USD')return snapshot.UnitPrice??null;
+  const rate=quantity(currency==='VND'?row.ExchangeRateVNDPerUSD:currency&&currency===row.CustomerCurrencyCode?row.ExchangeRateCustomerCurrencyPerUSD:null);
+  if(!price||!rate)return null;
+  const value=divide(price,rate),scale=10n**24n,rounded=(value.n*scale+value.d/2n)/value.d;
+  return (String(rounded/scale)+'.'+String(rounded%scale).padStart(24,'0')).replace(/0+$/,'').replace(/[.]$/,'');
+ }
  return inputs.PalletUSDPerEA??null;
 }

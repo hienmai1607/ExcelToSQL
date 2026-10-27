@@ -62,6 +62,8 @@ from schemas import (
 app = FastAPI(title="Opportunity/Product Bridge API")
 from inline_master_api import router as inline_master_router
 app.include_router(inline_master_router)
+from pallet_capacity_api import router as pallet_capacity_router
+app.include_router(pallet_capacity_router)
 from local_ai_api import router as local_ai_router
 import local_ai_chat  # Register private conversation routes before including the router.
 app.include_router(local_ai_router)
@@ -86,8 +88,12 @@ app.include_router(unit_conversion_router)
 app.include_router(pallet_router)
 app.include_router(load_planning_router)
 app.include_router(pallet_pricing_router)
+from floor_capacity_api import router as floor_capacity_router
+app.include_router(floor_capacity_router)
 app.include_router(packaging_dimension_router)
 app.include_router(pkg_pricing_router)
+from packaging_reference_api import router as packaging_reference_router
+app.include_router(packaging_reference_router)
 app.include_router(packaging_type_router)
 app.include_router(raw_material_router)
 app.include_router(packaging_master_router)

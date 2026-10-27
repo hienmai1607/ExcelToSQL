@@ -57,7 +57,7 @@ function pct(cell:AnalysisCell,label:string){
 }
 export function productLossValue(d:Draft,tested?:string):Fraction|null{
  if(Array.isArray(d.costingInputs.ProcessLosses))return zero;
- if(lossError(d.steps,processOptions(d.mix,d.layers)))return null;
+ if(lossError(d.steps,processOptions(d.mix,d.layers,Number(d.row.PackagingLayerStart)||1)))return null;
  if(!d.formula)return lossTotals(d.steps).LossProductPct;
  if(tested!==undefined)return quantity(tested,true);
  const previous=JSON.parse(d.baseline);
@@ -65,23 +65,23 @@ export function productLossValue(d:Draft,tested?:string):Fraction|null{
 }
 function unitsPerFinal(row:Row){
  const count=Number(row.ResponseLayerCount);
- if(![1,2,3].includes(count))return null;
+ if(![1,2,3,4].includes(count))return null;
  let units=one;
- for(let i=1;i<count;i++){const next=quantity(row[i===1?'UnitsPerCarton':'UnitsPerTertiary']);if(!next||next.d!==1n)return null;units=multiply(units,next)}
+ for(let i=1;i<count;i++){const next=quantity(row[['UnitsPerCarton','UnitsPerTertiary','UnitsPerQuaternary'][i-1]]);if(!next||next.d!==1n)return null;units=multiply(units,next)}
  return units;
 }
 function packaging(d:Draft,owner:Row):AnalysisCell{
  const count=Number(d.row.ResponseLayerCount);
- if(![1,2,3].includes(count))return missing('No visible packaging response for '+d.row.ProductCode+'.');
+ if(![1,2,3,4].includes(count))return missing('No visible packaging response for '+d.row.ProductCode+'.');
  const steps=d.steps.filter(s=>s.ProcessType.endsWith('Packaging'));
- const error=lossError(steps,processOptions(d.mix,count));
+ const error=lossError(steps,processOptions(d.mix,count,Number(d.row.PackagingLayerStart)||1));
  if(error)return missing(error);
  const losses=lossTotals(steps);
  let units:Fraction|null=one;const cells:AnalysisCell[]=[];
  for(let i=0;i<count;i++){
-  if(i){const next=quantity(d.row[i===1?'UnitsPerCarton':'UnitsPerTertiary']);units=units&&next&&next.d===1n?multiply(units,next):null}
+  if(i){const next=quantity(d.row[['UnitsPerCarton','UnitsPerTertiary','UnitsPerQuaternary'][i-1]]);units=units&&next&&next.d===1n?multiply(units,next):null}
   const price=packagingUSD(d.row,i,owner);
-  const field=((d.mix?'Mix':'')+['Primary','Secondary','Tertiary'][i]+'LossPct') as keyof typeof losses;
+  const field=((d.mix?'Mix':'')+['Primary','Secondary','Tertiary','Quaternary'][i]+'LossPct') as keyof typeof losses;
   const loss=losses[field],yieldValue=loss?{n:100n*loss.d-loss.n,d:100n*loss.d}:null;
   cells.push(!yieldValue||yieldValue.n<=0n?missing('Packaging layer '+(i+1)+' loss must be below 100% for '+d.row.ProductCode+'.'):
    units&&price?good(divide(divide(price,yieldValue),units)):missing('Missing layer price, FX or contained-unit count for '+d.row.ProductCode+'.'));

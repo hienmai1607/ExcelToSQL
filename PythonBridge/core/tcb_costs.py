@@ -8,16 +8,16 @@ from grade_process_loss import GradeProcessLoss,process_loss_results
 Money = Annotated[Decimal, Field(ge=0, max_digits=19, decimal_places=6, allow_inf_nan=False)]
 Pct = Annotated[Decimal, Field(ge=0, le=100, max_digits=5, decimal_places=2, allow_inf_nan=False)]
 
-LOSS_FIELDS = ("LossProductPct","PrimaryLossPct","SecondaryLossPct","TertiaryLossPct",
+LOSS_FIELDS = ("LossProductPct","PrimaryLossPct","SecondaryLossPct","TertiaryLossPct","QuaternaryLossPct",
                "MixPrimaryLossPct","MixSecondaryLossPct","MixTertiaryLossPct")
 PROCESS_FIELDS = {"Sorting":"LossProductPct","Processing":"LossProductPct",
                   "PrimaryPackaging":"PrimaryLossPct","SecondaryPackaging":"SecondaryLossPct",
-                  "TertiaryPackaging":"TertiaryLossPct","MixPrimaryPackaging":"MixPrimaryLossPct",
+                  "TertiaryPackaging":"TertiaryLossPct","QuaternaryPackaging":"QuaternaryLossPct","MixPrimaryPackaging":"MixPrimaryLossPct",
                   "MixSecondaryPackaging":"MixSecondaryLossPct","MixTertiaryPackaging":"MixTertiaryLossPct"}
 DerivedPct = Annotated[Decimal, Field(ge=0, le=100, allow_inf_nan=False)]
 
 ProcessKind = Literal["Sorting","Processing","PrimaryPackaging","SecondaryPackaging",
-                      "TertiaryPackaging","MixPrimaryPackaging","MixSecondaryPackaging","MixTertiaryPackaging"]
+                      "TertiaryPackaging","QuaternaryPackaging","MixPrimaryPackaging","MixSecondaryPackaging","MixTertiaryPackaging"]
 
 class LossProcess(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -95,6 +95,7 @@ class Inputs(BaseModel):
     PrimaryLossPct: DerivedPct = Decimal(0)
     SecondaryLossPct: DerivedPct = Decimal(0)
     TertiaryLossPct: DerivedPct = Decimal(0)
+    QuaternaryLossPct: DerivedPct = Decimal(0)
     MixPrimaryLossPct: DerivedPct = Decimal(0)
     MixSecondaryLossPct: DerivedPct = Decimal(0)
     MixTertiaryLossPct: DerivedPct = Decimal(0)

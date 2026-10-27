@@ -24,10 +24,9 @@ for(const shipping of [false,true])test('Copy Dim. locks own material dimensions
  await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
  const calculator=page.getByRole('dialog',{name:'Primary Pricing Calculator',exact:true});
  await calculator.getByRole('button',{name:'Add PKG-Label price 1',exact:true}).click();
- await expect(calculator.getByLabel('Parent D1',{exact:true})).toHaveValue('250');
- await expect(calculator.getByLabel('Parent D2',{exact:true})).toHaveValue('150');
- await expect(calculator.getByLabel('Parent D1',{exact:true})).toBeDisabled();
- await expect(calculator.getByLabel('Parent dimension definition',{exact:true})).toBeDisabled();
+ await expect(calculator.getByLabel('Parent D1',{exact:true})).toHaveCount(0);
+ await expect(calculator.getByLabel('Parent dimension definition',{exact:true})).toHaveCount(0);
+ await expect(calculator.getByLabel('Copied final dimensions',{exact:true})).toContainText('250 mm × 150 mm');
  await expect(calculator.getByRole('button',{name:'Add PKG-Jar price 2',exact:true})).toBeDisabled();
  await calculator.getByRole('button',{name:'Calculate pricing',exact:true}).click();
  await expect(calculator.getByRole('button',{name:'Apply to response',exact:true})).toBeEnabled();
@@ -36,12 +35,31 @@ for(const shipping of [false,true])test('Copy Dim. locks own material dimensions
  await expect(calculator.getByRole('button',{name:'Add PKG-Jar price 2',exact:true})).toBeEnabled();
 });
 
+test('Copy Dim selects Diameter and Height material with no D2 measurement',async({page})=>{
+ const {editor,dialog,optionsData,previews}=await setup(page);
+ await dialog.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
+ Object.assign(optionsData.parentType,{CopyDim:true,FinalComponent:true,Shipping:true});
+ Object.assign(optionsData.dimensions[0],{D1Name:'Dia',D2Name:null,D3Name:'Height',D3Unit:'mm'});
+ Object.assign(optionsData.materials[1],{CopyDim:true,CopiedDimensions:{DimensionID:1,DimensionRowVersion:'AAAAAAAAAAE=',D1:'150',D2:null,D3:'500'}});
+ await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
+ const calculator=page.getByRole('dialog',{name:'Primary Pricing Calculator',exact:true});
+ await expect(calculator.getByRole('button',{name:'Add PKG-Jar price 2',exact:true})).toBeEnabled();
+ await calculator.getByRole('button',{name:'Add PKG-Jar price 2',exact:true}).click();
+ await expect(calculator.getByLabel('Copied final dimensions')).toContainText('150 mm × 500 mm');
+ await calculator.getByRole('button',{name:'Calculate pricing',exact:true}).click();
+ await expect(calculator.getByRole('button',{name:'Apply to response',exact:true})).toBeEnabled();
+ expect(previews[0]).toMatchObject({D1:'150',D2:null,D3:'500'});
+});
 test('pricing popup actions stay visible while content scrolls',async({page})=>{
  const {dialog}=await setup(page);
  const footer=dialog.locator('.pricing-calculator-actions'),before=await footer.boundingBox();
  await expect(footer.getByRole('button',{name:'Calculate pricing',exact:true})).toBeInViewport();
  await expect(footer.getByRole('button',{name:'Apply to response',exact:true})).toBeInViewport();
  await expect(footer.getByRole('button',{name:'Close',exact:true})).toBeInViewport();
+ await dialog.getByRole('button',{name:'Add PKG-Jar price 2',exact:true}).click();
+ await dialog.getByRole('button',{name:'Calculate pricing',exact:true}).click();
+ await expect(footer.getByRole('status')).toContainText('Unit packaging price');
+ await expect(dialog.locator('.pricing-calculator-body').getByRole('status')).toHaveCount(0);
  await dialog.locator('.pricing-calculator-body').evaluate(el=>el.scrollTop=el.scrollHeight);
  const after=await footer.boundingBox();
  expect(after!.y).toBeCloseTo(before!.y,1);
@@ -259,28 +277,22 @@ test('confirmed layers independently control Tertiary calculator and readonly to
  expect(writes[0].rows[0]).not.toHaveProperty('ThirdPMMOQ');
 });
 
-test('loads an editable reference and recalculates before applying',async({page})=>{
- const {dialog,editor,previews,writes}=await setup(page);
- await dialog.getByLabel('Pricing reference',{exact:true}).selectOption('8');
- await dialog.getByRole('button',{name:'Load reference',exact:true}).click();
- await expect(dialog.getByLabel('Component 1 quantity')).toHaveValue('2');
- await expect(dialog.getByRole('button',{name:'Apply to response',exact:true})).toBeDisabled();
- await dialog.getByLabel('Component 1 quantity').fill('3');
- await dialog.getByRole('button',{name:'Calculate pricing',exact:true}).click();
- expect(previews[0]).toMatchObject({ReferencePricingMasterID:8,components:[{Quantity:'3'}]});
- await dialog.getByRole('button',{name:'Apply to response',exact:true}).click();
- await editor.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(writes[0].rows[0].PricingCalculations[0].ReferencePricingMasterID).toBe(8);
+test('calculator no longer exposes reference or history controls',async({page})=>{
+ const {dialog}=await setup(page);
+ await expect(dialog.getByLabel('Pricing reference',{exact:true})).toHaveCount(0);
+ await expect(dialog.getByRole('button',{name:'Load reference',exact:true})).toHaveCount(0);
+ await expect(dialog.getByText(/Saved pricing snapshots/)).toHaveCount(0);
 });
 
-test('unavailable reference lines require explicit acknowledgement before calculation',async({page})=>{
- const {dialog,previews}=await setup(page);
- await page.route('**/pricing/references/8?**',route=>route.fulfill({json:{input:{PackagingOrder:'Primary',PackagingTypeID:1,SquareMeterUoMID:null,ReferencePricingMasterID:8,components:[{PriceID:1,PriceRowVersion:'AAAAAAAAAAE=',Quantity:'2',DimensionID:null,DimensionRowVersion:null,D1:null,D2:null,D3:null}]},warnings:[],unavailable:[{MaterialCode:'PKG-OLD',MaterialName:'Old jar',Reason:'No current effective price.'}]}}));
- await dialog.getByLabel('Pricing reference',{exact:true}).selectOption('8');await dialog.getByRole('button',{name:'Load reference'}).click();
- await expect(dialog.getByRole('alert')).toContainText('PKG-OLD');
- await expect(dialog.getByRole('button',{name:'Calculate pricing'})).toBeDisabled();
- await dialog.getByRole('button',{name:'Confirm omitted reference components'}).click();
- await dialog.getByRole('button',{name:'Calculate pricing'}).click();expect(previews).toHaveLength(1);
+test('copy reference is opened from the response header',async({page})=>{
+ const {dialog,editor}=await setup(page);
+ await dialog.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
+ await editor.getByRole('button',{name:'Copy reference for item 1',exact:true}).click();
+ const popup=page.getByRole('dialog',{name:'Copy reference',exact:true});
+ await expect(popup.getByLabel('Reference for all sections',{exact:true})).toBeVisible();
+ await popup.getByRole('button',{name:'Cancel',exact:true}).click();
+ await expect(popup).toHaveCount(0);
+ await expect(editor).toBeVisible();
 });
 
 test('area dimension labels come from master and raw measurements are sent for server calculation',async({page})=>{
@@ -468,19 +480,15 @@ test('only multiple dimension definitions use a dropdown',async({page})=>{
  expect(previews[0]).toMatchObject({DimensionID:2,D1:'100',D2:'80'});
 });
 
-test('loaded reference preserves previous component price after a vendor price replacement',async({page})=>{
- const {dialog}=await setup(page);
- await page.route('**/pricing/references/8?**',route=>route.fulfill({json:{
-  input:{PackagingOrder:'Primary',PackagingTypeID:1,SquareMeterUoMID:null,ReferencePricingMasterID:8,components:[{PriceID:1,PriceRowVersion:'AAAAAAAAAAE=',Quantity:'2',DimensionID:null,DimensionRowVersion:null,D1:null,D2:null,D3:null}]},
-  warnings:[],unavailable:[],componentSnapshot:{ID:8,CreatedAt:'2026-10-01'},
-  previousComponents:[{PriceID:100,CurrentPriceID:1,ProductUnitPrice:'16000',CurrencyCode:'VND',ProductMOQ:'2500',Quantity:'2'}]}}));
- await dialog.getByLabel('Pricing reference',{exact:true}).selectOption('8');await dialog.getByRole('button',{name:'Load reference',exact:true}).click();
+test('saved component history remains visible after vendor price replacement',async({page})=>{
+ const {dialog,editor,optionsData}=await setup(page);
+ await dialog.getByRole('button',{name:'Close pricing calculator',exact:true}).click();
+ optionsData.savedComponents=[{PriceID:100,CurrentPriceID:1,ProductUnitPrice:'16000',CurrencyCode:'VND',ProductMOQ:'2500',Quantity:'2'}];
+ optionsData.componentSnapshot={ID:8,CreatedAt:'2026-10-01'};
+ await editor.getByRole('button',{name:'Primary Pricing Calculator',exact:true}).click();
+ await dialog.getByRole('button',{name:'Add PKG-Label price 1',exact:true}).click();
  await expect(dialog.getByLabel('Component 1 previous calculation')).toContainText('16,000 VND / packaging unit');
  await expect(dialog.getByLabel('Component 1 previous calculation')).toContainText('Saved pricing #8');
- await expect(dialog.getByLabel('Parent dimension definition')).toHaveValue('1');
- await dialog.getByLabel('Component 1 quantity').fill('3');
- await expect(dialog.getByLabel('Component 1 previous calculation')).toContainText('Quantity: 2');
- await expect(dialog.getByRole('button',{name:'Apply to response',exact:true})).toBeDisabled();
 });
 
 test('secondary calculated price and MOQ are readonly, saved with calculator and restored from response',async({page})=>{

@@ -60,7 +60,7 @@ export function responseEfficiency(netWeight:unknown,values:Record<string,string
  const layers=layerCount(values.ResponseLayerCount),height=value(values.HeightMM);
  const palletCount=count(palletLayers(values),true),maximum=value(values.ResponseMaxPalletHeightMM);
  let last=value(values.ApplicableNetWeightGrams||netWeight,true);
- for(const key of ['UnitsPerCarton','UnitsPerTertiary'].slice(0,layers-1)){
+ for(const key of ['UnitsPerCarton','UnitsPerTertiary','UnitsPerQuaternary'].slice(0,layers-1)){
   const units=count(values[key]);last=last&&units?multiply(last,units):null;
  }
  const volume=value(geometry.VolumeM3),area=value(geometry.AreaM2),density=value(values.NutDensity);

@@ -10,11 +10,11 @@ from business_deletion_api import quote, row_dict, Target, editable
 
 router=APIRouter(prefix="/api/inline-masters",tags=["Inline master editing"])
 # No request text reaches an identifier or procedure name.
-TABLES={"customers":"Customer","products":"Product","categories":"ProductCategory",
+TABLES={"prices":"PackagingPrice","customers":"Customer","products":"Product","categories":"ProductCategory",
  "materials":"PackagingMaterial","raw-materials":"RawMaterial","raw-prices":"RawMaterialPrice",
  "vendors":"Vendor","raw-grades":"RawGrade","packaging-types":"PackagingType",
  "packaging-dimensions":"PackagingDimension","pallets":"Pallet","ports":"PortOfEntry"}
-LOCKS={"raw-materials":("GradeID",),"raw-prices":("MaterialID",),"materials":("PackagingTypeID",),
+LOCKS={"prices":("MaterialID",),"raw-materials":("GradeID",),"raw-prices":("MaterialID",),"materials":("PackagingTypeID",),
  "products":("CustomerID",),"raw-grades":("ParentGradeID",),"packaging-dimensions":("PackagingTypeID",),
  "packaging-types":("ParentTypeIDs",),
  "ports":("CustomerID","MarketID")}
@@ -91,6 +91,9 @@ def write(entity,payload,ctx):
  if entity=="raw-prices":
   from raw_material_api import PriceBatch,price_save
   return price_save(PriceBatch.model_validate(payload),ctx)
+ if entity=="prices":
+  from packaging_api import PackagingPriceBatch,price_save
+  return price_save(PackagingPriceBatch.model_validate(payload),ctx)
  if entity=="materials":
   from packaging_api import MaterialBatch,material_save
   return material_save(MaterialBatch.model_validate(payload),ctx)

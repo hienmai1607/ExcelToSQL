@@ -131,9 +131,10 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             stage_request.SubmittedAt AS _StageSubmittedAt,stage_request.ReviewedAt AS _StageReviewedAt,
             CASE WHEN @CanReadDraft=1 OR stage_request.Stage IN('Approved','Canceled') THEN stage_request.ManagerComment END AS _StageReason,
             x.Category,x.Grade,x.MixRatioPct,logistics.PalletSize,logistics.PalletStacking,logistics.MaxPalletHeightM,logistics.ContainerRequest,logistics.ConfigurationRequest,x.PackagingType,x.RecyclableRequirement,x.RecycledContent,x.Transparency,x.MetalizedAluminum,p.ShelfLifeDays,x.SpecialComments,
-            i.PrimaryTypeID,i.SecondaryTypeID,i.SecondaryTransparency,i.NumberOfPrimary,i.PackagingLayerCount,i.PackagingLayerCount RequestedLayerCount,i.TertiaryTypeID,i.TertiaryTransparency,i.NumberOfSecondary,
-            port_entry.PortName AS PortOfEntryName,logistics.ShipmentCostInfo,i.ShipmentCostInfo AS OwnShipmentCostInfo,logistics.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,
+            dbo.fn_OpportunityPackagingLayerStart(i.ID) PackagingLayerStart,dbo.fn_OpportunityPackagingLayerStart(i.ID) RequestedPackagingLayerStart,i.QuaternaryTypeID,i.QuaternaryTransparency,i.NumberOfTertiary,i.PrimaryTypeID,i.SecondaryTypeID,i.SecondaryTransparency,i.NumberOfPrimary,i.PackagingLayerCount,i.PackagingLayerCount RequestedLayerCount,i.TertiaryTypeID,i.TertiaryTransparency,i.NumberOfSecondary,
+            port_entry.PortName AS PortOfEntryName,logistics.ShipmentCostInfo,i.ShipmentCostInfo AS OwnShipmentCostInfo,logistics.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,i.QuaternaryRecyclableRequirement,i.QuaternaryRecycledContent,i.QuaternaryMetalizedAluminum,i.QuaternarySpecialComments,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.TertiaryTypeID) AS TertiaryTypeName,
+            (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.QuaternaryTypeID) AS QuaternaryTypeName,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.PrimaryTypeID) AS PrimaryTypeName,
             (SELECT PackagingType FROM dbo.PackagingType WHERE ID=i.SecondaryTypeID) AS SecondaryTypeName,
             x.PackagingRequestID,x.PackagingRequestItemID,x.PackagingRequestNumber,x.PackagingResponseStage,
@@ -152,8 +153,11 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ResponseMaxPalletHeightMM END ResponseMaxPalletHeightMM,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.HeightMM END HeightMM,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ThirdPMType END ThirdPMType,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.FourthPMType END FourthPMType,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.ThirdPMMOQ END ThirdPMMOQ,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.FourthPMMOQ END FourthPMMOQ,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.UnitsPerTertiary END UnitsPerTertiary,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.UnitsPerQuaternary END UnitsPerQuaternary,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.NutDensity END NutDensity,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.UsedVolumeML END UsedVolumeML,
             response.ProductMixSnapshot,response.ShipmentContainerSizeFT,
@@ -164,6 +168,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
                 child.RequestedLayerCount,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerCarton END UnitsPerCarton,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerTertiary END UnitsPerTertiary,
+                CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN child.UnitsPerQuaternary END UnitsPerQuaternary,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN {layer_sql('child')} END LayerTareJSON,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN COALESCE(child.ApplicableNetWeightGrams,child.WeightGrams) END ApplicableNetWeightGrams,
                 CASE WHEN @CanReadDraft=1 OR child.Stage='Approved' THEN CONVERT(VARCHAR(40),child.NutDensity) END NutDensity
@@ -178,13 +183,16 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN secondary_pricing.UnitPrice END SecondaryPricePerUnit,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN secondary_pricing.CurrencyCode END SecondaryPriceCurrencyCode,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN tertiary_pricing.UnitPrice END TertiaryPricePerUnit,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN quaternary_pricing.UnitPrice END QuaternaryPricePerUnit,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN tertiary_pricing.CurrencyCode END TertiaryPriceCurrencyCode,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN quaternary_pricing.CurrencyCode END QuaternaryPriceCurrencyCode,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN primary_pricing.SnapshotJSON END PrimaryLayerPricingSnapshot,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN secondary_pricing.SnapshotJSON END SecondaryLayerPricingSnapshot,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN tertiary_pricing.SnapshotJSON END TertiaryLayerPricingSnapshot,
+            CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN quaternary_pricing.SnapshotJSON END QuaternaryLayerPricingSnapshot,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN
               CASE COALESCE(response.ResponseLayerCount,response.RequestedLayerCount) WHEN 1 THEN primary_pricing.SnapshotJSON
-                WHEN 2 THEN secondary_pricing.SnapshotJSON ELSE tertiary_pricing.SnapshotJSON END END FinalLayerPricingSnapshot,
+                WHEN 2 THEN secondary_pricing.SnapshotJSON WHEN 3 THEN tertiary_pricing.SnapshotJSON ELSE quaternary_pricing.SnapshotJSON END END FinalLayerPricingSnapshot,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN efficiency_pallet.PalletAreaMM2 END EfficiencyPalletAreaMM2,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN 1 ELSE 0 END PackingWayVisible,
             CASE WHEN @CanReadDraft=1 OR x.PackagingResponseStage='Approved' THEN response.WeightGrams END PackingProductWeight,
@@ -213,6 +221,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         LEFT JOIN dbo.PkgPricingMaster primary_pricing ON primary_pricing.RequestItemID=response.ID AND primary_pricing.PackagingOrder='Primary' AND primary_pricing.IsCurrent=1
         LEFT JOIN dbo.PkgPricingMaster secondary_pricing ON secondary_pricing.RequestItemID=response.ID AND secondary_pricing.PackagingOrder='Secondary' AND secondary_pricing.IsCurrent=1
         LEFT JOIN dbo.PkgPricingMaster tertiary_pricing ON tertiary_pricing.RequestItemID=response.ID AND tertiary_pricing.PackagingOrder='Tertiary' AND tertiary_pricing.IsCurrent=1
+        LEFT JOIN dbo.PkgPricingMaster quaternary_pricing ON quaternary_pricing.RequestItemID=response.ID AND quaternary_pricing.PackagingOrder='Quaternary' AND quaternary_pricing.IsCurrent=1
         OUTER APPLY(SELECT TOP(1) p.PalletAreaMM2 FROM dbo.v_PalletSizeChoice p JOIN dbo.UoM u ON u.ID=p.UoMID
           WHERE p.PalletSize=response.ResponsePalletSize AND p.Status='Active' AND u.Status='Active' ORDER BY p.ID) efficiency_pallet
         LEFT JOIN dbo.PackagingConfigurationRequestItem active_request
@@ -239,12 +248,14 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         weight=row.pop("PackingProductWeight",None)
         layers=row.pop("PackingRequestedLayers",None)
         configuration=row.pop("PackingConfiguration",None)
+        from container_loading import published_options
+        row.update(published_options(row))
         values=packing_way({**row,"WeightGrams":weight,"RequestedLayerCount":layers,"ConfigurationRequest":configuration})
         from container_loading import container_results
         values["ContainerLoadResults"]=container_results({**row,"WeightGrams":weight,"RequestedLayerCount":layers,"ConfigurationRequest":configuration})
         values.update(response_derived({**row,"RequestedLayerCount":layers}, values))
         row.pop("FinalLayerPricingSnapshot",None)
-        for order in ("Primary","Secondary","Tertiary"):
+        for order in ("Primary","Secondary","Tertiary","Quaternary"):
             row.pop(order+"LayerPricingSnapshot",None)
         row.pop("EfficiencyPalletAreaMM2",None)
         row.update(values if visible else {key:None for key in values})

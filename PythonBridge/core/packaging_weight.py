@@ -42,16 +42,16 @@ def mix_contents_gross(row):
         if 'CartonGrossWeightKG' in child:gross=number(child['CartonGrossWeightKG'],zero=True)
         else:
             grams=child.get('ApplicableNetWeightGrams') if child.get('ApplicableNetWeightGrams') is not None else child.get('WeightGrams')
-            net=dict(PrimaryNetWeightGrams=grams,NoOfPrimaryUnit=child.get('UnitsPerCarton'),NoOfSecondaryUnit=child.get('UnitsPerTertiary'))
+            net=dict(PrimaryNetWeightGrams=grams,NoOfPrimaryUnit=child.get('UnitsPerCarton'),NoOfSecondaryUnit=child.get('UnitsPerTertiary'),NoOfTertiaryUnit=child.get('UnitsPerQuaternary'))
             gross=number(gross_weights(child,net)['CartonGrossWeightKG'],zero=True)
         if gross is None:return None
         # Mix quantities count the smallest child product units, not its shipping
         # cartons. Allocate the child's outer packaging tare on that same basis.
         # Legacy precomputed child rows without a layer count describe one unit.
         layers=child.get('ResponseLayerCount') or child.get('RequestedLayerCount') or 1
-        if layers not in (1,2,3):return None
+        if layers not in (1,2,3,4):return None
         units=Decimal(1)
-        for field in ('UnitsPerCarton','UnitsPerTertiary')[:layers-1]:
+        for field in ('UnitsPerCarton','UnitsPerTertiary','UnitsPerQuaternary')[:layers-1]:
             factor=number(child.get(field))
             if factor is None or factor!=factor.to_integral_value() or factor>2147483647:return None
             units*=factor
@@ -66,14 +66,14 @@ def gross_weights(row, net):
     out={}; previous=None
     with localcontext() as ctx:
         ctx.prec=50
-        for index,order in enumerate(('Primary','Secondary','Tertiary')[:layers]):
+        for index,order in enumerate(('Primary','Secondary','Tertiary','Quaternary')[:layers]):
             tare=tares.get(order)
             own=Decimal(str(tare['KG'])) if isinstance(tare,dict) and tare.get('KG') is not None else None
             if index==0:
                 grams=net.get('PrimaryNetWeightGrams')
                 contents=mix_contents_gross(row) if row.get('IsMixParent') else Decimal(str(grams))/1000 if grams is not None else None
             else:
-                count=net.get('NoOfPrimaryUnit' if index==1 else 'NoOfSecondaryUnit')
+                count=net.get(('NoOfPrimaryUnit','NoOfSecondaryUnit','NoOfTertiaryUnit')[index-1])
                 contents=previous*Decimal(str(count)) if previous is not None and count is not None else None
             previous=contents+own if contents is not None and own is not None else None
             out[order+'TareWeightKG']=str(own) if own is not None else None
@@ -108,7 +108,7 @@ def layer_sql(alias):
     # Called only with static aliases from the read endpoints.
     return f"""(SELECT p.PackagingOrder,JSON_QUERY(p.SnapshotJSON,'$.Tare') Tare
       FROM dbo.PkgPricingMaster p WHERE p.RequestItemID={alias}.ID AND p.IsCurrent=1
-      AND p.PackagingTypeName=CASE p.PackagingOrder WHEN 'Primary' THEN {alias}.FirstPMType WHEN 'Secondary' THEN {alias}.SecondPMType ELSE {alias}.ThirdPMType END
+      AND p.PackagingTypeName=CASE p.PackagingOrder WHEN 'Primary' THEN {alias}.FirstPMType WHEN 'Secondary' THEN {alias}.SecondPMType WHEN 'Tertiary' THEN {alias}.ThirdPMType ELSE {alias}.FourthPMType END
       FOR JSON PATH)"""
 
 
@@ -119,7 +119,7 @@ def response_weights(cur, item_id):
     from pallet_pricing_api import snapshot_sql
     row['PalletPricingJSON']=select(cur,'SELECT '+snapshot_sql('i')+' Snapshot FROM dbo.PackagingConfigurationRequestItem i WHERE ID=?',item_id)[0][0]['Snapshot']
     if row.get('IsMixParent'):
-        row['MixResponseChildren']=select(cur,f'''SELECT (SELECT oi.ProductID,oi.MixUnitQuantity UnitQuantity,c.WeightGrams,c.ResponseLayerCount,c.RequestedLayerCount,c.UnitsPerCarton,c.UnitsPerTertiary,{layer_sql('c')} LayerTareJSON,COALESCE(c.ApplicableNetWeightGrams,c.WeightGrams) ApplicableNetWeightGrams
+        row['MixResponseChildren']=select(cur,f'''SELECT (SELECT oi.ProductID,oi.MixUnitQuantity UnitQuantity,c.WeightGrams,c.ResponseLayerCount,c.RequestedLayerCount,c.UnitsPerCarton,c.UnitsPerTertiary,c.UnitsPerQuaternary,{layer_sql('c')} LayerTareJSON,COALESCE(c.ApplicableNetWeightGrams,c.WeightGrams) ApplicableNetWeightGrams
             FROM dbo.PackagingConfigurationRequestItem c JOIN dbo.OpportunityItem oi ON oi.ID=c.OpportunityItemID
             WHERE c.RequestID=? AND oi.ParentItemID=? FOR JSON PATH,INCLUDE_NULL_VALUES) Children''',row['RequestID'],row['OpportunityItemID'])[0][0]['Children']
     return packing_way(row)

@@ -1,4 +1,12 @@
 /* Compact desktop headings and Opportunity entry rows; narrow layouts still wrap. */
+/* Four-layer forms keep usable dropdown widths without horizontal scrolling. */
+.response-sections .packaging-layer-sections[data-layers="4"],
+.response-sections .packing-way-grid[data-layers="4"],
+.packaging-request-layers[data-layers="4"],
+.opportunity-entry-dialog .packaging-request-layers[data-layers="4"]{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:1200px){
+ .response-sections .packaging-layer-sections[data-layers="4"],.response-sections .packing-way-grid[data-layers="4"],.packaging-request-layers[data-layers="4"],.opportunity-entry-dialog .packaging-request-layers[data-layers="4"]{grid-template-columns:1fr}
+}
 @media(min-width:900px){
  .customers-page{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:20px;align-content:start;align-items:start}
  .customers-page>*{grid-column:1/-1;min-width:0}

@@ -2,7 +2,7 @@
 import json
 from decimal import Decimal
 from fastapi import APIRouter,Depends,HTTPException
-from pydantic import BaseModel,Field,ConfigDict
+from pallet_pricing_models import Component,Selection
 from auth import AccessContext,get_access_context
 from pkg_pricing_api import api_cursor,authorize,select,document,encode
 from packaging_api import rv
@@ -11,22 +11,6 @@ from packaging_weight import material_tare
 from workspace_access import can_edit
 
 router=APIRouter(prefix='/api/pallet-pricing',tags=['Pallet pricing'])
-
-class Component(BaseModel):
-    model_config=ConfigDict(extra='forbid')
-    PriceID:int=Field(ge=1)
-    RowVersion:str
-    MaterialRowVersion:str
-    Quantity:Decimal=Field(gt=0,le=100000,decimal_places=6,allow_inf_nan=False)
-    AreaM2:Decimal|None=Field(None,gt=0,le=100000,decimal_places=9,allow_inf_nan=False)
-
-class Selection(BaseModel):
-    model_config=ConfigDict(extra='forbid')
-    PalletSize:str=Field(max_length=100)
-    components:list[Component]=Field(min_length=1,max_length=30)
-    ItemRowVersion:str|None=None
-    PalletMaterialID:int|None=Field(None,ge=1)
-
 
 @router.get('/pallets')
 def pallet_choices(ctx:AccessContext=Depends(get_access_context)):
@@ -37,15 +21,15 @@ def pallet_choices(ctx:AccessContext=Depends(get_access_context)):
         for row in pallet_prices_from_cursor(cur):
             dimensions=row['Dimensions']
             choices[row['MaterialID']]=dict(ID=row['MaterialID'],MaterialCode=row['MaterialCode'],MaterialName=row['MaterialName'],
-                PalletSize=format(Decimal(dimensions['length']).normalize(),'f')+'x'+format(Decimal(dimensions['width']).normalize(),'f')+'mm',Dimensions=dimensions)
+                TareKG=material_tare(row.get('TareWeight'),row.get('TareWeightBasis'),1,Decimal(dimensions['length'])*Decimal(dimensions['width'])/1000000),MaxPayloadKG=row.get('MaxPayloadKG'),PalletSize=format(Decimal(dimensions['length']).normalize(),'f')+'x'+format(Decimal(dimensions['width']).normalize(),'f')+'mm',Dimensions=dimensions)
         return {'rows':list(choices.values())}
 
 def catalog(cur):
     bases=pallet_prices_from_cursor(cur)
     base_ids={p['ID'] for p in bases}
     rows=select(cur,"""SELECT p.ID,p.RowVersion,m.RowVersion MaterialRowVersion,m.ID MaterialID,m.MaterialCode,m.MaterialName,t.PackagingType,
-        m.TareWeight,m.TareWeightBasis,p.UnitPrice,p.UnitUSDPrice,p.PriceBasis,c.CurrencyCode,
-        p.QuantityFrom,p.QuantityTo,p.EffectiveFrom,p.EffectiveTo,v.VendorName,t.PackagingOrder
+        m.TareWeight,m.TareWeightBasis,m.MaxPayloadKG,p.UnitPrice,p.UnitUSDPrice,p.PriceBasis,c.CurrencyCode,
+        p.VendorID,p.CurrencyID,p.QuantityFrom,p.QuantityTo,p.EffectiveFrom,p.EffectiveTo,v.VendorName,t.PackagingOrder
         FROM dbo.PackagingPrice p WITH(HOLDLOCK) JOIN dbo.PackagingMaterial m WITH(HOLDLOCK) ON m.ID=p.MaterialID AND m.Status='Active'
         JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID AND t.Status='Active'
         JOIN dbo.Currency c ON c.ID=p.CurrencyID
@@ -97,7 +81,7 @@ def calculate(cur,body):
         else:usd+=Decimal(str(p['UnitUSDPrice']))*component.Quantity
         components.append({**p,'Quantity':str(component.Quantity),'AreaM2':str(area) if area is not None else None,'TareKG':str(kg) if kg is not None else None,'Cost':str(cost)})
     if base is None:raise HTTPException(422,'Choose one matching pallet material.')
-    return dict(PalletSize=body.PalletSize,PalletMaterialID=base['MaterialID'],Dimensions=base['Dimensions'],components=components,TareKG=None if missing else str(tare),
+    return dict(PalletSize=body.PalletSize,PalletMaterialID=base['MaterialID'],MaxPayloadKG=base.get('MaxPayloadKG'),Dimensions=base['Dimensions'],components=components,TareKG=None if missing else str(tare),
         MissingTare=missing,UnitPrice=str(total),CurrencyCode=currency,UnitUSDPrice=str(usd) if usd_known else None)
 
 @router.get('/items/{item_id}')

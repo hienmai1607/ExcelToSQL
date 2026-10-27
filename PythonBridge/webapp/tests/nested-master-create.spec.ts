@@ -66,7 +66,7 @@ test('selected Category switches to Edit and refreshes its renamed selection wit
   return route.fulfill({json:{row:state.categories[0]}});
  });
  const edit=parent.getByRole('button',{name:'Edit Category master',exact:true});
- await expect(edit.locator('.edit-master-mark')).toBeVisible();await edit.click();
+ await expect(edit.locator('svg')).toHaveCount(1);await expect(edit.locator('.edit-master-mark')).toHaveCount(0);await edit.click();
  const nested=page.getByRole('dialog',{name:'Edit Category',exact:true});
  await nested.getByLabel('Category name',{exact:true}).fill('Renamed nuts');await save(page,nested);
  await expect(nested).toHaveCount(0);await expect(parent.getByLabel('Category',{exact:true})).toHaveValue('Renamed nuts');
@@ -115,7 +115,10 @@ test('generic Raw Material edit locks its Grade and preserves the invoking grade
  await grades.getByRole('button',{name:'Add root grade',exact:true}).click();await grades.getByLabel('Grade 0/1',{exact:true}).selectOption('1');
  await grades.getByRole('button',{name:'Add child grade to 0/1',exact:true}).click();await grades.getByLabel('Grade 0/1/1',{exact:true}).selectOption('2');
  await grades.getByLabel('Raw Material 0/1/1',{exact:true}).selectOption('9');
- await grades.getByRole('button',{name:'Edit Raw Material master for 0/1/1',exact:true}).click();
+ const editButton=grades.getByRole('button',{name:'Edit Raw Material master for 0/1/1',exact:true});
+ await expect(editButton.locator('svg')).toHaveCount(1);
+ await expect(editButton.locator('.edit-master-mark')).toHaveCount(0);
+ await editButton.click();
  const edit=page.getByRole('dialog',{name:'Edit raw material',exact:true});
  await expect(edit.getByLabel('Grade',{exact:true})).toBeDisabled();await expect(edit.getByLabel('Grade',{exact:true})).toHaveValue('2');
  await edit.getByLabel('Material name',{exact:true}).fill('Edited raw nuts');await save(page,edit);

@@ -8,11 +8,18 @@ from shipment_fields import ShipmentCostInfo as ShipmentCostModel
 from fastapi import HTTPException
 from db import get_raw_cursor
 from typing import Literal
+from pallet_pricing_models import Selection as PalletCalculationInput
 
 ContainerType = Literal["20DC", "40DC", "40HC", "20RC", "40RHC"]
 
 class ContainerLoadProfile(BaseModel):
     model_config = {"extra": "forbid"}
+    Proposal: bool | None = Field(None,strict=True)
+    @field_validator('Proposal',mode='before')
+    @classmethod
+    def proposal_flag(cls,value):
+        if type(value) is not bool:raise ValueError('Proposal must be true or false.')
+        return value
     CartonsPerContainer: int | None = Field(None, ge=1, le=2147483647)
     LayersPerContainer: int | None = Field(None, ge=0, le=2147483647)
     PalletsPerContainer: int | None = Field(None, ge=0, le=2147483647)
@@ -52,7 +59,7 @@ WEB_ITEM_FIELDS = ["PrimaryTypeID", "SecondaryTypeID", "SecondaryTransparency", 
                   "PackagingLayerCount", "TertiaryTypeID", "TertiaryTransparency", "NumberOfSecondary"]
 WEB_ITEM_FIELDS += ["MaxPalletHeightMM","ProductGradeSnapshot","SecondaryRecyclableRequirement","SecondaryRecycledContent","SecondaryMetalizedAluminum","SecondarySpecialComments","TertiaryRecyclableRequirement","TertiaryRecycledContent","TertiaryMetalizedAluminum","TertiarySpecialComments"]
 PARENT_LOGISTICS_FIELDS.add("MaxPalletHeightMM")
-WEB_ITEM_FIELDS.append("ShipmentCostInfo")
+WEB_ITEM_FIELDS.extend(["ShipmentCostInfo","QuaternaryTypeID","QuaternaryTransparency","NumberOfTertiary","QuaternaryRecyclableRequirement","QuaternaryRecycledContent","QuaternaryMetalizedAluminum","QuaternarySpecialComments"])
 class ItemFields(BaseModel):
     NetWeightGrams: Decimal | None = Field(None, gt=0, max_digits=10, decimal_places=2, allow_inf_nan=False)
     RefreshProductWeight: bool = Field(False, strict=True)
@@ -75,7 +82,14 @@ class ItemFields(BaseModel):
     TertiaryRecycledContent: str | None = Field(None, max_length=200)
     TertiaryMetalizedAluminum: str | None = Field(None, max_length=100)
     TertiarySpecialComments: str | None = Field(None, max_length=1000)
-    PackagingLayerCount: int | None = Field(None,ge=1,le=3)
+    PackagingLayerCount: int | None = Field(None,ge=1,le=4)
+    QuaternaryTypeID: int | None = Field(None,ge=1,le=2147483647)
+    QuaternaryTransparency: str | None = Field(None,max_length=100)
+    NumberOfTertiary: int | None = Field(None,ge=1,le=2147483647)
+    QuaternaryRecyclableRequirement: str | None = Field(None,max_length=200)
+    QuaternaryRecycledContent: str | None = Field(None,max_length=200)
+    QuaternaryMetalizedAluminum: str | None = Field(None,max_length=100)
+    QuaternarySpecialComments: str | None = Field(None,max_length=1000)
     TertiaryTypeID: int | None = Field(None,ge=1,le=2147483647)
     TertiaryTransparency: str | None = Field(None,max_length=100)
     NumberOfSecondary: int | None = Field(None,ge=1,le=2147483647)
@@ -108,8 +122,21 @@ PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS = ["FirstPMType","SecondPMType","UnitsP
 WEB_RESPONSE_FIELDS = ["NutDensity","ResponseLayerCount","ThirdPMType","ThirdPMMOQ","UnitsPerTertiary",
                        "LayersPerContainer","PalletsPerContainer","CartonsPerContainerFloor",
                        "ResponsePalletSize","ResponsePalletStacking","ResponseMaxPalletHeightMM","HeightMM"]
-WEB_RESPONSE_FIELDS += ["ResponsePalletMaterialID","SelectedContainerType", "ContainerLoadProfiles", "SameConfig", "ApplicableNetWeightGrams"]
+WEB_RESPONSE_FIELDS += ["FourthPMType","FourthPMMOQ","UnitsPerQuaternary","ResponsePalletMaterialID","SelectedContainerType", "ContainerLoadProfiles", "SameConfig", "ApplicableNetWeightGrams"]
 class ResponseFields(BaseModel):
+    ReferenceSetupJSON: str | None = Field(None, max_length=200000)
+    ReviewNote: str | None = Field(None, max_length=1000)
+    PalletCalculation: PalletCalculationInput | None = None
+
+    @field_validator('ReferenceSetupJSON')
+    @classmethod
+    def reference_setup(cls, value):
+        if value is not None:
+            doc=json.loads(value)
+            if not isinstance(doc,dict) or len(doc)>5 or any(k not in ('Primary','Secondary','Tertiary','Quaternary','Palletization') for k in doc):
+                raise ValueError('Invalid reference sections.')
+        return value
+
     LoadPlanID: int | None = Field(None, ge=1)
     ContainerLoadPlanIDs: dict[int,int] | None = Field(None,max_length=100)
     PalletPricingID: int | None = Field(None, ge=1)
@@ -126,7 +153,10 @@ class ResponseFields(BaseModel):
     LayersPerContainer: int | None = Field(None, ge=0, le=2147483647)
     PalletsPerContainer: int | None = Field(None, ge=0, le=2147483647)
     CartonsPerContainerFloor: int | None = Field(None, ge=1, le=2147483647)
-    ResponseLayerCount: int | None = Field(None,ge=1,le=3)
+    ResponseLayerCount: int | None = Field(None,ge=1,le=4)
+    FourthPMType: str | None = Field(None,max_length=100)
+    FourthPMMOQ: Decimal | None = Field(None,max_digits=18,decimal_places=4,ge=0,allow_inf_nan=False)
+    UnitsPerQuaternary: int | None = Field(None,ge=1,le=2147483647)
     ThirdPMType: str | None = Field(None,max_length=100)
     ThirdPMMOQ: Decimal | None = Field(None,max_digits=18,decimal_places=4,ge=0,allow_inf_nan=False)
     UnitsPerTertiary: int | None = Field(None,ge=1,le=2147483647)
@@ -279,6 +309,9 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                         cursor.execute("SELECT RowVersion FROM dbo.OpportunityItem WHERE ID=?", result["NewID"])
                         result["NewRowVersion"] = cursor.fetchval()
                 sets[1].sort(key=lambda r:r["RowNum"])
+            if "OpportunityItem" in kinds:
+                from packaging_layers import validate_saved_families
+                validate_saved_families(cursor,[r["NewID"] for r in sets[kinds.index("OpportunityItem")] if r.get("NewID") and r.get("Status")=="OK"],requests=False)
             cursor.execute("COMMIT TRANSACTION")
             return sets
         except Exception as exc:
@@ -313,14 +346,18 @@ def enriched_response(payload, ctx):
             from mix_same_config import validate_group_batch
             validate_group_batch(cursor, payload.rows)
             dependencies=response_dependencies(cursor,[row.ID for row in payload.rows])
+            review_ids=[]
             for row in sorted(payload.rows, key=lambda r: r.ID):
-                cursor.execute("SELECT Cost,CurrencyID,CostBasis,FirstPMMOQ,FirstPMType,SecondPMMOQ,SecondPMType,ThirdPMMOQ,ThirdPMType,ResponseLayerCount,RequestedLayerCount,HeightMM,PICUserID,Stage,WidthMM,LengthMM FROM dbo.PackagingConfigurationRequestItem WITH(UPDLOCK,HOLDLOCK) WHERE ID=?", row.ID)
+                cursor.execute("SELECT Cost,CurrencyID,CostBasis,FirstPMMOQ,FirstPMType,SecondPMMOQ,SecondPMType,ThirdPMMOQ,ThirdPMType,ResponseLayerCount,RequestedLayerCount,HeightMM,PICUserID,Stage,WidthMM,LengthMM,FourthPMMOQ,FourthPMType FROM dbo.PackagingConfigurationRequestItem WITH(UPDLOCK,HOLDLOCK) WHERE ID=?", row.ID)
                 original = cursor.fetchone()
                 if original is None:
                     raise HTTPException(409, "Response item no longer exists. Refresh before saving.")
-                if not ctx.is_admin and original[12] != ctx.user_id:
+                reviewing=original[13]=="Pending Review" and ctx.can_manage_packaging
+                if reviewing:
+                    review_ids.append(row.ID)
+                if not reviewing and not ctx.is_admin and original[12] != ctx.user_id:
                     raise HTTPException(403, "Only the assigned PIC or Admin can edit this response.")
-                if original[13] not in ("Assigned", "Working", "Returned"):
+                if not reviewing and original[13] not in ("Assigned", "Working", "Returned"):
                     raise HTTPException(409, "This response stage is locked. Refresh before saving.")
                 if original is not None:
                     for field,value in zip(('WidthMM','LengthMM'),original[14:16]):
@@ -337,7 +374,7 @@ def enriched_response(payload, ctx):
                     if row.HeightMM is None and original[11] is None:
                         row=row.model_copy()
                         row.model_fields_set.discard('HeightMM')
-                    for level,(order,moq_field,type_field,index) in enumerate((('Primary','FirstPMMOQ','FirstPMType',3),('Secondary','SecondPMMOQ','SecondPMType',5),('Tertiary','ThirdPMMOQ','ThirdPMType',7)),1):
+                    for level,(order,moq_field,type_field,index) in enumerate((('Primary','FirstPMMOQ','FirstPMType',3),('Secondary','SecondPMMOQ','SecondPMType',5),('Tertiary','ThirdPMMOQ','ThirdPMType',7),('Quaternary','FourthPMMOQ','FourthPMType',16)),1):
                         calculation=next((p for p in row.PricingCalculations or [] if p.PackagingOrder==order),None)
                         if calculation and (level>layers or (calculation.LayerCount is not None and calculation.LayerCount!=layers)):
                             raise HTTPException(422,'Calculator order/layers must match the confirmed response layers.')
@@ -365,7 +402,12 @@ def enriched_response(payload, ctx):
                                 updates['HeightMM']=height
                                 documents_by_id[row.ID]['HeightMM']=str(height)
                         else:
-                            if moq_field in row.model_fields_set and getattr(row,moq_field)!=original[index]:
+                            copied=json.loads(row.ReferenceSetupJSON or '{}')
+                            from packaging_orders import ORDERS
+                            from packaging_layers import global_order,request_start
+                            copied_order=global_order(ORDERS[level-1],request_start(cursor,row.ID))
+                            clearing_copy=moq_field in row.model_fields_set and getattr(row,moq_field) is None and copied_order in copied
+                            if moq_field in row.model_fields_set and getattr(row,moq_field)!=original[index] and not clearing_copy:
                                 raise HTTPException(422,order+' MOQ unit is calculator-controlled. Apply a pricing calculation.')
                             if type_field in row.model_fields_set and getattr(row,type_field)!=original[index+1]:
                                 updates[moq_field]=None
@@ -388,10 +430,18 @@ def enriched_response(payload, ctx):
                 from db import bytes_to_b64
                 from pkg_pricing_api import save_calculations
                 save_calculations(cursor, ctx, row, saved["NewRowVersion"])
+                if "ReferenceSetupJSON" in row.model_fields_set:
+                    cursor.execute("UPDATE dbo.PackagingConfigurationRequestItem SET ReferenceSetupJSON=? WHERE ID=?",row.ReferenceSetupJSON,row.ID)
+                if row.PalletCalculation is not None:
+                    from pallet_pricing_api import calculate as calculate_pallet
+                    from pkg_pricing_api import document
+                    snapshot=calculate_pallet(cursor,row.PalletCalculation)
+                    identity=cursor.execute("INSERT dbo.PalletPricingSnapshot(ItemID,SnapshotJSON,CreatedBy) OUTPUT INSERTED.ID VALUES(?,?,?)",row.ID,document(snapshot),ctx.user_id).fetchval()
+                    row=row.model_copy(update={"PalletPricingID":identity})
                 from pallet_pricing_api import apply_selection
                 pallet_version=apply_selection(cursor,row)
                 if pallet_version is not None:saved["NewRowVersion"]=pallet_version
-                saved["NewRowVersion"]=bytes_to_b64(saved["NewRowVersion"])
+                saved["NewRowVersion"]=bytes_to_b64(cursor.execute("SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",row.ID).fetchval())
             # Child pricing/quantities must be saved before validating a parent's gross load.
             from response_load_plan import apply_plan
             invalidated=invalidate_changed_plans(cursor,dependencies,ctx.user_id)
@@ -404,8 +454,17 @@ def enriched_response(payload, ctx):
                     continue
                 plan_version=apply_plan(cursor,row,ctx.user_id)
                 if plan_version is not None:saved['NewRowVersion']=bytes_to_b64(plan_version)
+            from pallet_capacity_api import validate_saved_pallets
+            validate_saved_pallets(cursor,sorted(prepared))
+            from floor_capacity_api import validate_saved_floor
+            validate_saved_floor(cursor,sorted(prepared))
+            from packaging_layers import validate_saved_families
+            validate_saved_families(cursor,prepared)
             from grade_density import save_density_defaults
             save_density_defaults(cursor,ctx,payload.rows)
+            if review_ids:
+                from packaging_review import complete_review_families
+                complete_review_families(cursor,ctx,payload.rows,review_ids,result)
             if owns_transaction: cursor.execute("COMMIT TRANSACTION")
             return {"results":result}
         except Exception as exc:

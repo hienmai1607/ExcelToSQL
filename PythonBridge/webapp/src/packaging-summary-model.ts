@@ -1,7 +1,7 @@
 /** Read-only roll-up of one PCR. Never reads today's Material/Pallet Master prices. */
 import type {Row} from './api';
 import {decimalDisplay} from './number-format';
-import {responseOrderFields} from './packaging-orders';
+import {responseOrderFields,globalOrder,packagingStart} from './packaging-orders';
 import {capturedDimensions} from './response-dimensions';
 
 export type Fraction={n:bigint;d:bigint};
@@ -77,14 +77,32 @@ export function objectValue(value:unknown):SummaryRow{
  try{const result=typeof value==='string'?JSON.parse(value):value;return result&&typeof result==='object'&&!Array.isArray(result)?result as SummaryRow:{}}catch{return {}}
 }
 function unitCount(raw:unknown){const result=quantity(raw);return result&&result.d===1n?result:null}
+function usdCost(usd:Fraction,exchange:OpportunityCurrency,label:string):Cost{
+ const target=exchange.currency,rate=target==='USD'?one:quantity(target==='VND'?exchange.vndPerUSD:exchange.customerPerUSD);
+ return target&&rate?{amounts:{[target]:multiply(usd,rate)},complete:true,issues:[]}:unknownCost(label+': Opportunity exchange rate or customer currency is unavailable.');
+}
+/** Captured USD is authoritative; older local-only snapshots use Opportunity FX. */
+export function palletCost(row:SummaryRow,exchange:OpportunityCurrency):Cost{
+ const snapshot=objectValue(row.PalletPricingJSON),capturedUSD=quantity(snapshot.UnitUSDPrice,true);
+ if(capturedUSD)return usdCost(capturedUSD,exchange,'Pallet cost');
+ const amount=quantity(snapshot.UnitPrice,true),currency=String(snapshot.CurrencyCode??'').trim().toUpperCase();
+ if(!amount||!currency)return unknownCost('Pallet cost: saved pricing is unavailable.');
+ if(currency===exchange.currency)return {amounts:{[currency]:amount},complete:true,issues:[]};
+ const vndRate=quantity(exchange.vndPerUSD),usd=currency==='USD'?amount:currency==='VND'&&vndRate?divide(amount,vndRate):null;
+ return usd?usdCost(usd,exchange,'Pallet cost'):unknownCost('Pallet cost: Opportunity exchange rate or saved USD price is unavailable.');
+}
+export function containerFee(row:SummaryRow,field:'FobbingUSDPerContainer'|'FreightUSDPerContainer',exchange:OpportunityCurrency):Cost{
+ const shipping={...row,...objectValue(row.ShipmentCostInfo)},amount=quantity(shipping[field],true);
+ return amount?usdCost(amount,exchange,field==='FobbingUSDPerContainer'?'Fobbing fee':'Freight'):unknownCost('No maintained '+(field==='FobbingUSDPerContainer'?'Fobbing fee':'Freight')+' per container.');
+}
 export type PackagingLayer={order:string;type:string;weight:unknown;gross:Fraction|null;moq:unknown;dimensions:ReturnType<typeof capturedDimensions>;own:Cost;cumulative:Cost;units:Fraction|null;quantityFromPrevious:Fraction|null};
 export type ProductSummary={row:SummaryRow;layers:PackagingLayer[];ownPerUnit:Cost;total:Cost;units:Fraction|null};
 export function productSummary(row:SummaryRow,base=emptyCost(),exchange?:OpportunityCurrency):ProductSummary{
  const count=Number(row.ResponseLayerCount);
- if(row.ItemStage==='Canceled'||![1,2,3].includes(count))return {row,layers:[],ownPerUnit:unknownCost('Packaging response is missing or not visible.'),total:unknownCost('Packaging response is missing or not visible.'),units:null};
+ if(row.ItemStage==='Canceled'||![1,2,3,4].includes(count))return {row,layers:[],ownPerUnit:unknownCost('Packaging response is missing or not visible.'),total:unknownCost('Packaging response is missing or not visible.'),units:null};
  let units:Fraction|null=one,total=base,ownPerUnit=emptyCost();const layers:PackagingLayer[]=[];
  for(let index=0;index<count;index++){
-  const field=responseOrderFields[index],factor=index?unitCount(row[index===1?'UnitsPerCarton':'UnitsPerTertiary']):one;
+  const field=responseOrderFields[index],factor=index?unitCount(row[['UnitsPerCarton','UnitsPerTertiary','UnitsPerQuaternary'][index-1]]):one;
   if(index)units=units&&factor?multiply(units,factor):null;
   const own=layerCost(row,index,exchange);
   total=sumCosts(index?scaleCost(total,factor):total,own);
@@ -93,7 +111,7 @@ export function productSummary(row:SummaryRow,base=emptyCost(),exchange?:Opportu
   // Display only this PCR's active matching capture, never dimensions from another type.
   const dimensions=capture.PackagingTypeName===row[field.type]&&Array.isArray(capture.Dimensions)?capture.Dimensions as ReturnType<typeof capturedDimensions>:[];
   const gross=quantity(row[field.order+'GrossWeightKG'],true);
-  layers.push({order:field.order,type:String(row[field.type]||'—'),weight:row[field.order+'NetWeightGrams'],gross:gross?multiply(gross,{n:1000n,d:1n}):null,moq:row[field.moq],dimensions,own,cumulative:total,units,quantityFromPrevious:index?factor:null});
+  layers.push({order:globalOrder(field.order,packagingStart(row)),type:String(row[field.type]||'—'),weight:row[field.order+'NetWeightGrams'],gross:gross?multiply(gross,{n:1000n,d:1n}):null,moq:row[field.moq],dimensions,own,cumulative:total,units,quantityFromPrevious:index?factor:null});
  }
  return {row,layers,ownPerUnit,total,units};
 }

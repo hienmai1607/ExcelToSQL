@@ -21,6 +21,21 @@ class CopyDimensions(unittest.TestCase):
  def copied(self):return copied_geometry(self.root,self.price,{2:self.dim},self.units,lambda a,b:D(10))
  def test_copies_current_material_dimensions(self):
   target,values=self.copied();self.assertEqual(target["ID"],2);self.assertEqual(values,dict(D1=D(250),D2=D(150),D3=None))
+ def test_same_definition_uses_slots_even_with_duplicate_labels(self):
+  self.dim.update(D1Name="Dia",D2Name="Dia",D3Name="Height",D3UoMID=1)
+  self.price.update(MaterialD1=D(150),MaterialD2=D(1),MaterialD3=D(500))
+  _,values=self.copied()
+  self.assertEqual(values,dict(D1=D(150),D2=D(1),D3=D(500)))
+ def test_optional_d2_keeps_d3_in_its_original_slot(self):
+  self.dim.update(D1Name="Dia",D2Name=None,D2UoMID=None,D3Name="Height",D3UoMID=1)
+  self.price.update(MaterialD2=None,MaterialD3=D(500))
+  _,values=self.copied()
+  self.assertEqual(values,dict(D1=D(250),D2=None,D3=D(500)))
+ def test_distinct_definitions_still_reject_ambiguous_label_mapping(self):
+  source={**self.dim,"ID":4,"PackagingTypeID":5,"ParentDimensionID":2,"D1Name":"Length","D2Name":"Length"}
+  price={**self.price,"PackagingTypeID":5,"MaterialDimensionID":4}
+  with self.assertRaises(HTTPException):
+   copied_geometry(self.root,price,{2:self.dim,4:source},self.units,lambda a,b:D(10))
  def test_missing_measurement_and_stale_definition_rejected(self):
   for change in ({"MaterialD1":None},{"MaterialDimensionRowVersion":b"87654321"},{"MaterialDimensionID":99}):
    with self.subTest(change=change):

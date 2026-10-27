@@ -153,8 +153,8 @@ def transaction_choices(ctx,editable,packaging=False):
               "pallets":execute("EXEC dbo.usp_OpportunityPalletLookup_Read ?",[ctx.username])[0]}
     types=data.get("packagingTypes",[])
     from packaging_orders import ORDERS
-    for order,idkey,namekey in zip(ORDERS,("PrimaryTypeID","SecondaryTypeID","TertiaryTypeID"),("FirstPMType","SecondPMType","ThirdPMType")):
-        eligible=[r for r in types if r.get("Status","Active")=="Active" and r.get("ParentTypeID") is None and any(o in r.get("PackagingOrders",[]) for o in (order,order+" Mix"))]
+    for order,idkey,namekey in zip(ORDERS,("PrimaryTypeID","SecondaryTypeID","TertiaryTypeID","QuaternaryTypeID"),("FirstPMType","SecondPMType","ThirdPMType","FourthPMType")):
+        eligible=[r for r in types if r.get("Status","Active")=="Active" and r.get("ParentTypeID") is None and order in r.get("PackagingOrders",[])]
         if idkey in editable:choices[idkey]=[str(r["ID"]) for r in eligible]
         if namekey in editable:choices[namekey]=[r["PackagingType"] for r in eligible]
     if "PalletSize" in editable:choices["PalletSize"]=[r["PalletSize"] for r in data.get("pallets",[]) if r.get("Status","Active")=="Active" and r.get("PalletSize")]

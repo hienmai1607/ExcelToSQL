@@ -38,6 +38,7 @@ class MaterialRow(MasterRow):
 from material_dimensions import MaterialDimensionFields
 
 class PackagingMaterialRow(MaterialRow,MaterialDimensionFields):
+    MaxPayloadKG: Decimal | None = Field(None,gt=0,max_digits=18,decimal_places=3,allow_inf_nan=False)
     PackagingTypeID: int | None = Field(None, ge=1)
     TareWeight: Decimal | None = Field(None, ge=0, max_digits=18, decimal_places=9, allow_inf_nan=False)
     TareWeightBasis: Literal['kg/EA', 'kg/m2'] | None = None
@@ -81,7 +82,7 @@ class PriceRow(MasterRow):
     Status: Literal['Active', 'Block'] | None = None
 
 class ResponseRow(Input, ResponseFields):
-    PricingCalculations: list[Calculation] | None = Field(None, max_length=3)
+    PricingCalculations: list[Calculation] | None = Field(None, max_length=4)
 
     @field_validator('PricingCalculations')
     @classmethod
@@ -273,6 +274,17 @@ def material_save(payload: MaterialBatch, ctx: AccessContext = Depends(get_acces
                 if saved['Status']!='OK' or row.Command=='D':continue
                 from material_dimensions import save_dimensions
                 save_dimensions(cur,row,saved['NewID'])
+                kind=cur.execute('SELECT t.PackagingType FROM dbo.PackagingMaterial m JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID WHERE m.ID=?',saved['NewID']).fetchval()
+                if kind!='Pallet':cur.execute('UPDATE dbo.PackagingMaterial SET MaxPayloadKG=NULL WHERE ID=? AND MaxPayloadKG IS NOT NULL',saved['NewID'])
+                if 'MaxPayloadKG' in row.model_fields_set:
+                    if row.MaxPayloadKG is not None and kind!='Pallet':raise HTTPException(422,'Maximum gross payload applies only to Pallet materials.')
+                    cur.execute('UPDATE dbo.PackagingMaterial SET MaxPayloadKG=? WHERE ID=?',row.MaxPayloadKG,saved['NewID'])
+                if kind=='Pallet' and cur.execute('SELECT MaxPayloadKG FROM dbo.PackagingMaterial WHERE ID=?',saved['NewID']).fetchval() is None:raise HTTPException(422,'Maintain maximum gross payload (kg) for each Pallet material.')
+                if kind=='Pallet' and 'MaxPayloadKG' in row.model_fields_set:
+                    ids=[r[0] for r in cur.execute("SELECT i.ID FROM dbo.PackagingConfigurationRequestItem i JOIN dbo.PalletPricingSnapshot s ON s.ID=i.PalletPricingID WHERE i.ResponsePalletMaterialID=? OR TRY_CONVERT(INT,JSON_VALUE(s.SnapshotJSON,'$.PalletMaterialID'))=?",saved['NewID'],saved['NewID']).fetchall()]
+                    if ids:
+                        from pallet_capacity_api import validate_saved_pallets
+                        validate_saved_pallets(cur,ids)
                 if not ({'TareWeight','TareWeightBasis'} & row.model_fields_set):
                     saved['NewRowVersion']=cur.execute('SELECT RowVersion FROM dbo.PackagingMaterial WHERE ID=?',saved['NewID']).fetchval()
                     continue
@@ -336,7 +348,7 @@ def price_save(payload: PackagingPriceBatch, ctx: AccessContext = Depends(get_ac
 
 @router.post('/response/batch')
 def response_save(payload: ResponseBatch, ctx: AccessContext = Depends(get_access_context)):
-    require(ctx,'Packaging')
+    require(ctx,'Packaging','PackagingManager')
     if not ctx.is_admin and ctx.permissions is not None and ctx.permissions.get("requests") != "edit":
         raise HTTPException(403, "Packaging Request edit access is required.")
     return enriched_response(payload,ctx)

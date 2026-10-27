@@ -6,17 +6,22 @@ from container_loading import loading_profiles
 def prepare_loading_fields(cursor,row,fields):
  cursor.execute("""SELECT i.ConfigurationRequest,oi.ParentItemID,i.SelectedContainerType,
  i.ContainerLoadProfiles,i.CartonsPerContainer,i.CartonsPerContainerFloor,
- CASE WHEN EXISTS(SELECT 1 FROM dbo.OpportunityMixSnapshot WHERE ParentItemID=i.OpportunityItemID) THEN 1 ELSE 0 END
+ CASE WHEN EXISTS(SELECT 1 FROM dbo.OpportunityMixSnapshot WHERE ParentItemID=i.OpportunityItemID) THEN 1 ELSE 0 END,i.ContainerRequest,i.ShipmentContainerSizeFT
  FROM dbo.PackagingConfigurationRequestItem i JOIN dbo.OpportunityItem oi ON oi.ID=i.OpportunityItemID
  WHERE i.ID=?""",row.ID)
  original=cursor.fetchone()
  if original is None:return fields
- mode,child,selected,stored,manual,legacy,mix_parent=original
+ mode,child,selected,stored,manual,legacy,mix_parent,request,size=original
  if mix_parent and "ApplicableNetWeightGrams" in fields:
   raise HTTPException(422,"Mix parent Applicable Net weight is calculated from its children.")
  fields=dict(fields)
  profiles=loading_profiles(fields.get("ContainerLoadProfiles"))
  if child is not None:return fields
+ from container_loading import validate_requested_proposal
+ merged={k:dict(v) for k,v in loading_profiles(stored).items() if isinstance(v,dict)}
+ for code,profile in profiles.items():merged[code]={**merged.get(code,{}),**profile}
+ try:validate_requested_proposal(merged,request,size)
+ except ValueError as exc:raise HTTPException(422,str(exc)) from exc
  selected=fields.get("SelectedContainerType",selected)
  manual_mode=mode in ("Floor load","Both")
  for kind,profile in profiles.items():

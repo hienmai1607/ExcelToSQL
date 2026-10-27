@@ -20,8 +20,10 @@ def serial(value):
 
 def item_read(item_id, ctx):
     rows = execute(AUTH + """SELECT i.ID,i.RowVersion,i.ProductGradeSnapshot,i.TCBCostInfo,i.ProductLossSnapshot,i.ParentItemID,
-      i.Stage ItemStage,o.Stage HeaderStage,p.ProductCode,p.ProductName,i.ProductNetWeightGrams WeightGrams,CASE WHEN response.PalletPricingID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(ps.SnapshotJSON,'$.UnitUSDPrice')) FROM dbo.PalletPricingSnapshot ps WHERE ps.ID=response.PalletPricingID AND ps.ItemID=response.ID AND JSON_VALUE(ps.SnapshotJSON,'$.PalletSize')=response.ResponsePalletSize) WHEN response.LoadPlanID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(lp.Result,'$.PalletUnitUSDPrice')) FROM dbo.ContainerLoadPlan lp WHERE lp.ID=response.LoadPlanID AND lp.ItemID=response.ID) ELSE NULL END DefaultPalletUSDPerEA,
+      i.Stage ItemStage,o.Stage HeaderStage,o.ExchangeRateVNDPerUSD,o.ExchangeRateCustomerCurrencyPerUSD,(SELECT CurrencyCode FROM dbo.Currency WHERE ID=o.RateCustomerCurrencyID) CustomerCurrencyCode,p.ProductCode,p.ProductName,i.ProductNetWeightGrams WeightGrams,CASE WHEN response.PalletPricingID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(ps.SnapshotJSON,'$.UnitUSDPrice')) FROM dbo.PalletPricingSnapshot ps WHERE ps.ID=response.PalletPricingID AND ps.ItemID=response.ID AND JSON_VALUE(ps.SnapshotJSON,'$.PalletSize')=response.ResponsePalletSize) WHEN response.LoadPlanID IS NOT NULL THEN (SELECT TRY_CONVERT(DECIMAL(19,6),JSON_VALUE(lp.Result,'$.PalletUnitUSDPrice')) FROM dbo.ContainerLoadPlan lp WHERE lp.ID=response.LoadPlanID AND lp.ItemID=response.ID) ELSE NULL END DefaultPalletUSDPerEA,
+      (SELECT ps.SnapshotJSON FROM dbo.PalletPricingSnapshot ps WHERE ps.ID=response.PalletPricingID AND ps.ItemID=response.ID AND JSON_VALUE(ps.SnapshotJSON,'$.PalletSize')=response.ResponsePalletSize) PalletPricingJSON,
       COALESCE(response.ResponseLayerCount,response.RequestedLayerCount,i.PackagingLayerCount,1) LossLayerCount,
+      CASE WHEN response.ID IS NULL THEN dbo.fn_OpportunityPackagingLayerStart(i.ID) ELSE dbo.fn_RequestPackagingLayerStart(response.ID) END PackagingLayerStart,
       CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.OpportunityItem c WHERE c.ParentItemID=i.ID) THEN 1 ELSE 0 END AS BIT) IsMixParent,
       CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.PackagingConfigurationRequestItem active WHERE active.OpportunityItemID=i.ID AND active.IsOpen=1 AND active.Stage<>\'Canceled\') THEN 1 ELSE 0 END AS BIT) HasOpenPackagingRequest
       FROM dbo.OpportunityItem i JOIN dbo.Opportunity o ON o.ID=i.OpportunityID
@@ -32,7 +34,11 @@ def item_read(item_id, ctx):
       WHERE i.ID=?;""", [ctx.username,item_id])[0]
     if not rows:
         raise HTTPException(404, "Opportunity item not found.")
-    return rows[0]
+    row = rows[0]
+    if row.get('DefaultPalletUSDPerEA') is None:
+        from pallet_currency import pallet_usd
+        row['DefaultPalletUSDPerEA'] = pallet_usd(row.get('PalletPricingJSON'), row)
+    return row
 
 def current_prices(grade_leaves, ctx):
     grade_ids = list({i.get("RawGradeID") for i in grade_leaves if i.get("RawGradeID")})
@@ -194,7 +200,7 @@ def compute(item, inputs, ctx):
     apply_formula_variables(item,inputs)
     inputs.PalletUSDPerEA=palletization_usd(item)
     if inputs.LossProcesses is not None:
-        packaging = ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging"]
+        packaging = ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging","QuaternaryPackaging"]
         layer_count = int(item.get("LossLayerCount") or 1)
         allowed = {("Mix"+p if item["IsMixParent"] else p) for p in packaging[:layer_count]}
         if not item["IsMixParent"]:
@@ -260,7 +266,7 @@ def save_losses(body: LossSave,item_id: int = Path(ge=1),ctx: AccessContext=Depe
         raise HTTPException(422,"Submit item loss processes, including an empty list to remove all.")
     inputs=resolve_loss_assignments(item,Inputs(LossProcesses=body.Inputs.LossProcesses,ProductLossFormula=body.Inputs.ProductLossFormula),ctx)
     allowed={"Mix"+p if item["IsMixParent"] else p for p in
-             ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging"][:int(item.get("LossLayerCount") or 1)]}
+             ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging","QuaternaryPackaging"][:int(item.get("LossLayerCount") or 1)]}
     if not item["IsMixParent"]: allowed.update(("Sorting","Processing"))
     if any(step.ProcessType not in allowed for step in inputs.LossProcesses or []):
         raise HTTPException(422,"Loss process is not applicable to this item or packaging layer.")
@@ -331,7 +337,7 @@ def commercial_value(body,item,ctx,cursor):
         new["Prices"]=[]
     new["PalletUSDPerEA"]=palletization_usd(item)
     inputs=resolve_loss_assignments(item,Inputs(**new),ctx)
-    allowed={"Mix"+p if item["IsMixParent"] else p for p in ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging"][:int(item.get("LossLayerCount") or 1)]}
+    allowed={"Mix"+p if item["IsMixParent"] else p for p in ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging","QuaternaryPackaging"][:int(item.get("LossLayerCount") or 1)]}
     if not item["IsMixParent"]: allowed.update(("Sorting","Processing"))
     if any(s.ProcessType not in allowed for s in inputs.LossProcesses or []):
         raise HTTPException(422,"Loss process does not apply to this item or packaging layer.")

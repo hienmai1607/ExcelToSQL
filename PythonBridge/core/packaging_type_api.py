@@ -15,8 +15,8 @@ class PackagingTypeRow(MasterRow):
     Shipping: bool = Field(False, strict=True)
     FinalComponent: bool = Field(False, strict=True)
     CopyDim: bool = Field(False, strict=True)
-    PackagingOrder: Literal["Primary", "Secondary", "Tertiary", "Pallet"] | None = None
-    PackagingOrders: list[Literal["Primary", "Secondary", "Tertiary", "Primary Mix", "Secondary Mix", "Tertiary Mix", "Pallet"]] | None = Field(None,max_length=7)
+    PackagingOrder: Literal["Primary", "Secondary", "Tertiary", "Quaternary", "Pallet"] | None = None
+    PackagingOrders: list[Literal["Primary", "Secondary", "Tertiary", "Quaternary", "Pallet"]] | None = Field(None,max_length=5)
     PackagingType: str | None = Field(None, max_length=100)
     PriceBasis: Literal["Count", "Square meter", "Volume"] | None = None
     Status: Literal["Active", "Block"] | None = None

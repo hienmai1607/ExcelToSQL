@@ -1,3 +1,4 @@
+import type {ReactNode} from 'react';
 import type {PalletPricing} from './pallet-calculator';
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {call} from './api';
@@ -6,10 +7,11 @@ import {NumericInput} from './numeric-input';
 import {decimalDisplay} from './number-format';
 import {IconButton} from './icons';
 import {LoadScene,type Box3D} from './load-scene';
+import {FloorLoadScene} from './floor-load-scene';
 import type {ContainerRecord} from './container-master';
 type D={length:number;width:number;height:number};
 type Position={x:number;y:number;length:number;width:number};
-type Result={net_kg?:number|null;pallet_layer_capacity?:number;pallet_layer_upper_bound?:number;pallet_layout_optimal?:boolean;container_layer_capacity?:number;container_layer_upper_bound?:number;container_layout_optimal?:boolean;pallet_layer:Position[];pallet_layers:number;cartons_per_pallet:number;container_layer:Position[];loaded_units:number;floor_positions:number;cartons:number;loaded_unit_height:number;gross_kg:number|null;volume_percent:number;warnings:string[]};
+type Result={net_kg?:number|null;container_tiers?:number;pallet_layer_capacity?:number;pallet_layer_upper_bound?:number;pallet_layout_optimal?:boolean;container_layer_capacity?:number;container_layer_upper_bound?:number;container_layout_optimal?:boolean;pallet_layer:Position[];pallet_layers:number;cartons_per_pallet:number;container_layer:Position[];loaded_units:number;floor_positions:number;cartons:number;loaded_unit_height:number;gross_kg:number|null;volume_percent:number;warnings:string[]};
 type Inputs={cartons_per_layer?:number|null;weight_source?:'manual'|'response';mode:'pallet'|'floor';carton:D;carton_kg:number|null;pallet:D|null;pallet_kg:number|null;max_pallet_height:number|null;pallet_payload_kg:number|null;container:D;rotate:boolean;double_stack:boolean;stackable:boolean};
 type Preview={Inputs:Inputs;Result:Result};
 type CachedPreview={data?:Preview;error?:string};
@@ -17,7 +19,7 @@ function normalized(v:Inputs):Inputs{
  const dims=(d:D|null)=>d?Object.fromEntries(Object.entries(d).map(([k,n])=>[k,Number(n)])) as D:null;
  return {...v,carton:dims(v.carton)!,container:dims(v.container)!,pallet:dims(v.pallet)};
 }
-export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCode,responsePallet,palletAssembly,onConfirm,onClear,onClose}:{itemID:number;itemVersion:string;configuration:unknown;initial:Partial<Inputs>;initialCode?:string;responsePallet?:{cartons:number;grossKG:number|null;loadedHeight:number|null};palletAssembly?:PalletPricing|null;onConfirm?:(plan:unknown)=>void;onClear?:()=>void;onClose:()=>void}){
+export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCode,responsePallet,palletAssembly,onConfirm,onClear,onClose,floorPanel,floorActions,proposed=[],onProposal,floorProposed=[],requiredProposed=[]}:{requiredProposed?:string[];floorProposed?:string[];proposed?:string[];onProposal?:(code:string,checked:boolean,count?:string)=>void;floorPanel?:ReactNode|((modeControl:ReactNode)=>ReactNode);floorActions?:ReactNode;itemID:number;itemVersion:string;configuration:unknown;initial:Partial<Inputs>;initialCode?:string;responsePallet?:{cartons:number;grossKG:number|null;loadedHeight:number|null};palletAssembly?:PalletPricing|null;onConfirm?:(plan:unknown)=>void;onClear?:()=>void;onClose:()=>void}){
  const allowedModes:Inputs['mode'][]=configuration==='Both'?['pallet','floor']:configuration==='Floor load'?['floor']:['pallet'];
  const defaults:Inputs={weight_source:'response',carton:{length:0,width:0,height:0},carton_kg:null,pallet:{length:0,width:0,height:0},pallet_kg:null,max_pallet_height:null,pallet_payload_kg:null,container:{length:0,width:0,height:0},rotate:true,double_stack:false,stackable:false,...initial,mode:initial.mode&&allowedModes.includes(initial.mode)?initial.mode:allowedModes[0],...(palletAssembly?{pallet:Object.fromEntries(Object.entries(palletAssembly.Dimensions).map(([k,v])=>[k,Number(v)])) as D,pallet_kg:palletAssembly.TareKG==null?null:Number(palletAssembly.TareKG)}:{})};
 
@@ -27,11 +29,14 @@ export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCod
  const [error,setError]=useState(''),[lookupErrors,setLookupErrors]=useState<string[]>([]),[weightsLoaded,setWeightsLoaded]=useState(false),[busy,setBusy]=useState(false);
  const requestPending=useRef(false),attempted=useRef(new Set<string>()),capturedPlans=useRef<Record<string,unknown>>({}),lastApplied=useRef('');
  const onCapture=useRef(onConfirm);onCapture.current=onConfirm;
+ const proposalIntent=useRef<string|null>(null);
+ const mayAttach=(code:string,previewKey:string,previewMode:Inputs['mode'])=>proposalIntent.current===previewKey||!proposed.includes(code)||floorProposed.includes(code)===(previewMode==='floor');
  const container=containers.find(c=>String(c.ID)===containerID);
  const key=mode+':'+containerID,entry=previews[key];
  const inputs=useMemo(()=>entry?.data?normalized(entry.data.Inputs):{...base,mode,container:container?{length:Number(container.Specifications.length),width:Number(container.Specifications.width),height:Number(container.Specifications.height)}:base.container},[entry?.data,base,mode,container]);
  const result=entry?.data?.Result??null;
- const ready=weightsLoaded&&base.carton_kg!=null&&(mode==='floor'||!!palletAssembly&&!!base.cartons_per_layer&&!!base.max_pallet_height);
+ const customFloor=mode==='floor'&&!!floorPanel;
+ const ready=!customFloor&&weightsLoaded&&base.carton_kg!=null&&(mode==='floor'||!!palletAssembly&&!!base.max_pallet_height);
  useEffect(()=>{
   let active=true;
   async function lookup<T>(path:string,label:string,fallback:T):Promise<T>{
@@ -82,23 +87,24 @@ export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCod
    if(response.Inputs.mode!==mode)throw new Error('Loading mode does not match the request requirement. Refresh the viewer.');
    if(!response.ID)throw new Error('Confirmation returned no saved setup. Reopen the viewer before retrying.');
    const captured={...response,ContainerID:container.ID,Code:container.Code};
-   capturedPlans.current[key]=captured;lastApplied.current=key;onCapture.current?.(captured);
+   capturedPlans.current[key]=captured;
+   if(mayAttach(container.Code,key,mode)){lastApplied.current=key;proposalIntent.current=null;onCapture.current?.(captured)}
   }catch(e){
    const message=(e as Error).message;setError(message);setPreviews(v=>({...v,[key]:{error:message}}));
   }finally{requestPending.current=false;setBusy(false)}
  }
 
  useEffect(()=>{
-  if(!onConfirm||busy||!container||!entry?.data||!result||result.cartons<=0)return;
+  if(customFloor||!onConfirm||busy||!container||!entry?.data||!result||result.cartons<=0)return;
   const captured=capturedPlans.current[key];
-  if(captured){if(lastApplied.current!==key){lastApplied.current=key;onConfirm(captured)}return}
+  if(captured){if(mayAttach(container.Code,key,mode)&&(lastApplied.current!==key||proposalIntent.current===key)){lastApplied.current=key;proposalIntent.current=null;onConfirm(captured)}return}
   if(attempted.current.has(key))return;
   attempted.current.add(key);
   void confirmPreview();
  },[key,entry?.data,busy,onConfirm]);
  const boxes=useMemo(()=>{
-  if(!result)return [];const all:Box3D[]=[];
-  for(let n=0;n<Math.min(result.loaded_units,2501);n++){
+  if(!result||inputs.mode==='floor')return [];const all:Box3D[]=[];
+  for(let n=0;n<result.loaded_units;n++){
    const p=result.container_layer[n%result.container_layer.length];if(!p)break;
    const z=Math.floor(n/result.container_layer.length)*result.loaded_unit_height;
    if(inputs.mode==='pallet'&&inputs.pallet){all.push({...p,z,height:inputs.pallet.height,color:'#ab845b'});all.push({...p,z:z+inputs.pallet.height,height:result.loaded_unit_height-inputs.pallet.height,color:'#499d91'})}
@@ -112,9 +118,9 @@ export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCod
  const loadedHeight=result?.loaded_unit_height??responsePallet?.loadedHeight;
  const loadedDimensions=inputs.pallet&&inputs.pallet.length>0&&inputs.pallet.width>0&&loadedHeight!=null?[inputs.pallet.length,inputs.pallet.width,loadedHeight].map(v=>decimalDisplay(v,3)).join(' × '):'';
 
- return <Modal label="3D load planner" className="dialog record-dialog load-planner" onClose={()=>!busy&&onClose()}>
+ return <Modal label="3D load planner" className={'dialog record-dialog load-planner'+(customFloor?' floor-load-view':'')} onClose={()=>!busy&&onClose()}>
  <div className="customer-editor-heading"><h2>3D container load</h2><IconButton icon="close" label="Close load planner" disabled={busy} onClick={onClose}/></div>
- <ErrorNote value={[...lookupErrors,error||entry?.error].filter(Boolean).join(' ')}/><div className="load-planner-layout">
+ <ErrorNote value={customFloor?'':[...lookupErrors,error||entry?.error].filter(Boolean).join(' ')}/>{customFloor?(typeof floorPanel==='function'?floorPanel(<label>Loading mode<select aria-label="Loading mode" value={mode} disabled={allowedModes.length===1} onChange={e=>setMode(e.target.value as Inputs['mode'])}>{allowedModes.map(m=><option key={m} value={m}>{m==='pallet'?'Pallet loaded':'Floor-loaded cartons'}</option>)}</select></label>):floorPanel):<div className="load-planner-layout">
  <fieldset className="load-planner-controls" disabled={busy}><div className="load-two-columns">
  <label>Container type<select aria-label="Container type" value={containerID} onChange={e=>selectContainer(e.target.value)}><option value="">Choose container</option>{containers.map(c=><option key={c.ID} value={c.ID}>{c.Code}</option>)}</select></label>
  <label>Loading mode<select aria-label="Loading mode" value={mode} disabled={allowedModes.length===1} onChange={e=>{setMode(e.target.value as Inputs['mode']);setError('')}}>{allowedModes.map(m=><option key={m} value={m}>{m==='pallet'?'Pallet loaded':'Floor-loaded cartons'}</option>)}</select></label></div>
@@ -122,11 +128,11 @@ export function LoadPlanner({itemID,itemVersion,configuration,initial,initialCod
 
  <fieldset><legend>Final carton — from saved response</legend>{dimensions()}<label>Carton gross weight (kg)<input aria-label="Carton gross weight (kg)" readOnly value={decimalDisplay(inputs.carton_kg,3)??''}/></label>{weightsLoaded&&inputs.carton_kg==null&&<small role="status">Carton gross weight is unavailable. Save response quantities and material tare for every layer and child item.</small>}</fieldset>
  {inputs.mode==='pallet'&&<fieldset><legend>Palletization</legend><label>Gross weight / Pallet (kg)<input aria-label="Gross weight / Pallet (kg)" readOnly value={decimalDisplay(palletGross,3)??''}/></label><label>Cartons / Pallet<input aria-label="Cartons / Pallet" readOnly value={decimalDisplay(palletCartons,0)??''}/></label><label>Loaded pallet dimension (mm)<input aria-label="Loaded pallet dimension (mm)" readOnly value={loadedDimensions}/></label>{!palletAssembly&&<small role="status">Save pallet pricing in the response before viewing a pallet load.</small>}</fieldset>}
- </fieldset><div className="load-planner-preview">{result?<><LoadScene boxes={boxes} bounds={inputs.container} label="3D container load layout"/>
+ </fieldset><div className="load-planner-preview">{result?<>{inputs.mode==='floor'?<FloorLoadScene positions={result.container_layer} count={result.cartons} tiers={result.container_tiers} cartonHeight={inputs.carton.height} bounds={inputs.container} label="3D container load layout"/>:<LoadScene boxes={boxes} bounds={inputs.container} label="3D container load layout"/>}
  {!!result.warnings.length&&<details className="load-warnings"><summary>{result.warnings.length} loading notice(s)</summary>{result.warnings.map(w=><p className="load-warning" key={w}>{w}</p>)}</details>}{inputs.mode==='pallet'&&result.pallet_layer_capacity!=null&&<small>Pallet layer: {result.pallet_layout_optimal?'verified maximum':'best found'} {result.pallet_layer_capacity} cartons{!result.pallet_layout_optimal&&result.pallet_layer_upper_bound!=null?'; upper bound '+result.pallet_layer_upper_bound:''}. Upright cartons, 90° rotation, no overhang.</small>}<small>{result.container_layer_capacity!=null?'Container floor: '+(result.container_layout_optimal?'verified maximum ':'best found ')+result.container_layer_capacity+' positions. ':''}Overall 3D maximum is not guaranteed; saved response quantities, height and weight limits still apply.</small></>:<p aria-live="polite">{entry?.error?'Preview unavailable. Retry this container below.':ready&&container?'Calculating container load…':'Complete the saved response data to view the container load.'}</p>}
- </div><div className="load-container-table"><table aria-label="Container load summary"><caption>Container summary · {mode==='pallet'?'Pallet loaded':'Floor-loaded cartons'}</caption><thead><tr><th>Container</th><th>Dimensions (mm)<small>L × W × H</small></th><th>Pallets</th><th>Cartons</th><th>Net (kg)</th><th>Gross (kg)</th><th>Payload (kg)</th><th>Volume %</th></tr></thead><tbody>{containers.map(c=>{
+ </div><div className="load-container-table"><table aria-label="Container load summary"><caption>Container summary · {mode==='pallet'?'Pallet loaded':'Floor-loaded cartons'}</caption><thead><tr><th>Container</th><th>Dimensions (mm)<small>L × W × H</small></th><th>Proposal</th>{mode==='pallet'&&<th>Pallets</th>}<th>Cartons</th><th>Net (kg)</th><th>Gross (kg)</th><th>Payload (kg)</th><th>Volume %</th></tr></thead><tbody>{containers.map(c=>{
  const row=previews[mode+':'+c.ID],r=row?.data?.Result;
- return <tr key={c.ID} className={String(c.ID)===containerID?'selected':''}><td><button type="button" aria-label={'View '+c.Code} aria-pressed={String(c.ID)===containerID} disabled={busy} onClick={()=>selectContainer(String(c.ID))}>{c.Code}</button></td><td className="load-container-dimensions">{[c.Specifications.length,c.Specifications.width,c.Specifications.height].map(v=>decimalDisplay(v,3)).join(' × ')}</td>{r?<><td>{mode==='pallet'?decimalDisplay(r.loaded_units,0):'—'}</td><td>{decimalDisplay(r.cartons,0)}</td><td>{decimalDisplay(r.net_kg,3)??'Unknown'}</td><td>{decimalDisplay(r.gross_kg,3)??'Unknown'}</td><td>{decimalDisplay(c.Specifications.payload_kg,3)??'—'}</td><td>{decimalDisplay(r.volume_percent,1)}%</td></>:<td colSpan={6}>{row?.error?<span title={row.error}>Unavailable <button type="button" disabled={busy} onClick={()=>retryPreview(c)} aria-label={'Retry '+c.Code}>Retry</button></span>:ready?'Calculating…':'—'}</td>}</tr>
+ return <tr key={c.ID} className={String(c.ID)===containerID?'selected':''}><td><button type="button" aria-label={'View '+c.Code} aria-pressed={String(c.ID)===containerID} disabled={busy} onClick={()=>selectContainer(String(c.ID))}>{c.Code}</button></td><td className="load-container-dimensions">{[c.Specifications.length,c.Specifications.width,c.Specifications.height].map(v=>decimalDisplay(v,3)).join(' × ')}</td><td><input type="checkbox" aria-label={'Proposal '+c.Code} checked={proposed.includes(c.Code)&&(mode==='floor'?floorProposed.includes(c.Code):!floorProposed.includes(c.Code))} title={requiredProposed.includes(c.Code)?'The requested container option must remain proposed.':undefined} disabled={!onProposal||busy||(requiredProposed.includes(c.Code)&&proposed.includes(c.Code)&&(floorProposed.includes(c.Code)===(mode==='floor')))||(!proposed.includes(c.Code)&&(!r||r.cartons<1))} onChange={e=>{if(e.target.checked)proposalIntent.current=mode+':'+c.ID;onProposal?.(c.Code,e.target.checked,mode==='floor'&&r?String(r.cartons):undefined);if(e.target.checked)selectContainer(String(c.ID))}}/></td>{r?<>{mode==='pallet'&&<td>{decimalDisplay(r.loaded_units,0)}</td>}<td>{decimalDisplay(r.cartons,0)}</td><td>{decimalDisplay(r.net_kg,3)??'Unknown'}</td><td>{decimalDisplay(r.gross_kg,3)??'Unknown'}</td><td>{decimalDisplay(c.Specifications.payload_kg,3)??'—'}</td><td>{decimalDisplay(r.volume_percent,1)}%</td></>:<td colSpan={mode==='pallet'?6:5}>{row?.error?<span title={row.error}>Unavailable <button type="button" disabled={busy} onClick={()=>retryPreview(c)} aria-label={'Retry '+c.Code}>Retry</button></span>:ready?'Calculating…':'—'}</td>}</tr>
  })}</tbody></table></div>
- </div><div className="actions record-action-bar">{onClear&&<IconButton icon="refresh" label="Clear load plan" disabled={busy} onClick={onClear}/>}<button type="button" disabled={busy} onClick={onClose}>Close</button>{busy&&<span role="status">Capturing container load…</span>}</div></Modal>
+ </div>}<div className="actions record-action-bar">{customFloor&&floorActions}{onClear&&<IconButton icon="refresh" label="Clear load plan" disabled={busy} onClick={onClear}/>}<button type="button" disabled={busy} onClick={onClose}>Close</button>{busy&&<span role="status">Capturing container load…</span>}</div></Modal>
 }
