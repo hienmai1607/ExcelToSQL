@@ -49,7 +49,7 @@ export function PackagingResponse({row,onClose,onSaved}:{row:Row;onClose:()=>voi
 
   <form className="record-dialog-form" onSubmit={e=>{e.preventDefault();review()}}>
    <div className="record-dialog-content"><ErrorNote value={error||responseTypes.error}/>
-   <fieldset className={!editable?"display-only-fields":undefined} disabled={busy||uncertain}><ResponseSections editable={editable&&!uncertain&&!busy} values={values} requestedLayers={row.RequestedLayerCount} netWeight={row.WeightGrams} configuration={row.ConfigurationRequest} product={row} onChange={change} types={responseTypes.types} pallets={responseTypes.pallets} loading={responseTypes.loading} itemID={Number(row.ItemID)} pricing={pricing} onPricingApply={(input,result)=>{setPricing(xs=>({...xs,[input.PackagingOrder]:input}));setValues(xs=>({...xs,...pricingResponseValues(input,result)}))}}/></fieldset>
+   <fieldset className={!editable?"display-only-fields":undefined} disabled={busy||uncertain}><ResponseSections editable={editable&&!uncertain&&!busy} values={values} requestedLayers={row.RequestedLayerCount} netWeight={row.WeightGrams} configuration={row.ConfigurationRequest} product={row} onChange={change} types={responseTypes.types} onTypesChanged={responseTypes.setTypes} pallets={responseTypes.pallets} loading={responseTypes.loading} itemID={Number(row.ItemID)} pricing={pricing} onPricingApply={(input,result)=>{setPricing(xs=>({...xs,[input.PackagingOrder]:input}));setValues(xs=>({...xs,...pricingResponseValues(input,result)}))}}/></fieldset>
 
    </div><div className="actions record-action-bar"><button className="primary" disabled={!editable||busy||uncertain||!dirty}>Review & save</button></div>
   </form>

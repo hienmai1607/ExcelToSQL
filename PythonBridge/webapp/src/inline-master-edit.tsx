@@ -2,6 +2,7 @@ import {useEffect,useState} from 'react';
 import {api,call,type Row} from './api';
 import {Modal,ErrorNote} from './ui';
 import {IconButton} from './icons';
+import {ContainerEditor,type ContainerRecord} from './container-master';
 import {MasterEditor} from './master-editor';
 import {CustomerEditor} from './customers';
 import {CategoryEditor} from './category-master';
@@ -16,6 +17,7 @@ export function InlineMasterEdit({entity,selected,onClose,onSaved}:{entity:Inlin
  const [context,setContext]=useState<Context|null>(null),[lookups,setLookups]=useState<Lookups|null>(null),[special,setSpecial]=useState<Record<string,Row[]>|null>(null),[error,setError]=useState(''),[retry,setRetry]=useState(0);
  useEffect(()=>{let active=true;setError('');setContext(null);
   void (async()=>{
+   if(entity==='containers'){const data=await call<{rows:Row[]}>('/api/load-planning/containers');const row=data.rows.find(r=>String(r.Code)===selected);if(!row)throw new Error('Container no longer available. Refresh choices.');if(active)setContext({row,editable:true,reason:'',lockedFields:[]});return;}
    const result=await call<Context>(endpoint);if(!active)return;setContext(result);if(!result.editable)return;
    if(entity==='customers'){const data=await api.customerLookups();if(active)setSpecial(data)}
    else if(entity==='ports'){const data=await call<Record<string,Row[]>>('/api/ports/lookups');if(active)setSpecial(data)}
@@ -24,6 +26,7 @@ export function InlineMasterEdit({entity,selected,onClose,onSaved}:{entity:Inlin
   return()=>{active=false};
  },[endpoint,entity,retry]);
  if(context?.editable&&!error){
+  if(entity==='containers')return <ContainerEditor row={context.row as unknown as ContainerRecord} canWrite onClose={onClose} onSaved={record=>onSaved([{ID:record.ID,Code:record.Code,Status:record.Status}])}/>;
   if(entity==='categories')return <CategoryEditor row={context.row} canWrite saveEndpoint={endpoint} onClose={onClose} onSaved={onSaved}/>;
   if(entity==='ports'&&special)return <PortEditor row={context.row} canWrite lookups={{customers:special.customers,markets:special.markets}} saveEndpoint={endpoint} onClose={onClose} onSaved={onSaved}/>;
   if(entity==='packaging-dimensions')return <PackagingDimensions canWrite inline initialRecord={context.row} saveEndpoint={endpoint} onClose={onClose} onCreated={onSaved}/>;

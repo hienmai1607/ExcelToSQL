@@ -88,6 +88,17 @@ test('Recipe fields belong to Level 1 while child Process Loss stays on children
  expect(writes[0].CostInputs.MaterialCosts[0].Path).toBe('0/1');
 });
 
+test('salt changes automatically save the matching RM remainder',async({page})=>{
+ const {dialog,writes}=await open(page,false,true);
+ const recipe=dialog.locator('#tcb-item-11 [data-process-path="0/1"]');
+ await recipe.getByLabel('Seasoning/salt ($/lbs)',{exact:true}).fill('1');
+ await recipe.getByLabel('Seasoning/salt Ratio (%)',{exact:true}).fill('3');
+ await expect(recipe.getByLabel('RM Ratio (%)',{exact:true})).toHaveValue('97');
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
+ await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(writes[0].CostInputs.MaterialCosts).toEqual([expect.objectContaining({Path:'0/1',RMRatio:'97',SeasoningRatio:'3',OilPct:'0'})]);
+});
+
 test('Shared types copy the first percentage across stages where that type is selected',async({page})=>{
  const {dialog,writes}=await open(page,false,true,false,10,false,'Both','20DC',true);
  const section=dialog.getByRole('region',{name:'Process Loss item 11',exact:true});

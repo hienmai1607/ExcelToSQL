@@ -24,8 +24,8 @@ def preview(item_id:int,body:Preview,ctx:AccessContext=Depends(get_access_contex
     from load_planning_api import pallet_prices_from_cursor
     with api_cursor() as cur:
         authorize(cur,ctx.username,item_id)
-        pallet=next((p for p in pallet_prices_from_cursor(cur) if p['MaterialID']==body.PalletMaterialID),None)
-        if not pallet:raise HTTPException(422,'Choose a current Pallet material with complete dimensions and pricing.')
+        pallet=next((p for p in pallet_prices_from_cursor(cur,include_unpriced=True) if p['MaterialID']==body.PalletMaterialID),None)
+        if not pallet:raise HTTPException(422,'Choose a current Pallet material with complete dimensions.')
         dims=pallet['Dimensions'];fit=layout(Decimal(dims['length']),Decimal(dims['width']),body.Carton.length,body.Carton.width,True)
         layers=max(0,int((body.MaxPalletHeightMM-Decimal(dims['height']))//body.Carton.height))
         try:

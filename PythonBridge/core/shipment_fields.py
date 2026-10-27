@@ -1,15 +1,35 @@
 """Opportunity costs with explicit USD/customer-currency bases; percentages are 0..100."""
 from typing import Literal
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP, localcontext
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Annotated
 
 USD = Annotated[Decimal, Field(ge=0, max_digits=19, decimal_places=2, allow_inf_nan=False)]
 Percent = Annotated[Decimal, Field(ge=0, le=100, max_digits=5, decimal_places=2, allow_inf_nan=False)]
 
+INCOTERMS = tuple(sorted({"CFA", "FOB", "FCA", "FAS", "CFR", "CIF", "CPT", "CIP", "EXW", "DAP", "DPU", "DDP"}))
+
+class WarehouseCostBreakdown(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    Unloading: USD = Decimal(0)
+    Palletize: USD = Decimal(0)
+    Inbound: USD = Decimal(0)
+    Outbound: USD = Decimal(0)
+    StorageCostPerMonth: USD = Decimal(0)
+    StorageMonths: USD = Decimal(0)
+    OrderFeeAdminCost: USD = Decimal(0)
+    OthersCost: USD = Decimal(0)
+
+    def total(self):
+        with localcontext() as ctx:
+            ctx.prec = 50
+            total = (self.Unloading + self.Palletize + self.Inbound + self.Outbound
+                     + self.StorageCostPerMonth * self.StorageMonths + self.OrderFeeAdminCost + self.OthersCost)
+            return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
 class ShipmentCostInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    Incoterm: Literal["CFA", "DDP", "EXW", "FOB"] | None = None
+    Incoterm: Literal["CFA", "CFR", "CIF", "CIP", "CPT", "DAP", "DDP", "DPU", "EXW", "FAS", "FCA", "FOB"] | None = None
     PortOfEntryID: int | None = Field(None, ge=1, le=2147483647)
     ContainerSizeFT: Literal["20FT", "40FT"] | None = None
     FreightUSDPerContainer: USD | None = None
@@ -19,6 +39,7 @@ class ShipmentCostInfo(BaseModel):
     WHCostUSDPerPallet: USD | None = None
     PortToWHCustomerPerContainer: USD | None = None
     WHCostCustomerPerPallet: USD | None = None
+    WHCostBreakdown: WarehouseCostBreakdown | None = None
     OverageShortageDamagePct: Percent | None = None
     WHToCoManWHUSDPerPallet: USD | None = None
     CoManOverheadUSDPerPallet: USD | None = None
@@ -45,6 +66,15 @@ class ShipmentCostInfo(BaseModel):
 
     @model_validator(mode="after")
     def margin_basis(self):
+        if self.WHCostBreakdown is not None:
+            total = self.WHCostBreakdown.total()
+            if total > Decimal("99999999999999999.99"):
+                raise ValueError("WH Cost exceeds the supported amount.")
+            if self.WHCostCustomerPerPallet is not None and self.WHCostCustomerPerPallet != total:
+                raise ValueError("WH Cost must match its calculation breakdown.")
+            if self.WHCostUSDPerPallet is not None:
+                raise ValueError("Clear the legacy USD WH cost when applying a customer-currency breakdown.")
+            self.WHCostCustomerPerPallet = total
         if self.InitialDesignUSD is not None and self.InitialDesignCustomer is not None:
             raise ValueError("Choose USD or customer currency for Initial Design, not both.")
         if self.MarginPct is not None and self.MarginUSDPerLb is not None:

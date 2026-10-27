@@ -122,7 +122,7 @@ def master_choices(entity,ctx):
     if entity=="materials":
         choices["PackagingType"]=[r["PackagingOrder"]+" / "+r["PackagingType"] for r in data.get("packagingTypes",[]) if r.get("Status")=="Active" and r.get("FinalComponent") and not r.get("HasChildren")]
         choices["MaterialDimensionID"]=[r["ID"] for r in data.get("materialDimensions",[]) if r.get("Status")=="Active"]
-        choices["TareWeightBasis"]=["kg/EA","kg/m2"]
+        choices["TareWeightBasis"]=["g","kg"]
     if entity=="raw-materials":
         choices["GradeName"]=[r["GradeName"] for r in data.get("rawGrades",[]) if r.get("Status")=="Active" and not r.get("HasChildren")]
     return choices

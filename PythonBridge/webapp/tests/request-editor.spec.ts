@@ -302,3 +302,29 @@ test('density rejects zero, negative and excessive precision; blank density clea
  await density.fill('');await expect(volume).toHaveValue('');
  await expect(editor.getByRole('region',{name:'Request item 3',exact:true}).getByLabel('Nut Density (g/ml)',{exact:true})).toBeDisabled();
 });
+
+
+test('inline type edit refreshes response save validation for every item',async({page})=>{
+ await setup(page);
+ let name='Carton';
+ const type=()=>({ID:2,PackagingType:name,PackagingOrders:['Secondary'],Shipping:true,Status:'Active',RowVersion:'AAAAAAAAAAE='});
+ await page.route('**/api/packaging/lookups',r=>r.fulfill({json:{packagingTypes:[{ID:1,PackagingType:'Film',PackagingOrders:['Primary']},type()]}}));
+ await page.route('**/api/workbench/masters/lookups*',r=>r.fulfill({json:{packagingTypes:[type()],uoms:[],materials:[]}}));
+ await page.route('**/api/inline-masters/packaging-types/2',r=>{
+  if(r.request().method()==='POST'){const row=r.request().postDataJSON().payload.rows[0];name=row.PackagingType;return r.fulfill({json:{results:[{RowNum:row.RowNum,Status:'OK',NewID:2}]}})}
+  return r.fulfill({json:{row:type(),editable:true,reason:'',lockedFields:[]}});
+ });
+ await page.getByRole('button',{name:'Edit request PCR-1'}).click();
+ const editor=page.getByRole('dialog',{name:'Edit Packaging request'});
+ const item=editor.getByRole('region',{name:'Request item 1',exact:true});
+ await item.getByLabel('Secondary Type',{exact:true}).selectOption('Carton');
+ await item.getByRole('button',{name:'Edit Packaging Type master'}).click();
+ const edit=page.getByRole('dialog',{name:'Edit packaging type',exact:true});
+ await edit.getByLabel('Packaging Type',{exact:true}).fill('New carton');
+ await edit.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(item.getByLabel('Secondary Type',{exact:true})).toHaveValue('New carton');
+ await expect(editor.getByRole('region',{name:'Request item 2',exact:true}).getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','New carton']);
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Confirm save',exact:true})).toBeVisible();
+});

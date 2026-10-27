@@ -28,9 +28,8 @@ def item_read(item_id, ctx):
       CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.PackagingConfigurationRequestItem active WHERE active.OpportunityItemID=i.ID AND active.IsOpen=1 AND active.Stage<>\'Canceled\') THEN 1 ELSE 0 END AS BIT) HasOpenPackagingRequest
       FROM dbo.OpportunityItem i JOIN dbo.Opportunity o ON o.ID=i.OpportunityID
       JOIN dbo.Product p ON p.ID=i.ProductID
-      OUTER APPLY(SELECT TOP(1) r.ID,r.LoadPlanID,r.PalletPricingID,r.ResponseLayerCount,r.RequestedLayerCount,r.ResponsePalletSize
-        FROM dbo.PackagingConfigurationRequestItem r WHERE r.OpportunityItemID=i.ID AND r.Stage<>'Canceled'
-        ORDER BY r.IsOpen DESC,r.ID DESC) response
+      LEFT JOIN dbo.v_OpportunityItemPackaging published ON published.OpportunityItemID=i.ID
+      LEFT JOIN dbo.PackagingConfigurationRequestItem response ON response.ID=published.PackagingRequestItemID
       WHERE i.ID=?;""", [ctx.username,item_id])[0]
     if not rows:
         raise HTTPException(404, "Opportunity item not found.")

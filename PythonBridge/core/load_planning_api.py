@@ -80,8 +80,8 @@ def pallet_prices(ctx:AccessContext=Depends(get_access_context)):
     with api_cursor() as cur:
         return {"rows":pallet_prices_from_cursor(cur)}
 
-def pallet_prices_from_cursor(cur):
-    rows=select(cur,"""SELECT p.ID,p.MaterialID,p.RowVersion,m.MaterialCode,m.MaterialName,
+def pallet_prices_from_cursor(cur,include_unpriced=False):
+    rows=select(cur,"""SELECT p.ID,m.ID MaterialID,p.RowVersion,m.MaterialCode,m.MaterialName,
         p.QuantityFrom,p.QuantityTo,p.UnitUSDPrice,p.PriceBasis,m.UnitOfMeasure,m.TareWeight,m.TareWeightBasis,m.MaxPayloadKG,m.RowVersion MaterialRowVersion,
         m.MaterialDimensionRowVersion,d.RowVersion DimensionRowVersion,
         m.MaterialD1,m.MaterialD2,m.MaterialD3,d.D1Name,d.D2Name,d.D3Name,
@@ -90,7 +90,11 @@ def pallet_prices_from_cursor(cur):
         CASE WHEN u2.UoMCode='MM' THEN 1 ELSE c2.Factor END D2Factor,
         CASE WHEN u3.UoMCode='MM' THEN 1 ELSE c3.Factor END D3Factor,
         v.VendorName
-        FROM dbo.PackagingPrice p JOIN dbo.PackagingMaterial m ON m.ID=p.MaterialID AND m.Status='Active'
+        FROM dbo.PackagingMaterial m
+        LEFT JOIN dbo.PackagingPrice p ON p.MaterialID=m.ID AND p.Status='Active'
+          AND p.EffectiveFrom<=CONVERT(DATE,SYSUTCDATETIME())
+          AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=CONVERT(DATE,SYSUTCDATETIME()))
+          AND NOT EXISTS(SELECT 1 FROM dbo.Vendor blocked WHERE blocked.ID=p.VendorID AND blocked.Status<>'Active')
         JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID AND t.PackagingOrder='Pallet' AND t.PackagingType='Pallet' AND t.Status='Active'
         JOIN dbo.PackagingDimension d ON d.ID=m.MaterialDimensionID AND d.PackagingTypeID=t.ID AND d.Status='Active'
         JOIN dbo.UoM u1 ON u1.ID=d.D1UoMID AND u1.Status='Active'
@@ -100,9 +104,8 @@ def pallet_prices_from_cursor(cur):
         OUTER APPLY dbo.fn_UnitConversion(u2.UoMCode,N'MM',NULL,NULL,NULL) c2
         OUTER APPLY dbo.fn_UnitConversion(u3.UoMCode,N'MM',NULL,NULL,NULL) c3
         LEFT JOIN dbo.Vendor v ON v.ID=p.VendorID
-        WHERE p.Status='Active' AND (v.ID IS NULL OR v.Status='Active') AND p.EffectiveFrom<=CONVERT(DATE,SYSUTCDATETIME())
-        AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=CONVERT(DATE,SYSUTCDATETIME()))
-        ORDER BY m.MaterialCode,p.ID""")[0]
+        WHERE m.Status='Active' AND (?=1 OR p.ID IS NOT NULL)
+        ORDER BY m.MaterialCode,p.ID""",int(include_unpriced))[0]
     result=[]
     for row in rows:
         values={}
@@ -113,7 +116,7 @@ def pallet_prices_from_cursor(cur):
         if len(values)==3 and row["MaterialDimensionRowVersion"]==row["DimensionRowVersion"]:
             result.append({**{k:row[k] for k in ("ID","RowVersion","MaterialID","MaterialCode","MaterialName","VendorName","QuantityFrom","QuantityTo","UnitUSDPrice","PriceBasis","UnitOfMeasure","TareWeight","TareWeightBasis","MaterialRowVersion","MaxPayloadKG")},"Dimensions":values})
     for row in result:
-        row["RowVersion"]=encode(row["RowVersion"])
+        row["RowVersion"]=encode(row["RowVersion"]) if row["RowVersion"] is not None else None
         row["MaterialRowVersion"]=encode(row["MaterialRowVersion"])
     return result
 
@@ -203,9 +206,9 @@ def calculate(cur,body,item_id=None):
         if body.PalletMaterialRowVersion is not None and price["MaterialRowVersion"]!=body.PalletMaterialRowVersion:
             raise HTTPException(409,"Pallet material tare changed. Refresh the planner.")
         data["pallet"]=price["Dimensions"]
-        from packaging_weight import material_tare
         area=Decimal(str(data['pallet']['length']))*Decimal(str(data['pallet']['width']))/Decimal(1000000)
-        data['pallet_kg']=material_tare(price.get('TareWeight'),price.get('TareWeightBasis'),1,area)
+        from packaging_weight import pallet_material_tare
+        data['pallet_kg']=pallet_material_tare(cur,price,1,area)
         data['pallet_max_gross_kg']=price.get('MaxPayloadKG')
     assembly=None
     if body.Inputs.mode=='pallet' and item_id is not None:

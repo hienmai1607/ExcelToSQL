@@ -3,14 +3,40 @@ import json
 from decimal import Decimal, localcontext
 
 
-def material_tare(weight, basis, quantity, area=None):
-    if weight is None or basis not in ('kg/EA', 'kg/m2'):
+def material_tare(weight, basis, quantity, area=None, base_uom=None, base_quantity=None):
+    if weight is None or basis not in ('g', 'kg', 'kg/EA', 'kg/m2'):
         return None
-    if basis == 'kg/m2' and area is None:
+    per_area=basis=='kg/m2' or basis in ('g','kg') and str(base_uom or '').casefold()=='m2'
+    if base_quantity is None and per_area and area is None:
         return None
     with localcontext() as ctx:
         ctx.prec=50
-        return Decimal(str(weight))*Decimal(str(quantity))*(Decimal(str(area)) if basis == 'kg/m2' else Decimal(1))
+        consumed=Decimal(str(base_quantity)) if base_quantity is not None and basis in ('g','kg') else Decimal(str(quantity))*(Decimal(str(area)) if per_area else Decimal(1))
+        return Decimal(str(weight))*consumed/(Decimal(1000) if basis=='g' else Decimal(1))
+
+
+def tare_basis_label(basis,base_uom):
+    return str(basis)+'/'+str(base_uom or '') if basis in ('g','kg') else basis
+
+
+def pallet_material_tare(cur,price,quantity=1,area=None):
+    """Pallet catalog quantities are EA; area accessories use consumed m² per EA."""
+    basis=price.get('TareWeightBasis');base=str(price.get('UnitOfMeasure') or '')
+    if basis not in ('g','kg') or base.casefold()=='ea':
+        return material_tare(price.get('TareWeight'),basis,quantity,area,base)
+    category=cur.execute("SELECT Category FROM dbo.UoM WHERE UoMCode=? AND Status='Active'",base).fetchval()
+    if category is None:return None
+    is_area=category=='Area'
+    if is_area and area is None:return None
+    source='m2' if is_area else 'EA'
+    if source.casefold()==base.casefold():factor=Decimal(1)
+    else:
+        from pkg_pricing_api import output_conversion_lookup
+        conversion=output_conversion_lookup(cur,source,base,{**price,'VendorID':price.get('VendorID')})
+        if not conversion or conversion.get('Factor') is None:return None
+        factor=Decimal(str(conversion['Factor']))
+    consumed=Decimal(str(quantity))*(Decimal(str(area)) if is_area else Decimal(1))*factor
+    return material_tare(price.get('TareWeight'),basis,quantity,base_uom=base,base_quantity=consumed)
 
 
 def layer_tare(components):

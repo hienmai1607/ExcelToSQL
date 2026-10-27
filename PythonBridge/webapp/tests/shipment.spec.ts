@@ -1,9 +1,79 @@
-import {test,expect,type Page} from '@playwright/test';
-import {costSections,shipmentValues,shipmentError,shipmentPayload,fixedCost} from '../src/shipment-sections';
+import {test,expect,type Page,type Locator} from '@playwright/test';
+import {incoterms,costSections,shipmentValues,shipmentError,shipmentPayload,fixedCost} from '../src/shipment-model';
 import {childOtherKeys} from '../src/shipment-ownership';
 import {allowedContainerTypes} from '../src/container-loading';
+import {warehouseTotal} from '../src/warehouse-cost-model';
 const heading='Shipment, Logistics, Co-Man & Others info';
 const rv='AAAAAAAAAAE=';
+async function setWarehouse(page:Page,item:Locator,amount:string){
+ await item.getByRole('button',{name:'Calculate warehouse cost',exact:true}).click();
+ const popup=page.getByRole('dialog',{name:'Warehouse cost calculator',exact:true});
+ await popup.getByLabel('Unloading',{exact:true}).fill(amount);
+ await popup.getByRole('button',{name:'Apply warehouse cost',exact:true}).click();
+}
+
+
+test('warehouse preview rounds half up exactly and rejects invalid or overflowing amounts',()=>{
+ for(const [months,total] of [['0.49','0.00'],['0.50','0.01'],['1.50','0.02']])expect(warehouseTotal({StorageCostPerMonth:'0.01',StorageMonths:months})).toBe(total);
+ expect(warehouseTotal({})).toBe('0.00');
+ expect(warehouseTotal({OthersCost:'-1'})).toBeNull();
+ expect(warehouseTotal({OthersCost:'1.234'})).toBeNull();
+ expect(warehouseTotal({StorageCostPerMonth:'99999999999999999.99',StorageMonths:'2'})).toBeNull();
+});
+
+test('USD warehouse total is calculator-only and has no duplicate USD conversion',async({page})=>{
+ const row={OpportunityID:1,OpportunityNumber:'OPP-SHIP',OpportunityDesc:'Warehouse',CustomerID:2,CustomerName:'Other',CustomerCurrencyCode:'USD',HeaderStage:'Draft',HeaderRowVersion:rv,BidOpen:'2026-10-01',BidClose:'2026-10-10',ExchangeRateVNDPerUSD:25000,ExchangeRateCustomerCurrencyPerUSD:1,ItemID:10,ProductID:2,ProductCode:'PRD-2',ProductName:'Almonds',AnnualUnit:1000,ItemStage:'Draft',ItemRowVersion:rv,ContainerRequest:'20DC',ShipmentCostInfo:{WHCostCustomerPerPallet:'1500.00'}};
+ await setup(page,[row]);await page.getByRole('button',{name:'Edit Opportunity OPP-SHIP',exact:true}).click();
+ const item=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}).getByRole('region',{name:'Item 1',exact:true});
+ await item.getByText(heading,{exact:true}).click();
+ await expect(item.getByLabel('WH Cost (USD/pallet)',{exact:true})).toHaveValue('1500.00');
+ await expect(item.getByLabel('WH Cost (USD/pallet)',{exact:true})).not.toBeEditable();
+ await expect(item.getByLabel('WH Cost USD per pallet',{exact:true})).toHaveCount(0);
+ await setWarehouse(page,item,'2000');
+ await expect(item.getByLabel('WH Cost (USD/pallet)',{exact:true})).toHaveValue('2000.00');
+ await expect(item.getByLabel('WH Cost USD per pallet',{exact:true})).toHaveCount(0);
+});
+
+test('all Incoterms retain every cost field and Fobbing precedes Freight',async({page})=>{
+ await setup(page);const {item}=await create(page);
+ for(const term of ['',...incoterms]){
+  await item.getByLabel('Incoterm',{exact:true}).selectOption(term);
+  for(const title of ['Logistics','Co-Man','Others'])await expect(item.getByRole('region',{name:title,exact:true})).toBeVisible();
+ }
+ const logistics=item.getByRole('region',{name:'Logistics',exact:true});
+ expect(await logistics.locator('.shipment-cost-field .field-label').allTextContents()).toEqual(expect.arrayContaining(['Fobbing (USD/cont)','Freight (USD/cont)']));
+ const fobbing=await item.getByLabel('Fobbing (USD/cont)',{exact:true}).boundingBox(),freight=await item.getByLabel('Freight (USD/cont)',{exact:true}).boundingBox();
+ expect(fobbing!.x).toBeLessThan(freight!.x);
+ await item.getByLabel('Duty %',{exact:true}).fill('3');await item.getByLabel('Incoterm',{exact:true}).selectOption('FCA');
+ await expect(item.getByLabel('Duty %',{exact:true})).toHaveValue('3');
+});
+
+test('warehouse calculator applies exact total, reopens inputs and saves customer-currency breakdown',async({page},info)=>{
+ const writes=await setup(page),{form,item}=await create(page);
+ await item.getByRole('button',{name:'Calculate warehouse cost',exact:true}).click();
+ const popup=page.getByRole('dialog',{name:'Warehouse cost calculator',exact:true});
+ for(const [label,value] of [['Unloading','1'],['Palletize','2'],['Inbound','3'],['Outbound','4'],['Storage cost per month','5'],['Storage month','1.5'],['Order fee/Admin cost','6'],['Others cost','7']])await popup.getByLabel(label,{exact:true}).fill(value);
+ await expect(popup.getByRole('status')).toContainText('30.50 AUD/pallet');
+ const desktop=await popup.boundingBox();expect(desktop!.width).toBeLessThanOrEqual(960);expect(desktop!.height).toBeLessThan(500);
+ const fields=await popup.locator('.warehouse-cost-grid>label').evaluateAll(nodes=>nodes.map(node=>{const b=node.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width}}));
+ expect(fields).toHaveLength(8);
+ for(const row of [fields.slice(0,4),fields.slice(4)]){expect(Math.max(...row.map(field=>field.y))-Math.min(...row.map(field=>field.y))).toBeLessThan(2);expect(new Set(row.map(field=>Math.round(field.x))).size).toBe(4)}
+ await popup.screenshot({path:info.outputPath('warehouse-calculator-desktop.png')});
+ for(const width of [1920,390]){await page.setViewportSize({width,height:1080});const layout=await popup.evaluate(node=>({width:node.clientWidth,scroll:node.scrollWidth,children:[...node.children].map(child=>({class:child.className,width:child.getBoundingClientRect().width,scroll:child.scrollWidth}))}));await popup.screenshot({path:info.outputPath('warehouse-'+width+'.png')});expect(layout.scroll,JSON.stringify(layout)).toBeLessThanOrEqual(layout.width+1);await popup.getByRole('button',{name:'Apply warehouse cost',exact:true}).click({trial:true})}
+ await popup.screenshot({path:info.outputPath('warehouse-calculator.png')});
+ await popup.getByRole('button',{name:'Apply warehouse cost',exact:true}).click();
+ await expect(item.getByLabel('WH Cost (AUD/pallet)',{exact:true})).toHaveValue('30.50');
+ await expect(item.getByLabel('WH Cost (AUD/pallet)',{exact:true})).not.toBeEditable();
+ await expect(item.getByLabel('WH Cost USD per pallet',{exact:true})).toHaveText('20.33 USD/pallet');
+ await item.getByRole('button',{name:'Calculate warehouse cost',exact:true}).click();
+ await expect(popup.getByLabel('Storage month',{exact:true})).toHaveValue('1.5');
+ await popup.getByLabel('Others cost',{exact:true}).fill('-1');await expect(popup.getByRole('button',{name:'Apply warehouse cost',exact:true})).toBeDisabled();
+ await popup.getByRole('button',{name:'Cancel',exact:true}).click();
+ await page.setViewportSize({width:1920,height:1080});
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(writes[0].item_rows[0].ShipmentCostInfo).toMatchObject({WHCostCustomerPerPallet:'30.50',WHCostUSDPerPallet:null,WHCostBreakdown:{Unloading:'1',Palletize:'2',Inbound:'3',Outbound:'4',StorageCostPerMonth:'5',StorageMonths:'1.5',OrderFeeAdminCost:'6',OthersCost:'7'}});
+ const restored=shipmentValues(writes[0].item_rows[0].ShipmentCostInfo);expect(JSON.parse(restored.WHCostBreakdown).StorageMonths).toBe('1.5');
+});
 
 test('processing Mix child reopens its own Others Info and saves without protected fields',async({page})=>{
  const root={OpportunityID:1,OpportunityNumber:'OPP-SHIP',OpportunityDesc:'Child costs',CustomerID:1,CustomerName:'Northstar',CustomerCurrencyCode:'AUD',HeaderStage:'Draft',HeaderRowVersion:rv,BidOpen:'2026-10-01',BidClose:'2026-10-10',ExchangeRateVNDPerUSD:25000,ExchangeRateCustomerCurrencyPerUSD:1.5,ItemID:10,ProductID:20,ProductCode:'PRD-MIX',ProductName:'Mix',AnnualUnit:1000,ItemStage:'Draft',ItemRowVersion:rv,HasOpenPackagingRequest:true,ContainerRequest:'20DC',MixVersionID:7,ShipmentCostInfo:{FreightUSDPerContainer:'12',PackingUSDPerLb:'999'}};
@@ -14,7 +84,7 @@ test('processing Mix child reopens its own Others Info and saves without protect
  await form.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const entry=form.getByRole('region',{name:'Item 1.1',exact:true});
  await entry.getByText('Others Info',{exact:true}).click();
- const packing=entry.getByLabel('Packing cost ($/lbs)',{exact:true});
+ const packing=entry.getByLabel('Packing cost (USD/lbs)',{exact:true});
  await expect(entry.getByLabel('Product',{exact:true})).toBeDisabled();
  await expect(packing).toBeEditable();await expect(packing).toHaveValue('2');
  await expect(entry.getByLabel('Initial Design currency',{exact:true})).toHaveValue('Customer');
@@ -84,7 +154,7 @@ test('shipment costs use explicit currency bases, grouped under one collapse, fi
  await expect(item.getByLabel('Container request',{exact:true})).toHaveCount(0);
  await expect(item.getByLabel('Configuration request',{exact:true})).toHaveCount(0);await expect(item.getByLabel('Container',{exact:true})).toHaveCount(0);await expect(item.getByLabel('Container Type',{exact:true}).locator('option')).toHaveText(['Choose container type','20DC','40DC','40HC','20RC','40RHC']);
  await expect(item.getByLabel('Loading request',{exact:true}).locator('option')).toHaveText(['Choose loading request','Pallet load','Floor load','Both']);
- await expect(item.getByLabel('Incoterm',{exact:true}).locator('option')).toHaveText(['Choose incoterm','CFA','DDP','EXW','FOB']);
+ await expect(item.getByLabel('Incoterm',{exact:true}).locator('option')).toHaveText(['Choose incoterm',...incoterms]);
  await expect(item.getByLabel('Port of Entry',{exact:true}).locator('option')).toHaveText(['Choose port of entry','Seattle']);
  await item.getByLabel('Container Type',{exact:true}).selectOption('40RHC');
  await item.getByLabel('Loading request',{exact:true}).selectOption('Floor load');
@@ -92,7 +162,7 @@ test('shipment costs use explicit currency bases, grouped under one collapse, fi
  await item.getByLabel('Port of Entry',{exact:true}).selectOption('11');
  await expect(item.getByLabel('Container',{exact:true})).toHaveCount(0);
  for(const field of costSections.flatMap(s=>s.fields).filter(f=>f.key!=='MarginUSDPerLb')){
-  const input=item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/container)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/container)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true});await input.fill(field.kind==='days'?'3':'12.5');await input.blur();
+  const input=item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true});if(field.key==='WHCostCustomerPerPallet')await setWarehouse(page,item,'12.5');else await input.fill(field.kind==='days'?'3':'12.5');await input.blur();
   await expect(input).toHaveValue(field.kind==='days'?'3':'12.50');
   await expect(input.locator('..').locator('.info-tip')).toHaveCount(0);
  }
@@ -106,27 +176,27 @@ test('Mix parent owns shared costs and each child saves independent Others Info'
  await item.getByLabel('Container Type',{exact:true}).selectOption('20DC');
  await item.getByLabel('Loading request',{exact:true}).selectOption('Both');
  await expect(item.getByLabel('Container Type',{exact:true})).toHaveValue('20DC');
- await item.getByLabel('Freight ($/Container)',{exact:true}).fill('800');await item.getByLabel('Freight ($/Container)',{exact:true}).blur();
+ await item.getByLabel('Freight (USD/cont)',{exact:true}).fill('800');await item.getByLabel('Freight (USD/cont)',{exact:true}).blur();
  for(const number of ['1.1','1.2']){
   const child=form.getByRole('region',{name:'Item '+number,exact:true});
   await expect(child.getByText(heading,{exact:true})).toHaveCount(0);
   await child.getByText('Others Info',{exact:true}).click();
   await expect(child.getByLabel('Container Type',{exact:true})).toHaveCount(0);
-  await expect(child.getByLabel('Fobbing/container ($)',{exact:true})).toHaveCount(0);
+  await expect(child.getByLabel('Fobbing (USD/cont)',{exact:true})).toHaveCount(0);
   await expect(child.getByLabel('Payment term (days)',{exact:true})).toHaveCount(0);
-  await expect(child.getByLabel('Packing cost ($/lbs)',{exact:true})).toBeEditable();
-  await child.getByLabel('Packing cost ($/lbs)',{exact:true}).fill(number==='1.1'?'2':'3');
-  await child.getByLabel('Packing cost ($/lbs)',{exact:true}).blur();
+  await expect(child.getByLabel('Packing cost (USD/lbs)',{exact:true})).toBeEditable();
+  await child.getByLabel('Packing cost (USD/lbs)',{exact:true}).fill(number==='1.1'?'2':'3');
+  await child.getByLabel('Packing cost (USD/lbs)',{exact:true}).blur();
   const basis=child.getByLabel('Margin basis',{exact:true});
   await basis.selectOption('USDPerLb');
-  const amount=child.getByLabel('Margin ($/lbs)',{exact:true});
+  const amount=child.getByLabel('Margin (USD/lbs)',{exact:true});
   await amount.fill('0.5');await amount.blur();
   const [a,b]=await Promise.all([basis.boundingBox(),amount.boundingBox()]);
   expect(Math.abs(a!.y-b!.y)).toBeLessThan(2);expect(a!.width).toBeGreaterThan(110);
   expect(b!.x).toBeGreaterThanOrEqual(a!.x+a!.width);
  }
- for(const label of ['Packing cost ($/lbs)','Initial Design','Other fixed costs ($)','Interest %','Interest days','Margin basis'])await expect(item.getByLabel(label,{exact:true})).toHaveCount(0);
- await expect(item.getByLabel('Fobbing/container ($)',{exact:true})).toBeEditable();
+ for(const label of ['Packing cost (USD/lbs)','Initial Design','Other fixed costs (USD)','Interest %','Interest days','Margin basis'])await expect(item.getByLabel(label,{exact:true})).toHaveCount(0);
+ await expect(item.getByLabel('Fobbing (USD/cont)',{exact:true})).toBeEditable();
  await expect(item.getByLabel('Payment term (days)',{exact:true})).toBeEditable();
  await form.screenshot({path:info.outputPath('mix-child-others.png')});
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
@@ -141,9 +211,9 @@ test('Mix parent owns shared costs and each child saves independent Others Info'
 
 test('destination costs use customer currency and Initial Design defaults to USD with a currency selector',async({page},info)=>{
  const writes=await setup(page),{form,item}=await create(page);
- await item.getByLabel('Port - WH (AUD/container)',{exact:true}).fill('150');
- await expect(item.getByLabel('Port - WH USD per container',{exact:true})).toHaveText('100 USD/container');
- await item.getByLabel('WH Cost (AUD/pallet)',{exact:true}).fill('30');
+ await item.getByLabel('Port - WH (AUD/cont)',{exact:true}).fill('150');
+ await expect(item.getByLabel('Port - WH USD per cont',{exact:true})).toHaveText('100 USD/cont');
+ await setWarehouse(page,item,'30');
  await expect(item.getByLabel('WH Cost USD per pallet',{exact:true})).toHaveText('20 USD/pallet');
  await expect(item.getByLabel('Initial Design currency',{exact:true})).toHaveValue('USD');
  await item.getByLabel('Initial Design currency',{exact:true}).selectOption('Customer');
@@ -172,8 +242,8 @@ test('customer design basis reopens and switching back saves only USD; legacy de
  await item.getByText(heading,{exact:true}).click();
  await expect(item.getByLabel('Initial Design currency',{exact:true})).toHaveValue('Customer');
  await expect(item.getByLabel('Initial Design',{exact:true})).toHaveValue('300.00');
- await expect(item.getByLabel('Port - WH (AUD/container)',{exact:true})).toHaveValue('');
- await expect(item.getByLabel('Port - WH USD per container',{exact:true})).toHaveText('Saved: 150.00 USD/container');
+ await expect(item.getByLabel('Port - WH (AUD/cont)',{exact:true})).toHaveValue('');
+ await expect(item.getByLabel('Port - WH USD per cont',{exact:true})).toHaveText('Saved: 150.00 USD/cont');
  await item.getByLabel('Initial Design currency',{exact:true}).selectOption('USD');
  await item.getByLabel('Initial Design',{exact:true}).fill('200');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
@@ -199,7 +269,7 @@ test('Margin is one inline control group and shipment heading matches packaging 
  expect(shipmentWeight).toBe(packagingWeight);
  const group=item.getByRole('group',{name:'Margin',exact:true});
  await expect(group.getByLabel('Margin basis',{exact:true})).toBeVisible();
- for(const [mode,label] of [['Percent','Margin %'],['USDPerLb','Margin ($/lbs)']] as const){
+ for(const [mode,label] of [['Percent','Margin %'],['USDPerLb','Margin (USD/lbs)']] as const){
   await group.getByLabel('Margin basis',{exact:true}).selectOption(mode);
   await expect(group.getByLabel(label,{exact:true})).toBeEditable();
   await group.getByLabel(label,{exact:true}).fill('7.5');
@@ -213,7 +283,7 @@ test('Margin is one inline control group and shipment heading matches packaging 
 test('Margin value is immediately right of basis, followed by Payment term days',async({page})=>{
  await setup(page);const {item}=await create(page);
  const basis=item.getByLabel('Margin basis',{exact:true}),days=item.getByLabel('Payment term (days)',{exact:true});
- for(const [mode,label] of [['Percent','Margin %'],['USDPerLb','Margin ($/lbs)']] as const){
+ for(const [mode,label] of [['Percent','Margin %'],['USDPerLb','Margin (USD/lbs)']] as const){
   await basis.selectOption(mode);
   const amount=item.getByLabel(label,{exact:true});
   const boxes=await Promise.all([basis,amount,days].map(field=>field.boundingBox()));
@@ -231,10 +301,10 @@ test('Margin value is immediately right of basis, followed by Payment term days'
 
 test('revised cost controls, conditional sections, conversions and five-column alignment',async({page},info)=>{
  const writes=await setup(page),{form,item}=await create(page);
- await expect(item.getByRole('region',{name:'Co-Man',exact:true})).toHaveCount(0);
- await expect(item.getByLabel('Floor load cost ($/MT)',{exact:true})).toHaveCount(0);
+ await expect(item.getByRole('region',{name:'Co-Man',exact:true})).toBeVisible();
+ await expect(item.getByLabel('Floor load cost (USD/MT)',{exact:true})).toHaveCount(0);
  await item.getByLabel('Loading request',{exact:true}).selectOption('Both');
- await item.getByLabel('Floor load cost ($/MT)',{exact:true}).fill('100');
+ await item.getByLabel('Floor load cost (USD/MT)',{exact:true}).fill('100');
  const layer=item.getByRole('region',{name:'Primary packaging requirements',exact:true});
  const layerBoxes=await layer.locator('.packaging-entry-grid>label').evaluateAll(nodes=>nodes.slice(0,3).map(n=>n.getBoundingClientRect()));
  expect(Math.max(...layerBoxes.map(n=>n.y))-Math.min(...layerBoxes.map(n=>n.y))).toBeLessThan(2);
@@ -244,12 +314,12 @@ test('revised cost controls, conditional sections, conversions and five-column a
  expect(boxes).toHaveLength(5);expect(Math.max(...boxes.map(n=>n.y))-Math.min(...boxes.map(n=>n.y))).toBeLessThan(2);
  const title=await shipment.getByRole('heading',{name:'Shipment',exact:true}).boundingBox(),first=boxes[0];
  expect(title!.x+title!.width).toBeLessThanOrEqual(first.x);
- await item.getByLabel('Import clearance (AUD/container)',{exact:true}).fill('150');
- await expect(item.getByLabel('Import clearance USD per container',{exact:true})).toHaveText('100 USD/container');
+ await item.getByLabel('Import clearance (AUD/cont)',{exact:true}).fill('150');
+ await expect(item.getByLabel('Import clearance USD per cont',{exact:true})).toHaveText('100 USD/cont');
  await item.getByLabel('Interest days',{exact:true}).fill('30');
  await item.getByLabel('Margin basis',{exact:true}).selectOption('USDPerLb');
  await expect(item.getByLabel('Margin %',{exact:true})).toHaveCount(0);
- await item.getByLabel('Margin ($/lbs)',{exact:true}).fill('0.5');
+ await item.getByLabel('Margin (USD/lbs)',{exact:true}).fill('0.5');
  await item.getByLabel('Payment term (days)',{exact:true}).fill('60');
  await item.getByLabel('No of Primary Unit',{exact:true}).fill('12');
  await expect(item.getByRole('button',{name:'Clear No of Primary Unit',exact:true})).toHaveCount(0);
@@ -300,7 +370,7 @@ test('saved costs reopen and unavailable historical port is preserved',async({pa
  await page.getByRole('button',{name:'Edit Opportunity OPP-SHIP',exact:true}).click();
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),item=form.getByRole('region',{name:'Item 1',exact:true});
  await item.getByText(heading,{exact:true}).click();
- await expect(item.getByLabel('Freight ($/Container)',{exact:true})).toHaveValue('1234.50');
+ await expect(item.getByLabel('Freight (USD/cont)',{exact:true})).toHaveValue('1234.50');
  await expect(item.getByLabel('Port of Entry',{exact:true})).toHaveValue('99');
  await expect(item.getByText(/^Legacy:/)).toHaveCount(0);
  await item.getByLabel('Duty %',{exact:true}).fill('6');await item.getByLabel('Duty %',{exact:true}).blur();
@@ -324,16 +394,17 @@ for(const mix of [false,true])test('processing '+(mix?'Mix parent':'regular item
  await item.getByLabel('Port of Entry',{exact:true}).selectOption('11');
  await expect(item.getByLabel('Container',{exact:true})).toHaveCount(0);
  for(const field of costSections.flatMap(section=>section.fields).filter(f=>f.key!=='MarginUSDPerLb'&&(!mix||!childOtherKeys.has(f.key)))){
-  await expect(item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/container)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/container)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true})).toBeEditable();
-  await item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/container)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/container)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true}).fill(field.kind==='days'?'3':'12.5');
-  await item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/container)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/container)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true}).blur();
+  if(field.key==='WHCostCustomerPerPallet'){await expect(item.getByLabel('WH Cost (AUD/pallet)',{exact:true})).not.toBeEditable();await setWarehouse(page,item,'12.5');continue;}
+  await expect(item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true})).toBeEditable();
+  await item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true}).fill(field.kind==='days'?'3':'12.5');
+  await item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true}).blur();
  }
  if(mix){
   await form.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
   const entry=form.getByRole('region',{name:'Item 1.1',exact:true});
   await expect(entry.getByText(heading,{exact:true})).toHaveCount(0);
   await entry.getByText('Others Info',{exact:true}).click();
-  await expect(entry.getByLabel('Packing cost ($/lbs)',{exact:true})).toBeEditable();
+  await expect(entry.getByLabel('Packing cost (USD/lbs)',{exact:true})).toBeEditable();
  }
  await expect(form.getByRole('button',{name:'Review & save'})).toBeEnabled();
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();

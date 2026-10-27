@@ -246,6 +246,8 @@ def merge_shipment(ctx,original,changes,header):
   shipment["ImportClearanceUSDPerContainer"]=None
  if "ImportClearanceCustomerPerPallet" in changes and shipment.get("ImportClearanceCustomerPerPallet") is not None:
   shipment["ImportClearanceUSDPerContainer"]=None
+ if "WHCostCustomerPerPallet" in changes or "WHCostUSDPerPallet" in changes:
+  shipment["WHCostBreakdown"]=None
  mode=changes.get("MarginMode")
  for customer_key,usd_key in (("PortToWHCustomerPerContainer","PortToWHUSDPerContainer"),("WHCostCustomerPerPallet","WHCostUSDPerPallet"),("InitialDesignCustomer","InitialDesignUSD")):
   if customer_key in changes and shipment.get(customer_key) is not None:

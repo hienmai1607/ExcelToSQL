@@ -7,6 +7,17 @@ from floor_capacity_api import FloorPreview,preview,validate_saved_floor
 class MixFloorAudit(Audit):
  def exact_case(self):pass
 
+ def draft_preview(self,request,opportunity,item_id):
+  from request_views import item_read
+  from container_loading import published_options,container_results
+  from packing_way import packing_way
+  draft=next(r for r in item_read(self.ctx.username,request['header']['ID'],1,100,None,None,'[]')['rows'] if r['ItemID']==item_id)
+  candidate=published_options(draft)
+  candidate.update(packing_way(candidate));candidate['ContainerLoadResults']=container_results(candidate)
+  output=next(r for r in sorted_grid(self.ctx.username,1,100,'[]',opportunity_number=self.one('Opportunity',opportunity)['OpportunityNumber'])['rows'] if r['PackagingRequestItemID'] is None)
+  self.check(output['FirstPMType'] is None and output['ContainerLoadResults'] is None,'draft proposal remains in request editor and is not published to Opportunity')
+  return candidate
+
  def approve(self,request):
   self.step('Mix exact-divisor rejection is atomic in response batch')
   children=self.rows('''SELECT i.* FROM dbo.PackagingConfigurationRequestItem i
@@ -58,14 +69,14 @@ class MixFloorAudit(Audit):
   self.response(floor_id,ContainerLoadProfiles={'20DC':{'Proposal':True}})
   stored=parsed(self.one('PackagingConfigurationRequestItem',floor_id)['ContainerLoadProfiles'])
   self.check(stored['20DC']['Proposal'] is True,'SQL preserves Proposal as a JSON boolean')
-  grid=sorted_grid(self.ctx.username,1,100,'[]',opportunity_number=self.one('Opportunity',opportunity)['OpportunityNumber'])['rows'][0]
-  self.check(grid['ProposedContainerTypes']==['20DC'] and '20DC' in grid['ContainerLoadResults'],'checked floor option is published')
+  grid=self.draft_preview(floor_request,opportunity,floor_id)
+  self.check(grid['ProposedContainerTypes']==['20DC'] and '20DC' in grid['ContainerLoadResults'],'checked floor option is eligible for publication after approval')
   self.response(floor_id,ContainerLoadProfiles={'20DC':{'Proposal':True},'40DC':{'Proposal':True,'CartonsPerContainer':3}})
-  grid=sorted_grid(self.ctx.username,1,100,'[]',opportunity_number=self.one('Opportunity',opportunity)['OpportunityNumber'])['rows'][0]
-  self.check(set(grid['ProposedContainerTypes'])=={'20DC','40DC'},'requested and additional alternatives are published together')
+  grid=self.draft_preview(floor_request,opportunity,floor_id)
+  self.check(set(grid['ProposedContainerTypes'])=={'20DC','40DC'},'requested and additional alternatives are proposed together before approval')
   self.response(floor_id,SelectedContainerType='40DC',CartonsPerContainer=3,ContainerLoadProfiles={'40DC':{'Proposal':False}})
-  grid=sorted_grid(self.ctx.username,1,100,'[]',opportunity_number=self.one('Opportunity',opportunity)['OpportunityNumber'])['rows'][0]
-  self.check(grid['ProposedContainerTypes']==['20DC'] and set(grid['ContainerLoadResults'])=={'20DC'} and grid['CalculatedCartonsPerContainer'] is None,'unchecked extra floor option and selected capacity are not published')
+  grid=self.draft_preview(floor_request,opportunity,floor_id)
+  self.check(grid['ProposedContainerTypes']==['20DC'] and set(grid['ContainerLoadResults'])=={'20DC'} and grid['CalculatedCartonsPerContainer'] is None,'unchecked extra floor option and selected capacity are excluded from publication candidate')
   self.response(floor_id,NutDensity='.51')
   stored=parsed(self.one('PackagingConfigurationRequestItem',floor_id)['ContainerLoadProfiles'])
   self.check(stored['40DC']['Proposal'] is False,'unrelated partial save preserves unchecked Proposal')
@@ -79,7 +90,7 @@ class MixFloorAudit(Audit):
   parent_opportunity=self.one('Opportunity',self.one('OpportunityItem',parent['OpportunityItemID'])['OpportunityID'])['OpportunityNumber']
   grid=sorted_grid(self.ctx.username,1,100,'[]',opportunity_number=parent_opportunity)['rows']
   output=next(r for r in grid if r['ItemID']==parent['OpportunityItemID'])
-  self.check(set(output['ContainerLoadResults'])=={'20DC'},'unchecked extra pallet option does not leak to Opportunity')
+  self.check(output['ContainerLoadResults'] is None and output['PackagingRequestItemID'] is None,'pending Mix pallet proposals do not leak to Opportunity')
   # QA-only simulation of an old invalid saved selection: submission must also guard it.
   assert parent['ID'] in self.manifest['PackagingConfigurationRequestItem']
   previous=self.one('PackagingConfigurationRequestItem',parent['ID'])['ContainerLoadProfiles']
@@ -92,7 +103,13 @@ class MixFloorAudit(Audit):
    except HTTPException as exc:self.check('requested container' in str(exc.detail),'submission rejects a stale missing requested proposal')
    self.check(self.one('PackagingConfigurationRequestItem',parent['ID'])['Stage']=='Working','failed submission leaves family stage unchanged')
   finally:self.cur.execute('UPDATE dbo.PackagingConfigurationRequestItem SET ContainerLoadProfiles=? WHERE ID=?',previous,parent['ID'])
-  return super().approve(request)
+  Audit.approve(self,floor_request)
+  grid=sorted_grid(self.ctx.username,1,100,'[]',opportunity_number=self.one('Opportunity',opportunity)['OpportunityNumber'])['rows'][0]
+  self.check(grid['ProposedContainerTypes']==['20DC'] and set(grid['ContainerLoadResults'])=={'20DC'},'approval publishes only checked floor proposals')
+  result=super().approve(request)
+  output=next(r for r in sorted_grid(self.ctx.username,1,100,'[]',opportunity_number=parent_opportunity)['rows'] if r['ItemID']==parent['OpportunityItemID'])
+  self.check(set(output['ContainerLoadResults'])=={'20DC'},'approval publishes only checked Mix pallet proposals')
+  return result
 
 
 if __name__=='__main__':MixFloorAudit().run()

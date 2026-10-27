@@ -2,6 +2,31 @@ import {test,expect,type Page} from '@playwright/test';
 import {allowedContainerTypes,proposedContainers,proposalProfiles,profilesPayload,containerChange} from '../src/container-loading';
 import {capturedMixQuantity,mixPackingError} from '../src/mix-packing';
 
+test('unpriced pallet opens Add Pricing and becomes selectable after saving price',async({page})=>{
+ const {editor}=await setup(page,'Pallet load',{ResponsePalletSize:'800x1200mm',ResponsePalletMaterialID:123});
+ const material={ID:123,MaterialCode:'PAL-NEW',MaterialName:'Pallet 0.8x1.2m',UnitOfMeasure:'EA',Status:'Active'};
+ let priced=false;
+ await page.route('**/api/pallet-pricing/items/1',r=>r.fulfill({json:{rows:[{...material,ID:priced?55:null,MaterialID:123,IsPallet:true,RowVersion:'AAAAAAAAAAE=',MaterialRowVersion:'AAAAAAAAAAE=',Dimensions:{length:'800',width:'1200',height:'150'},TareWeight:20,TareWeightBasis:'kg/EA',MaxPayloadKG:1200,UnitPrice:priced?15:null,CurrencyCode:priced?'USD':null}]}}));
+ await page.route('**/api/workbench/masters/lookups*',r=>r.fulfill({json:{materials:[material],currencies:[{ID:1,CurrencyCode:'USD',Status:'Active',ExchangeRateToUSD:1}],uoms:[{ID:1,UoMCode:'EA',UoMName:'Each',Category:'Unit/Count',Status:'Active'}],vendors:[],packagingTypes:[],materialDimensions:[]}}));
+ await page.route('**/api/packaging/price/batch',r=>{priced=true;const row=r.request().postDataJSON().rows[0];return r.fulfill({json:{results:[{RowNum:row.RowNum,Status:'OK',NewID:55}]}})});
+ await editor.getByRole('button',{name:'Pallet Pricing Calculator',exact:true}).click();
+ const calculator=page.getByRole('dialog',{name:'Pallet Pricing Calculator',exact:true});
+ await expect(calculator.getByRole('cell',{name:'No effective price Add new Packaging Price master',exact:true})).toBeVisible();
+ await expect(calculator.getByRole('button',{name:'Add PAL-NEW price null',exact:true})).toBeDisabled();
+ await calculator.getByRole('button',{name:'Add new Packaging Price master',exact:true}).click();
+ const price=page.getByRole('dialog',{name:'New price',exact:true});
+ await expect(price.getByLabel('Material',{exact:true})).toHaveValue('123');
+ await expect(price.getByLabel('Price UoM',{exact:true})).toHaveValue('EA');
+ await price.getByLabel('Vendor currency',{exact:true}).selectOption('1');
+ await price.getByLabel('Unit price (Vendor currency)',{exact:true}).fill('15');
+ await price.getByLabel('Effective from',{exact:true}).fill('2020-01-01');
+ await price.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(calculator.getByRole('button',{name:'Add PAL-NEW price 55',exact:true})).toBeEnabled();
+ await expect(calculator.getByRole('button',{name:'Edit Packaging Price master',exact:true})).toBeVisible();
+ expect(priced).toBe(true);
+});
+
 async function setup(page:Page,configuration='Both',overrides:Record<string,unknown>={},largeFloor=false){
  const writes:any[]=[];
  let row:any={RequestID:1,ItemID:1,ProductCode:'PRD-1',ProductName:'Nut product',ItemDescription:'Item 1',ItemStage:'Assigned',PIC:'Admin',PICUserID:1,ItemRowVersion:'AAAAAAAAAAE=',WeightGrams:'10.00',RequestedLayerCount:3,ResponseLayerCount:3,UnitsPerCarton:10,UnitsPerTertiary:5,CartonsPerLayer:10,LayersPerPallet:null,HeightMM:400,ResponseMaxPalletHeightMM:950,ConfigurationRequest:configuration,ContainerRequest:'Both',ResponsePalletSize:'1.1x1.1m',...overrides};
@@ -26,6 +51,56 @@ async function setup(page:Page,configuration='Both',overrides:Record<string,unkn
  if(row.ItemStage!=='Approved'&&!row.ParentItemID)await editor.getByLabel('Container type',{exact:true}).selectOption(allowedContainerTypes(row.ContainerRequest,row.ShipmentContainerSizeFT)[0]);
  return {writes,editor};
 }
+
+test('Container master shortcut uses the shared editor for edit and create without saving the request',async({page})=>{
+ const {editor,writes}=await setup(page,'Pallet load');
+ const records:any[]=[{ID:1,Code:'20DC',Family:'Dry',SizeFT:20,Status:'Active',RowVersion:'AAAAAAAAAAE=',Specifications:{length:5898,width:2352,height:2393,payload_kg:28200,clearance_length:0,clearance_width:0,clearance_height:0}}],saves:any[]=[];
+ await page.route('**/api/load-planning/containers',async route=>{
+  if(route.request().method()==='POST'){const body=route.request().postDataJSON();saves.push(body);if(body.ID)Object.assign(records[0],body);else records.push({...body,ID:2});return route.fulfill({json:{ID:body.ID||2}})}
+  return route.fulfill({json:{rows:records}});
+ });
+ await editor.getByRole('button',{name:'Edit Container Type master',exact:true}).click();
+ let popup=page.getByRole('dialog',{name:'Container type',exact:true});
+ await expect(popup.getByRole('heading',{name:'Edit container type',exact:true})).toBeVisible();
+ await expect(popup.getByLabel('Maximum payload (kg)',{exact:true})).toHaveValue('28200');
+ await popup.getByLabel('Maximum payload (kg)',{exact:true}).fill('28000');
+ await popup.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('dialog',{name:'Confirm container save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(popup).toHaveCount(0);expect(saves[0].RowVersion).toBe('AAAAAAAAAAE=');
+ await editor.getByLabel('Container type',{exact:true}).selectOption('');
+ await editor.getByRole('button',{name:'Add new Container Type master',exact:true}).click();
+ popup=page.getByRole('dialog',{name:'Container type',exact:true});
+ await popup.getByLabel('Code *',{exact:true}).fill('40TEST');
+ for(const [label,value] of [['Internal length (mm)','12000'],['Internal width (mm)','2350'],['Internal height (mm)','2390']])await popup.getByLabel(label,{exact:true}).fill(value);
+ await popup.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('dialog',{name:'Confirm container save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(popup).toHaveCount(0);await expect(editor.getByLabel('Container type',{exact:true})).toHaveValue('40TEST');
+ expect(saves[1].ID).toBeNull();expect(writes).toEqual([]);
+});
+
+test('Pallet shortcuts create and edit the material master and show max payload',async({page},info)=>{
+ const {editor,writes}=await setup(page,'Pallet load',{ResponsePalletSize:'1118x1118mm'});
+ const type={ID:7,PackagingType:'Pallet',PackagingOrder:'Pallet',Status:'Active',FinalComponent:true,ParentTypeID:null};
+ const material={ID:412,MaterialID:412,MaterialCode:'PALLET',MaterialName:'Base pallet',PackagingTypeID:7,UnitOfMeasure:'EA',Status:'Active',TareWeight:20,TareWeightBasis:'kg/EA',MaxPayloadKG:1200,RowVersion:'AAAAAAAAAAE='};
+ await page.route('**/api/workbench/masters/lookups*',route=>route.fulfill({json:{materials:[],currencies:[],creators:[],packagingTypes:[type],uoms:[{ID:1,UoMCode:'EA',UoMName:'Each',Status:'Active'}],vendors:[],materialDimensions:[]}}));
+ await page.route('**/api/inline-masters/materials/412',route=>route.fulfill({json:{row:material,editable:true,reason:'',lockedFields:[]}}));
+ await editor.getByRole('button',{name:'Add new Pallet master',exact:true}).click();
+ let master=page.getByRole('dialog',{name:'New material',exact:true});
+ await expect(master.getByLabel('Packaging Type',{exact:true})).toHaveValue('7');
+ await expect(master.getByLabel('Max gross payload (kg)',{exact:true})).toBeVisible();
+ await master.getByRole('button',{name:'Close form',exact:true}).click();
+ await page.route('**/api/pallet-pricing/items/1',route=>route.fulfill({json:{rows:[{...material,ID:1,MaterialID:412,IsPallet:true,Dimensions:{length:'1118',width:'1118',height:'150'},UnitPrice:15,CurrencyCode:'USD',QuantityFrom:1}]}}));
+ await editor.getByRole('button',{name:'Pallet Pricing Calculator',exact:true}).click();
+ const calculator=page.getByRole('dialog',{name:'Pallet Pricing Calculator',exact:true});
+ await expect(calculator.getByRole('columnheader',{name:'Max payload (kg)',exact:true})).toBeVisible();
+ await expect(calculator.getByRole('cell',{name:'1,200',exact:true})).toBeVisible();
+ await calculator.getByRole('button',{name:'Edit Pallet master',exact:true}).click();
+ master=page.getByRole('dialog',{name:'Edit material',exact:true});
+ await expect(master.getByLabel('Max gross payload (kg)',{exact:true})).toHaveValue('1200');
+ await master.getByRole('button',{name:'Close form',exact:true}).click();
+ await calculator.screenshot({path:info.outputPath('pallet-payload-master.png')});
+ expect(writes).toEqual([]);
+});
 
 test('Pallet loading calculates cartons using Layers / pallet and no Layer / Container field',async({page})=>{
  const {editor,writes}=await setup(page,'Pallet load');

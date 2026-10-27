@@ -25,7 +25,7 @@ export function useResponseTypes(){
  const [pallets,setPallets]=useState<Row[]>([]);
  const [types,setTypes]=useState<Row[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
  useEffect(()=>{let active=true;call<{packagingTypes:Row[];pallets?:Row[]}>('/api/packaging/lookups').then(d=>{if(active){setTypes(d.packagingTypes||[]);setPallets(d.pallets||[])}}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[]);
- return {types,pallets,loading,error};
+ return {types,pallets,loading,error,setTypes};
 }
 const orderFor=(key:string)=>responseOrderFields.find(f=>f.type===key)?.order;
 export function responseTypeError(key:string,value:string,original:unknown,types:Row[],layers?:unknown,originalLayers?:unknown,mixChild=false,mixParent=false,start=1){

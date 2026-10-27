@@ -470,7 +470,25 @@ def calculate(cur, ctx, item_id, payload, locked=False, expected_version=None):
             # A Count formula can output pieces, never square metres. Vendor
             # price-unit conversion must not change physical packaging weight.
             tare_quantity=component.Quantity*(area if area is not None and basis=='Count' else Decimal(1))
-            row['TareWeightKG']=material_tare(p.get('TareWeight'),p.get('TareWeightBasis'),tare_quantity,area if basis=='Square meter' else None)
+            base_quantity=None
+            if p.get('TareWeightBasis') in ('g','kg'):
+                base_unit=next((u for u in unit_map.values() if u['UoMCode'].casefold()==p['UnitOfMeasure'].casefold()),None)
+                target=geometry.get('TargetUoM')
+                if base_unit and target and base_unit['ID']==target['ID']:
+                    base_quantity=component.Quantity*(area if area is not None else Decimal(1))
+                elif base_unit and target and base_unit.get('Category')=='Area' and target.get('Category')=='Area':
+                    converted=output_conversion_lookup(cur,target['UoMCode'],base_unit['UoMCode'],p,locked)
+                    if not converted or converted.get('Factor') is None:raise HTTPException(422,'Maintain the area conversion to material Base UoM for tare weight.')
+                    base_quantity=component.Quantity*area*Decimal(str(converted['Factor']))
+                elif basis=='Count':
+                    raise HTTPException(422,'Tare weight needs a consumption quantity in material Base UoM.')
+                elif not base_unit:
+                    raise HTTPException(422,'Choose an active material Base UoM for tare weight.')
+                elif base_unit.get('Category')!='Unit/Count':
+                    converted=output_conversion_lookup(cur,target['UoMCode'],base_unit['UoMCode'],p,locked)
+                    if not converted or converted.get('Factor') is None:raise HTTPException(422,'Maintain the consumption conversion to material Base UoM for tare weight.')
+                    base_quantity=component.Quantity*area*Decimal(str(converted['Factor']))
+            row['TareWeightKG']=material_tare(p.get('TareWeight'),p.get('TareWeightBasis'),tare_quantity,area if basis=='Square meter' else None,p.get('UnitOfMeasure'),base_quantity)
             rows.append(row)
         hint = ' WITH(HOLDLOCK)' if locked else ''
         currencies = select(cur, "SELECT ID FROM dbo.Currency" + hint + " WHERE CurrencyCode='USD'")[0]

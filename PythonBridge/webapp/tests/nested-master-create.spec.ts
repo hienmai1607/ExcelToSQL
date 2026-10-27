@@ -1,4 +1,5 @@
 import {test,expect,type Page,type Locator} from '@playwright/test';
+import {tareBasisLabel,tareMassSelection} from '../src/tare-basis';
 const rv='AAAAAAAAAAE=';
 async function setup(page:Page,session:Record<string,unknown>={username:'Tester',user_id:1,is_admin:true,scopes:['Admin']}){
  const writes:{path:string;body:any}[]=[];
@@ -52,6 +53,35 @@ async function product(page:Page){
  await parent.getByLabel('Product name',{exact:true}).fill('Keep unsaved product');
  return parent;
 }
+
+test('tare mass choices follow material Base UoM and save the selected mass unit',async({page},info)=>{
+ const state=await setup(page);
+ await page.route('**/api/workbench/masters/lookups*',route=>route.fulfill({json:{materials:[],currencies:[],creators:[],packagingTypes:[],uoms:[{ID:1,UoMCode:'EA',UoMName:'Each',Category:'Unit/Count',Status:'Active'},{ID:2,UoMCode:'m2',UoMName:'Square meter',Category:'Area',Status:'Active'},{ID:3,UoMCode:'LM',UoMName:'Linear meter',Category:'Length/Distance',Status:'Active'}],vendors:[],materialDimensions:[]}}));
+ await page.getByRole('button',{name:'Packaging Material',exact:true}).click();
+ await page.getByRole('button',{name:'New material',exact:true}).click();
+ const form=page.getByRole('dialog',{name:'New material',exact:true});
+ await form.getByLabel('Material name',{exact:true}).fill('Tare units material');
+ await form.getByLabel('Base UoM',{exact:true}).selectOption('EA');
+ const basis=form.getByLabel('Tare basis',{exact:true});
+ await expect(basis.locator('option')).toHaveText(['Choose tare basis','g/EA','kg/EA']);
+ await basis.selectOption('g');await form.getByLabel('Tare weight',{exact:true}).fill('600');
+ await form.getByLabel('Base UoM',{exact:true}).selectOption('LM');
+ await expect(basis.locator('option')).toHaveText(['Choose tare basis','g/LM','kg/LM']);
+ await form.getByLabel('Base UoM',{exact:true}).selectOption('m2');
+ await expect(basis.locator('option')).toHaveText(['Choose tare basis','g/m²','kg/m²']);
+ await basis.selectOption('kg');
+ await form.screenshot({path:info.outputPath('material-tare-basis.png')});
+ await save(page,form);
+ const written=state.writes.find(w=>w.path==='/api/packaging/material/batch')!.body.rows[0];
+ expect(written).toMatchObject({UnitOfMeasure:'m2',TareWeightBasis:'kg',TareWeight:'600'});
+});
+
+test('legacy tare selections retain their saved denominator',()=>{
+ expect(tareMassSelection('kg/EA','EA')).toBe('kg');
+ expect(tareMassSelection('kg/EA','m2')).toBe('legacy');
+ expect(tareBasisLabel('kg/EA','m2')).toBe('kg/EA');
+ expect(tareBasisLabel('g','m2')).toBe('g/m²');
+});
 async function save(page:Page,form:Locator){
  await form.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('dialog',{name:'Confirm master save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();

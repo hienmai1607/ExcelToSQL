@@ -6,7 +6,7 @@ import {InlineMasterCreate} from './inline-master-create';
 import {AddMasterButton,canCreateMaster} from './add-master-button';
 import {useSession} from './session';
 import {withTCBGrades} from './tcb-grade-pricing';
-import {materialRecipe,recipeRows,rawPrice,productFields,money,type TCBGrade} from './tcb-model';
+import {materialRecipe,changeRecipe,recipeRows,rawPrice,productFields,money,type TCBGrade} from './tcb-model';
 
 import {FieldLabel,Notification} from './ui';
 import {quantityDisplay} from './packaging-summary-model';
@@ -88,7 +88,7 @@ export function ItemProcessInfo({d,busy,review,update}:CommercialProps){
     const values=materialRecipe(d.costingInputs,group.Path),fieldError=issues.find(x=>x.field==='Recipe:'+group.Path+':'+field)?.message;
     return <td key={field} data-label={label} data-tcb-field={'Recipe:'+group.Path+':'+field}><input aria-label={label} aria-invalid={!!fieldError} type="number" min="0" max={field.endsWith('Ratio')||field==='OilPct'?100:undefined} step={field.endsWith('Ratio')||field==='OilPct'?'0.01':'0.000001'} disabled={disabled} value={String(values[field]??'')} onChange={e=>update(id,x=>{
      const previous=Object.fromEntries(productFields.map(([key])=>[key,materialRecipe(x.costingInputs,group.Path)[key]]));
-     return {...x,costingInputs:{...x.costingInputs,MaterialCosts:[...(x.costingInputs.MaterialCosts??[]).filter(r=>r.Path!==group.Path),{...previous,Path:group.Path,[field]:e.target.value===''?null:e.target.value}]}};
+     return {...x,costingInputs:{...x.costingInputs,MaterialCosts:[...(x.costingInputs.MaterialCosts??[]).filter(r=>r.Path!==group.Path),{...changeRecipe(previous,field,e.target.value===''?null:e.target.value),Path:group.Path}]}};
     })}/>{fieldError&&<small className="tcb-field-error">{fieldError}</small>}</td>;
    })}
    <td className="material-line-total" data-label="Line product ($/lbs)"><output>{money(group.product)}</output></td>

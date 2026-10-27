@@ -6,11 +6,12 @@ import {Icon} from './icons';
 import {pageAccess} from './workspace-access';
 import type {MasterEntity} from './master-config';
 
-export type InlineMasterEntity=MasterEntity|'customers'|'categories'|'packaging-dimensions'|'ports';
-export const masterNames:Record<InlineMasterEntity,string>={prices:'Packaging Price',ports:'Port of Entry',customers:'Customer',products:'Product',categories:'Category',materials:'Packaging Material',vendors:'Vendor',uoms:'UoM',pallets:'Pallet', 'raw-materials':'Raw Material','raw-prices':'Raw material price','raw-grades':'Raw Grade','packaging-types':'Packaging Type','packaging-dimensions':'Packaging Dimension'};
+export type InlineMasterEntity=MasterEntity|'customers'|'categories'|'packaging-dimensions'|'ports'|'containers';
+export const masterNames:Record<InlineMasterEntity,string>={containers:'Container Type',prices:'Packaging Price',ports:'Port of Entry',customers:'Customer',products:'Product',categories:'Category',materials:'Packaging Material',vendors:'Vendor',uoms:'UoM',pallets:'Pallet', 'raw-materials':'Raw Material','raw-prices':'Raw material price','raw-grades':'Raw Grade','packaging-types':'Packaging Type','packaging-dimensions':'Packaging Dimension'};
 export function canCreateMaster(session:Session|null,entity:InlineMasterEntity){
  if(!session||entity==='uoms')return false;
  if(session.is_admin)return true;
+ if(entity==='containers')return false;
  if(entity==='ports')return session.permissions?.ports==='edit'&&(session.scopes.includes('Customer')||session.scopes.includes('Opportunity'));
  const scope=entity==='customers'?'Customer':entity==='products'||entity==='categories'?'Product':entity.startsWith('raw-')?'RawMaterial':'Packaging';
  // Units are maintained through their standalone Admin-managed screen only.

@@ -1,11 +1,12 @@
 import {test,expect,type Page} from '@playwright/test';
 const rv='AAAAAAAAAAE=';
-const root={RequestID:9,ItemID:1,OpportunityItemID:10,ProductID:20,ProductCode:'PRD-MIX',ProductName:'Mixed nuts',ItemStage:'Assigned',PIC:'Admin',ItemRowVersion:rv,IsMixParent:true,SameConfig:false,ResponseDefaultsInitialized:true,ResponseLayerCount:1,RequestedLayerCount:1,WeightGrams:750,ConfigurationRequest:'Floor load',ContainerRequest:'Dry',FirstPMType:'Carton',NutDensity:null,
+const root={RequestID:9,ItemID:1,OpportunityItemID:10,ProductID:20,ProductCode:'PRD-MIX',ProductName:'Mixed nuts',ItemStage:'Assigned',PIC:'Admin',ItemRowVersion:rv,IsMixParent:true,SameConfig:false,ResponseDefaultsInitialized:true,ResponseLayerCount:1,RequestedLayerCount:1,WeightGrams:750,ConfigurationRequest:'Floor load',ContainerRequest:'Dry',FirstPMType:'Carton',NutDensity:null,SelectedContainerType:'20DC',CartonsPerContainer:10,
  ProductMixSnapshot:JSON.stringify({items:[{ProductID:2,ProductCode:'PRD-A',UnitQuantity:2},{ProductID:3,ProductCode:'PRD-B',UnitQuantity:1}]})};
 const child=(id:number,weight:number)=>({RequestID:9,ItemID:id,OpportunityItemID:10+id,ParentItemID:10,ProductID:id,MixChildNumber:id-1,ProductCode:id===2?'PRD-A':'PRD-B',ProductName:'Child '+id,ItemStage:'Assigned',PIC:'Admin',ItemRowVersion:rv,WeightGrams:weight,ResponseDefaultsInitialized:true,ResponseLayerCount:1,RequestedLayerCount:1,FirstPMType:id===2?'Film':'Jar',FirstPMMOQ:1000,PrimaryPricePerUnit:'.6',PrimaryPriceCurrencyCode:'USD',NutDensity:id===2?'.6':'.8',UnitsPerCarton:12,LayerDimensionCaptures:{Primary:{PackagingTypeName:id===2?'Film':'Jar',LayerCount:1,Dimensions:[{Name:'Length',Unit:'mm',Value:'100'},{Name:'Width',Unit:'mm',Value:'80'}]}}});
 const input={PackagingOrder:'Primary',LayerCount:1,PackagingTypeID:11,DimensionID:5,DimensionRowVersion:rv,D1:'100',D2:'80',D3:null,SquareMeterUoMID:8,components:[],Fingerprint:'source-only'};
-async function setup(page:Page,options:{size?:number;saved?:boolean;blocked?:boolean;conflict?:boolean;reverse?:boolean}={}){
+async function setup(page:Page,options:{size?:number;saved?:boolean;blocked?:boolean;conflict?:boolean;reverse?:boolean;gross?:boolean}={}){
  const rows:any[]=[{...root,SameConfig:!!options.saved},child(2,150),{...child(3,450),...(options.saved?{FirstPMType:'Film'}:{}),...(options.blocked?{ItemStage:'Approved'}:{})}];
+ if(options.gross){for(const row of rows)row.LayerTareJSON=JSON.stringify({Primary:{KG:row.ItemID===1?'.03':row.ItemID===2?'.01':'.02'}})}
  if(options.reverse)rows.reverse();
  const writes:any[]=[],previews:any[]=[];
  await page.route('**/api/**',route=>{
@@ -32,6 +33,25 @@ async function setup(page:Page,options:{size?:number;saved?:boolean;blocked?:boo
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  return {editor,writes,previews,rows,item:(id:number)=>editor.getByRole('region',{name:'Request item '+id,exact:true})};
 }
+test('Same config immediately updates copied child and parent gross without saving',async({page})=>{
+ const {item,writes}=await setup(page,{gross:true});
+ await expect(item(2).getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('160');
+ await item(1).getByRole('switch',{name:'Same config',exact:true}).check();
+ await expect(item(3).getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('460');
+ await expect(item(1).getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('810');
+ await page.route('**/api/packaging/items/2/copy-references*',route=>route.fulfill({json:{rows:[{ID:10,RequestNumber:'PCR-SOURCE',ProductCode:'PRD-SOURCE',sections:['Primary']}]}}));
+ await page.route('**/api/packaging/items/2/copy-references/preview',route=>route.fulfill({json:{sections:{Primary:{SourceItemID:10,values:{FirstPMType:'Film'},input:{...input,Fingerprint:'copied'},result:{Fingerprint:'copied',Tare:{KG:'.04'},UnitPrice:'1',CurrencyCode:'USD',FinalMOQ:'1',components:[]},materials:[],warnings:[]}}}}));
+ await item(2).getByRole('button',{name:'Copy reference for item 2',exact:true}).click();
+ const copy=page.getByRole('dialog',{name:'Copy reference',exact:true});
+ await copy.getByRole('combobox').selectOption('10');
+ await copy.getByRole('button',{name:'Preview copy',exact:true}).click();
+ await copy.getByRole('button',{name:'Copy to response',exact:true}).click();
+ await expect(item(2).getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('190');
+ await expect(item(3).getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('490');
+ await expect(item(1).getByLabel('Primary gross weight (g)',{exact:true})).toHaveValue('900');
+ expect(writes).toEqual([]);
+});
+
 test('toggle appears only on Mix parent; copied packaging is read-only while density and weights remain independent',async({page},info)=>{
  const {editor,item,writes}=await setup(page);
  await expect(editor.getByRole('switch',{name:'Same config',exact:true})).toHaveCount(1);
@@ -40,7 +60,7 @@ test('toggle appears only on Mix parent; copied packaging is read-only while den
  await expect(helpIcon).toHaveCount(1);await expect(toggle.locator('small')).toHaveCount(0);
  await expect(toggle.locator('.field-label')).toContainText('Same config');
  await helpIcon.focus();await expect(helpIcon).toBeFocused();
- expect(await helpIcon.evaluate(node=>getComputedStyle(node,'::after').content)).toContain('Density stays separate');
+ await expect(toggle.getByRole('tooltip')).toContainText('Density stays separate');
  await toggle.getByText('Same config',{exact:true}).click();
  await expect(toggle.getByRole('switch',{name:'Same config',exact:true})).toBeChecked();
  await toggle.getByRole('switch',{name:'Same config',exact:true}).uncheck();
@@ -92,15 +112,13 @@ test('first child comes from captured mix order even if display sorting reverses
  await expect(item(3).getByLabel('Primary Type',{exact:true})).toHaveValue('Film');
  await expect(item(2).getByLabel('Primary Type',{exact:true})).toBeEnabled();
 });
-test('paging keeps the first-child draft and shows copied siblings on later pages',async({page})=>{
+test('one-family page keeps parent and copied children together with their drafts',async({page})=>{
  const {editor,item}=await setup(page,{size:1});
  await item(1).getByRole('switch',{name:'Same config',exact:true}).check();
- await editor.getByRole('button',{name:'Next',exact:true}).click();
+ await expect(editor.getByRole('button',{name:'Next',exact:true})).toBeDisabled();
  await item(2).getByLabel('Primary Type',{exact:true}).selectOption('Jar');
- await editor.getByRole('button',{name:'Next',exact:true}).click();
  await expect(item(3).getByLabel('Primary Type',{exact:true})).toHaveValue('Jar');
  await expect(item(3).getByLabel('Primary Type',{exact:true})).toBeDisabled();
- await editor.getByRole('button',{name:'Previous',exact:true}).click();
  await expect(item(2).getByLabel('Primary Type',{exact:true})).toHaveValue('Jar');
 });
 test('saved Same config is restored; disabling retains values and unlocks independent packaging edits',async({page})=>{
@@ -124,7 +142,7 @@ test('group conflict keeps all drafts and never reports a partially saved child'
  await item(1).getByRole('switch',{name:'Same config',exact:true}).check();
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('dialog',{name:'Confirm request save',exact:true}).getByRole('button',{name:'Confirm save',exact:true}).click();
- await expect(editor.getByRole('status')).toContainText('0 item(s) saved');
+ await expect(editor.getByRole('alert').filter({hasText:'0 item(s) saved'})).toBeVisible();
  await expect(item(2).getByRole('alert')).toContainText('Conflict');
  await expect(item(3).getByRole('alert')).toContainText('Conflict');
  expect(writes).toHaveLength(1);

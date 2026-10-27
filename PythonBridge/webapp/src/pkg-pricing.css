@@ -43,6 +43,7 @@
 .pricing-calculator-actions .pricing-total{flex:1;margin:0;padding:0;gap:8px 18px;font-size:.85rem;min-width:0}
 .pricing-calculator-buttons{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0}
 .response-sections .pricing-type-field>.add-master-button{width:28px;height:32px;min-width:28px;min-height:32px;max-width:28px;max-height:32px;padding:4px;align-self:center}
+.pallet-pricing-dialog .add-master-button{width:28px;height:32px;min-width:28px;min-height:32px;max-width:28px;max-height:32px;padding:4px;vertical-align:middle}
 .pallet-pricing-dialog .pricing-catalog input[type=checkbox]{width:auto;min-height:0}
 .pallet-pricing-dialog .pricing-catalog small{display:block}
 

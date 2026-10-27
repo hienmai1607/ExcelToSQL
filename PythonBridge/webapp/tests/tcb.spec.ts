@@ -1,5 +1,5 @@
 import {test,expect,type Page} from '@playwright/test';
-import {costs,defaultInputs,money,packagingUSD,compareGradePaths} from '../src/tcb-model';
+import {costs,changeRecipe,defaultInputs,money,packagingUSD,compareGradePaths} from '../src/tcb-model';
 import {withTCBGrades,activeCostInputs} from '../src/tcb-grade-pricing';
 import {classifyProcessLeaves,savedProcessTree} from '../src/grade-process';
 const version='0x0000000000000001',rv='AAAAAAAAAAE=';
@@ -319,4 +319,24 @@ test('standalone items offer read-only Analysis without enabling edits',async({p
  await dialog.getByRole('button',{name:'Back to TCB inputs',exact:true}).click();
  await expect(dialog.getByLabel('RM Ratio (%)',{exact:true}).first()).toBeDisabled();
  expect(writes).toHaveLength(0);
+});
+
+
+test('seasoning and oil edits balance RM for only the edited recipe',async({page})=>{
+ const {dialog}=await setup(page);
+ const rm=dialog.getByLabel('RM Ratio (%)',{exact:true});
+ const salt=dialog.getByLabel('Seasoning/salt Ratio (%)',{exact:true}).first();
+ const oil=dialog.getByLabel('Oil %',{exact:true}).first();
+ await salt.fill('3');await expect(rm.first()).toHaveValue('97');
+ await expect(rm.nth(1)).toHaveValue('100');
+ await oil.fill('2');await expect(rm.first()).toHaveValue('95');
+ await salt.fill('0.1');await oil.fill('0.2');await expect(rm.first()).toHaveValue('99.7');
+ await salt.fill('0');await oil.fill('0');await expect(rm.first()).toHaveValue('100');
+});
+
+test('recipe remainder uses exact percentages and rejects an impossible remainder',()=>{
+ expect(changeRecipe({SeasoningRatio:'0.123456',OilPct:'0.000001'},'SeasoningRatio','0.123456').RMRatio).toBe('99.876543');
+ expect(changeRecipe({SeasoningRatio:'60',OilPct:'40'},'OilPct','40').RMRatio).toBe('0');
+ expect(changeRecipe({SeasoningRatio:'60',OilPct:'40'},'OilPct','41').RMRatio).toBeNull();
+ expect(changeRecipe({RMRatio:'100',SeasoningRatio:'0',OilPct:'0'},'ProcessingUSDPerLb','3').RMRatio).toBe('100');
 });

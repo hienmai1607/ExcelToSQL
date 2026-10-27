@@ -41,7 +41,7 @@ class PackagingMaterialRow(MaterialRow,MaterialDimensionFields):
     MaxPayloadKG: Decimal | None = Field(None,gt=0,max_digits=18,decimal_places=3,allow_inf_nan=False)
     PackagingTypeID: int | None = Field(None, ge=1)
     TareWeight: Decimal | None = Field(None, ge=0, max_digits=18, decimal_places=9, allow_inf_nan=False)
-    TareWeightBasis: Literal['kg/EA', 'kg/m2'] | None = None
+    TareWeightBasis: Literal['g', 'kg', 'kg/EA', 'kg/m2'] | None = None
 
     @computed_field
     @property
@@ -263,6 +263,9 @@ def material_save(payload: MaterialBatch, ctx: AccessContext = Depends(get_acces
         documents.append(data)
     from packaging_fields import consume
     with get_raw_cursor() as cur:
+        if any(row.TareWeightBasis in ('g','kg') for row in payload.rows if row.Command!='D'):
+            if not cur.execute("SELECT OBJECT_ID('dbo.CK_PackagingMaterial_TareMassUnit','C')").fetchval():
+                raise HTTPException(422,'Material was not saved. Apply database migration 150 before saving g or kg tare units, then retry.')
         own=cur.execute('SELECT @@TRANCOUNT').fetchval()==0
         cur.execute('SET QUOTED_IDENTIFIER ON; SET XACT_ABORT ON; '+('BEGIN TRANSACTION' if own else 'SAVE TRANSACTION MaterialTare'))
         try:

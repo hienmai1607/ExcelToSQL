@@ -2,6 +2,7 @@ import {call,type Row} from './api';
 import {isMixParent,responseOrderFields,layerCount} from './packaging-orders';
 import {objectValue} from './packaging-summary-model';
 import type {PricingCalculation,PricingResult} from './pkg-pricing';
+import {layerTares} from './packaging-weight';
 
 export type ResponseEntry={row:Row;values:Record<string,string>;done:boolean;error:string;pricing:Record<string,PricingCalculation>;pricingResults:Record<string,PricingResult>;copiedDimensions?:Row[string]};
 export const sameConfig=(value:unknown)=>value===true||value===1||value==='1'||value==='true';
@@ -25,6 +26,9 @@ export function synchronizeMixConfigs(entries:ResponseEntry[],rootIDs?:Set<unkno
   const children=mixChildren(root,entries),source=children[0];if(!source)continue;
   for(const child of children.slice(1)){
    const values={...child.values};for(const key of sameConfigFields)values[key]=source.values[key]||'';
+   const tares=layerTares(source.values.LayerTareJSON);
+   for(const [order,result] of Object.entries(source.pricingResults))if(result.Tare&&source.pricing[order]?.Fingerprint===result.Fingerprint)tares[order]=result.Tare;
+   values.LayerTareJSON=JSON.stringify(tares);
    // Fingerprints are item-specific. Every copied input must be previewed for its target.
    const pricing=Object.fromEntries(Object.entries(source.pricing).map(([order,input])=>[order,{...structuredClone(input),Fingerprint:undefined}]));
    copies.set(child.row.ItemID,{...child,values,pricing,pricingResults:source.pricingResults,copiedDimensions:source.row.LayerDimensionCaptures,error:''});

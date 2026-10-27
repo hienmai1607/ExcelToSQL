@@ -43,7 +43,7 @@ def can_edit(ctx,page):
 def route_pages(path):
  if path.startswith('/api/inline-masters/'):
   parts=path.strip('/').split('/')
-  return (parts[2],) if len(parts)>2 and parts[2] in {'customers','products','categories','materials','raw-materials','raw-prices','raw-grades','vendors','packaging-types','packaging-dimensions','pallets','ports'} else ()
+  return (parts[2],) if len(parts)>2 and parts[2] in {'prices','customers','products','categories','materials','raw-materials','raw-prices','raw-grades','vendors','packaging-types','packaging-dimensions','pallets','ports'} else ()
  parts=path.strip("/").split("/")
  if len(parts)<2:return ()
  # Lookup data needed by another permitted editor is not independent page access.

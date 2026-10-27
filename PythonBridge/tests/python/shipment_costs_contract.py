@@ -36,7 +36,7 @@ class ShipmentModels(unittest.TestCase):
         OpportunityViews(items=dict(field_version=14,columns=["PortToWHCustomerPerContainer","WHCostCustomerPerPallet","InitialDesignCustomer"]))
     def test_precision_and_bounds(self):
         self.assertEqual(ShipmentCostInfo(FreightUSDPerContainer="12.30").model_dump(mode="json")["FreightUSDPerContainer"],"12.30")
-        for field,value in (("FreightUSDPerContainer","1.234"),("FreightUSDPerContainer","-1"),("DutyPct","100.01"),("InterestMonths",1.5),("InterestMonths",True),("ContainerSizeFT","40RC"),("Incoterm","CIF"),("Currency","AUD")):
+        for field,value in (("FreightUSDPerContainer","1.234"),("FreightUSDPerContainer","-1"),("DutyPct","100.01"),("InterestMonths",1.5),("InterestMonths",True),("ContainerSizeFT","40RC"),("Incoterm","INVALID"),("Currency","AUD")):
             with self.subTest(field=field),self.assertRaises(ValidationError):
                 ShipmentCostInfo(**{field:value})
         self.assertEqual(ItemFields(ShipmentCostInfo={"DutyPct":"12.50"}).ShipmentCostInfo.DutyPct,12.5)

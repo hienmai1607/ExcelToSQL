@@ -8,20 +8,21 @@ SHIPMENT_GROUPS = [
    "Incoterm": "Incoterm",
    "PortOfEntryName": "Port of Entry",
    "ContainerSizeFT": "Container",
-   "FloorLoadUSDPerMT": "Floor load cost ($/MT)"
+   "FloorLoadUSDPerMT": "Floor load cost (USD/MT)"
   }
  ],
  [
   "Logistics",
   {
-   "FreightUSDPerContainer": "Freight ($/Container)",
+   "FobbingUSDPerContainer": "Fobbing (USD/cont)",
+   "FreightUSDPerContainer": "Freight (USD/cont)",
    "DutyPct": "Duty %",
-   "ImportClearanceUSDPerContainer": "Legacy import clearance ($/cont)",
-   "ImportClearanceCustomerPerContainer": "Import clearance (customer currency/container)",
+   "ImportClearanceUSDPerContainer": "Legacy import clearance (USD/cont)",
+   "ImportClearanceCustomerPerContainer": "Import clearance (customer currency/cont)",
    "ImportClearanceCustomerPerPallet": "Legacy clearance (customer currency/pallet)",
-   "PortToWHUSDPerContainer": "Port - WH ($/cont)",
-   "WHCostUSDPerPallet": "WH Cost ($/pallet)",
-   "PortToWHCustomerPerContainer": "Port - WH (customer currency/container)",
+   "PortToWHUSDPerContainer": "Port - WH (USD/cont)",
+   "WHCostUSDPerPallet": "WH Cost (USD/pallet)",
+   "PortToWHCustomerPerContainer": "Port - WH (customer currency/cont)",
    "WHCostCustomerPerPallet": "WH Cost (customer currency/pallet)",
    "OverageShortageDamagePct": "Overage, Shortage & Damage %"
   }
@@ -29,9 +30,9 @@ SHIPMENT_GROUPS = [
  [
   "Co-Man",
   {
-   "WHToCoManWHUSDPerPallet": "WH - Co-Man WH ($/pallet)",
-   "CoManOverheadUSDPerPallet": "Co-Man Overhead ($/pallet)",
-   "FreightToCustomerUSDPerPallet": "Freight to Customer ($/pallet)",
+   "WHToCoManWHUSDPerPallet": "WH - Co-Man WH (USD/pallet)",
+   "CoManOverheadUSDPerPallet": "Co-Man Overhead (USD/pallet)",
+   "FreightToCustomerUSDPerPallet": "Freight to Customer (USD/pallet)",
    "SpoilageAllowancePct": "Spoilage Allowance %",
    "PaymentTermPct": "Payment Term %",
    "CoManFeePct": "Co-Man fee %",
@@ -41,17 +42,16 @@ SHIPMENT_GROUPS = [
  [
   "Others",
   {
-   "PackingUSDPerLb": "Packing cost ($/lbs)",
-   "InitialDesignUSD": "Initial Design ($)",
+   "PackingUSDPerLb": "Packing cost (USD/lbs)",
+   "InitialDesignUSD": "Initial Design (USD)",
    "InitialDesignCustomer": "Initial Design (customer currency)",
-   "OtherFixedCostsUSD": "Other fixed costs ($)",
-   "FobbingUSDPerContainer": "Fobbing/container ($)",
+   "OtherFixedCostsUSD": "Other fixed costs (USD)",
    "InterestPct": "Interest %",
    "InterestMonths": "Legacy interest months",
    "InterestDays": "Interest days",
    "PaymentTermDays": "Payment term (days)",
    "MarginMode": "Margin basis",
-   "MarginUSDPerLb": "Margin ($/lbs)",
+   "MarginUSDPerLb": "Margin (USD/lbs)",
    "MarginPct": "Margin %"
   }
  ]

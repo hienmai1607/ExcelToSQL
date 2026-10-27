@@ -4,6 +4,7 @@ import json
 from xml.etree import ElementTree as ET
 from product_excel_api import sheet, col, NS
 from shipment_columns import SHIPMENT_GROUPS
+from shipment_fields import INCOTERMS
 from tcb_analysis_columns import TCB_GROUPS, TCB_COLUMNS
 from web_item_fields import PRODUCT_FIELDS, REQUEST_FIELDS, RESPONSE_FIELDS, CALCULATED_FIELDS
 
@@ -153,7 +154,7 @@ def workbook_sheet(keys, labels, records, hidden, header_ids, category_ids, head
     if not len(merges):
         root.remove(merges)
     choices = {"HeaderCommand":"N,C,U,D","ItemCommand":"N,C,U,D","ContainerRequest":"20DC,20RC,40DC,40HC,40RHC",
-               "ConfigurationRequest":"Pallet load,Floor load,Both","Incoterm":"CFA,DDP,EXW,FOB","ContainerSizeFT":"20FT,40FT"}
+               "ConfigurationRequest":"Pallet load,Floor load,Both","Incoterm":",".join(INCOTERMS),"ContainerSizeFT":"20FT,40FT"}
     validations = ET.SubElement(root,q("dataValidations"))
     for key,options in choices.items():
         position = col(keys.index(key)+1)

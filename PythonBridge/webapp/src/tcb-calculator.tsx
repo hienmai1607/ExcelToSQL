@@ -4,7 +4,7 @@ import {call,type Row} from './api';
 import {Modal,ErrorNote,InfoTip,FieldLabel,Notification} from './ui';
 import {IconButton} from './icons';
 import {objectValue,quantity,quantityDisplay} from './packaging-summary-model';
-import {defaultInputs,costs,money,packagingUSD,palletizationValue,productFields,type TCBInputs,type TCBGrade} from './tcb-model';
+import {defaultInputs,changeRecipe,costs,money,packagingUSD,palletizationValue,productFields,type TCBInputs,type TCBGrade} from './tcb-model';
 import {migrateLossProcesses,processOptions,lossError,lossTotals,lossDisplay,lossFields,type LossStep} from './loss-processes';
 import './tcb-calculator.css';
 import {rawPriceOption,decimalDisplay} from './number-format';
@@ -32,7 +32,7 @@ export function TCBCalculator({row,opportunity,onClose,onSaved,lossOnly=false}:{
  const dirty=!!data&&JSON.stringify(inputs)!==baseline;
  function close(){if(!saving&&(!dirty||window.confirm('Discard unsaved TCB changes?')))onClose()}
  useEffect(()=>{const unload=(e:BeforeUnloadEvent)=>{if(dirty||saving){e.preventDefault();e.returnValue=''}};const nav=(e:Event)=>{if(saving||(dirty&&!window.confirm('Discard unsaved TCB changes?')))e.preventDefault()};window.addEventListener('beforeunload',unload);window.addEventListener('bridge:navigate',nav);return()=>{window.removeEventListener('beforeunload',unload);window.removeEventListener('bridge:navigate',nav)}},[dirty,saving]);
- function change(key:string,value:unknown){setInputs(i=>({...i,[key]:value}));setChanged(true);setMessage('');setFormulaResult('')}
+ function change(key:string,value:unknown){setInputs(i=>({...i,...changeRecipe(i,key,value)}));setChanged(true);setMessage('');setFormulaResult('')}
  function input(key:string,label:string,disabled=readonly){return <label key={key}><FieldLabel>{label}</FieldLabel><input aria-label={label} type="number" min="0" max={key.endsWith('Pct')||key.endsWith('Ratio')?100:undefined} step={key.endsWith('Pct')||key.endsWith('Ratio')?'0.01':'0.000001'} value={String(inputs[key]??'')} disabled={disabled||saving} onChange={e=>change(key,e.target.value===''?null:e.target.value)}/></label>}
  async function save(){
   if(!data||saving)return;setSaving(true);setError('');setMessage('');

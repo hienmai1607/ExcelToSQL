@@ -7,7 +7,7 @@ from auth import AccessContext,get_access_context
 from pkg_pricing_api import api_cursor,authorize,select,document,encode
 from packaging_api import rv
 from load_planning_api import pallet_prices_from_cursor
-from packaging_weight import material_tare
+from packaging_weight import pallet_material_tare
 from workspace_access import can_edit
 
 router=APIRouter(prefix='/api/pallet-pricing',tags=['Pallet pricing'])
@@ -18,17 +18,17 @@ def pallet_choices(ctx:AccessContext=Depends(get_access_context)):
     require(ctx,'Packaging','PackagingManager','Opportunity')
     with api_cursor() as cur:
         choices={}
-        for row in pallet_prices_from_cursor(cur):
+        for row in pallet_prices_from_cursor(cur,include_unpriced=True):
             dimensions=row['Dimensions']
             choices[row['MaterialID']]=dict(ID=row['MaterialID'],MaterialCode=row['MaterialCode'],MaterialName=row['MaterialName'],
-                TareKG=material_tare(row.get('TareWeight'),row.get('TareWeightBasis'),1,Decimal(dimensions['length'])*Decimal(dimensions['width'])/1000000),MaxPayloadKG=row.get('MaxPayloadKG'),PalletSize=format(Decimal(dimensions['length']).normalize(),'f')+'x'+format(Decimal(dimensions['width']).normalize(),'f')+'mm',Dimensions=dimensions)
+                TareKG=pallet_material_tare(cur,row,1,Decimal(dimensions['length'])*Decimal(dimensions['width'])/1000000),MaxPayloadKG=row.get('MaxPayloadKG'),PalletSize=format(Decimal(dimensions['length']).normalize(),'f')+'x'+format(Decimal(dimensions['width']).normalize(),'f')+'mm',Dimensions=dimensions)
         return {'rows':list(choices.values())}
 
-def catalog(cur):
+def catalog(cur,include_unpriced=False):
     bases=pallet_prices_from_cursor(cur)
     base_ids={p['ID'] for p in bases}
     rows=select(cur,"""SELECT p.ID,p.RowVersion,m.RowVersion MaterialRowVersion,m.ID MaterialID,m.MaterialCode,m.MaterialName,t.PackagingType,
-        m.TareWeight,m.TareWeightBasis,m.MaxPayloadKG,p.UnitPrice,p.UnitUSDPrice,p.PriceBasis,c.CurrencyCode,
+        m.UnitOfMeasure,m.TareWeight,m.TareWeightBasis,m.MaxPayloadKG,p.UnitPrice,p.UnitUSDPrice,p.PriceBasis,c.CurrencyCode,
         p.VendorID,p.CurrencyID,p.QuantityFrom,p.QuantityTo,p.EffectiveFrom,p.EffectiveTo,v.VendorName,t.PackagingOrder
         FROM dbo.PackagingPrice p WITH(HOLDLOCK) JOIN dbo.PackagingMaterial m WITH(HOLDLOCK) ON m.ID=p.MaterialID AND m.Status='Active'
         JOIN dbo.PackagingType t ON t.ID=m.PackagingTypeID AND t.Status='Active'
@@ -40,7 +40,9 @@ def catalog(cur):
         AND (p.EffectiveTo IS NULL OR p.EffectiveTo>=CONVERT(DATE,SYSUTCDATETIME()))
         ORDER BY m.MaterialCode,p.ID""")[0]
     result=[]
+    area_codes={str(r['UoMCode']).casefold() for r in select(cur,"SELECT UoMCode FROM dbo.UoM WHERE Status='Active' AND Category='Area'")[0]}
     for row in rows:
+        row['TareNeedsArea']=row['TareWeightBasis']=='kg/m2' or row['TareWeightBasis'] in ('g','kg') and str(row['UnitOfMeasure']).casefold() in area_codes
         row['IsPallet']=row['PackagingType'].strip().casefold()=='pallet'
         if row['IsPallet'] and row['ID'] not in base_ids:continue
         row['RowVersion']=encode(row['RowVersion'])
@@ -48,6 +50,10 @@ def catalog(cur):
         base=next((b for b in bases if b['ID']==row['ID']),None)
         row['Dimensions']=base['Dimensions'] if base else None
         result.append(row)
+    for material in pallet_prices_from_cursor(cur,include_unpriced=True) if include_unpriced else []:
+        if material['ID'] is not None:continue
+        result.append({**material,'IsPallet':True,'PackagingType':'Pallet','PackagingOrder':'Pallet',
+            'UnitPrice':None,'CurrencyCode':None,'EffectiveFrom':None,'EffectiveTo':None,'TareNeedsArea':False})
     return result
 
 def calculate(cur,body):
@@ -72,8 +78,8 @@ def calculate(cur,body):
             area=Decimal(dims['length'])*Decimal(dims['width'])/1000000
         if currency is not None and currency!=p['CurrencyCode']:raise HTTPException(422,'Choose prices in the same currency.')
         currency=p['CurrencyCode']
-        if p['TareWeightBasis']=='kg/m2' and area is None:raise HTTPException(422,'Enter consumed area (m²) for '+p['MaterialCode']+'.')
-        kg=material_tare(p['TareWeight'],p['TareWeightBasis'],component.Quantity,area)
+        if (p.get('TareNeedsArea') or p['TareWeightBasis']=='kg/m2' or p['TareWeightBasis'] in ('g','kg') and str(p.get('UnitOfMeasure')).casefold()=='m2') and area is None:raise HTTPException(422,'Enter consumed area (m²) for '+p['MaterialCode']+'.')
+        kg=pallet_material_tare(cur,p,component.Quantity,area)
         if kg is None:missing.append(p['MaterialCode'])
         else:tare+=kg
         cost=Decimal(str(p['UnitPrice']))*component.Quantity;total+=cost
@@ -88,7 +94,7 @@ def calculate(cur,body):
 def options(item_id:int,ctx:AccessContext=Depends(get_access_context)):
     with api_cursor() as cur:
         authorize(cur,ctx.username,item_id)
-        return {'rows':catalog(cur)}
+        return {'rows':catalog(cur,include_unpriced=True)}
 
 @router.post('/items/{item_id}/preview')
 def preview(item_id:int,body:Selection,ctx:AccessContext=Depends(get_access_context)):

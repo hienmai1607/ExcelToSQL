@@ -1,5 +1,5 @@
 import type {Row} from './api';
-import {quantity,add,multiply,divide,costDisplay,type Fraction,objectValue} from './packaging-summary-model';
+import {quantity,add,multiply,divide,costDisplay,type Fraction,objectValue,quantityDisplay} from './packaging-summary-model';
 import {responseOrderFields} from './packaging-orders';
 import type {GradeItem} from './product-grades';
 import {processLossValue,type GradeLoss,type GradeLossResult} from './grade-process-loss';
@@ -26,6 +26,15 @@ export function materialRecipe(inputs:TCBInputs,path:string):Record<string,unkno
  if(exact)return exact;
  const children=(inputs.MaterialCosts??[]).filter(r=>r.Path.startsWith(path+'/'));
  return children.length&&new Set(children.map(row=>JSON.stringify(productFields.map(([key])=>row[key]??inputs[key])))).size===1?children[0]:inputs;
+}
+/** Salt and oil take their share from the raw-material percentage. */
+export function changeRecipe(values:Record<string,unknown>,field:string,value:unknown):Record<string,unknown>{
+ const next={...values,[field]:value};
+ if(field!=='SeasoningRatio'&&field!=='OilPct')return next;
+ const salt=quantity(next.SeasoningRatio??'0',true),oil=quantity(next.OilPct??'0',true);
+ if(!salt||!oil)return {...next,RMRatio:null};
+ const total=add(salt,oil),remaining={n:100n*total.d-total.n,d:total.d};
+ return {...next,RMRatio:remaining.n>=0n?quantityDisplay(remaining,6):null};
 }
 export const recipePath=(path:string)=>path.split('/').slice(0,2).join('/');
 export function recipeCost(inputs:Record<string,unknown>,rm:Fraction|null){
