@@ -252,3 +252,20 @@ test('missing Sales choice or missing matching capacity never borrows another re
  expect(buildTCBAnalysis([d])[0].label).toBe('40DC');
  expect(buildTCBAnalysis([d])[0].columns[0].cells[7].value).toBeNull();
 });
+
+
+test('three child layers plus one shared Quaternary apply each loss once',()=>{
+ const parent=draft(10,{mix:true,layers:1,steps:[{ProcessType:'MixPrimaryPackaging',Sequence:1,LossPct:'4'}]});
+ const a=draft(11,{layers:3,steps:[{ProcessType:'PrimaryPackaging',Sequence:1,LossPct:'1'},{ProcessType:'SecondaryPackaging',Sequence:1,LossPct:'2'},{ProcessType:'TertiaryPackaging',Sequence:1,LossPct:'3'}]}),b=draft(12,{layers:1,steps:[]});
+ Object.assign(parent.row,{ResponseLayerCount:1,PackagingLayerStart:4,PrimaryPricePerUnit:'2',PrimaryPriceCurrencyCode:'USD',ProductMixSnapshot:{items:[{ProductID:11,UnitQuantity:6},{ProductID:12,UnitQuantity:10}]}});
+ Object.assign(a.row,{ParentItemID:10,MixUnitQuantity:6,ResponseLayerCount:3,UnitsPerCarton:3,UnitsPerTertiary:2,PrimaryPricePerUnit:'.1',SecondaryPricePerUnit:'.6',TertiaryPricePerUnit:'1.2',TertiaryPriceCurrencyCode:'USD'});
+ Object.assign(b.row,{ParentItemID:10,MixUnitQuantity:10,ResponseLayerCount:1});
+ let [scenario]=buildTCBAnalysis([parent,a,b]);
+ expect(values(scenario.columns[0])[1]).toBe('0.5112773');
+ for(const column of scenario.columns)expect(values(column)[2]).toBe('0.13020833');
+ a.steps[2].LossPct='0';[scenario]=buildTCBAnalysis([parent,a,b]);
+ expect(values(scenario.columns[0])[1]).toBe('0.50509173');
+ for(const column of scenario.columns)expect(values(column)[2]).toBe('0.13020833');
+ parent.steps[0].LossPct='0';[scenario]=buildTCBAnalysis([parent,a,b]);
+ for(const column of scenario.columns)expect(values(column)[2]).toBe('0.125');
+});

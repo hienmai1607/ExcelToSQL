@@ -246,10 +246,11 @@ test('child Process Loss remains active when its parent is also processed',async
  expect(writes[0].Grades.items.map((g:any)=>g.Process)).toEqual([true,true]);
  expect(writes[0].CostInputs.ProcessLosses.find((r:any)=>r.Path==='0/1/1').Ratios).toEqual(['8']);
 });
-async function open(page:Page,failSecond=false,commercial=false,direct=false,root=10,analysis=false,loading='Both',salesContainer='20DC',branching=false,directRoot=false,missingMaterial=false,admin=false){
+async function open(page:Page,failSecond=false,commercial=false,direct=false,root=10,analysis=false,loading='Both',salesContainer='20DC',branching=false,directRoot=false,missingMaterial=false,admin=false,layerCounts?:number[]){
  const writes:any[]=[];
  const common={OpportunityID:1,OpportunityNumber:'OPP-LOSS',CustomerName:'Customer',HeaderStage:'Draft',HeaderRowVersion:rv,ItemStage:'Draft',ItemRowVersion:rv,AnnualUnit:1000,WeightGrams:150};
  const rows=[{...common,ItemID:10,ItemNumber:'1',ProductCode:'MIX',ProductName:'Mix parent',ResponseLayerCount:2},{...common,ItemID:11,ParentItemID:10,ItemNumber:'1.1',ProductCode:'CHILD-A',ProductName:'Child A',ResponseLayerCount:1},{...common,ItemID:12,ParentItemID:10,ItemNumber:'1.2',ProductCode:'CHILD-B',ProductName:'Child B',ResponseLayerCount:2},{...common,ItemID:13,ItemNumber:'2',ProductCode:'LOCKED',ProductName:'Locked product',ItemStage:'Approved',ResponseLayerCount:1}];
+ if(layerCounts){for(let index=0;index<layerCounts.length;index++)Object.assign(rows[index],{ResponseLayerCount:layerCounts[index]});Object.assign(rows[0],{PackagingLayerStart:1+Math.max(...layerCounts.slice(1))})}
  if(analysis){
   for(const r of rows)Object.assign(r,{ProductID:r.ItemID,EstPctAwarded:'50',CustomerCurrencyCode:'AUD',ExchangeRateCustomerCurrencyPerUSD:'1.5',PrimaryPricePerUnit:'.1',PrimaryPriceCurrencyCode:'USD',SecondaryPricePerUnit:'1',SecondaryPriceCurrencyCode:'USD',UnitsPerCarton:'10',UnitsPerPallet:'100',ConfigurationRequest:loading,ContainerRequest:salesContainer,SelectedContainerType:'20DC',ContainerLoadProfiles:{'20DC':{PalletsPerContainer:10,CartonsPerContainerFloor:200}},ContainerLoadResults:{'20DC':{CalculatedCartonsPerContainer:100}},ShipmentCostInfo:{PackingUSDPerLb:'.5',InitialDesignUSD:'100',OtherFixedCostsUSD:'50',FobbingUSDPerContainer:'200',InterestPct:'12',InterestMonths:'10',MarginPct:'10'}});
   if(salesContainer==='40DC')for(const r of rows)Object.assign(r,{ResponseContainerFamily:'20DC',LoadPlanJSON:{ID:196,Code:'20DC',Inputs:{},Result:{}},ContainerLoadResults:{'20DC':{CalculatedCartonsPerContainer:100},'40DC':{CalculatedCartonsPerContainer:300}}});
@@ -933,4 +934,22 @@ test('Analysis uses Sales 40DC with a reference 20DC plan and divides Product co
  const product=table.getByRole('row').filter({has:page.getByRole('rowheader',{name:'Product',exact:true})});
  await expect(product.getByRole('cell').first()).toHaveText('1.32 USD');
  expect(writes).toHaveLength(0);
+});
+
+
+test('Mix with three child layers labels the shared parent Quaternary and saves independent losses',async({page})=>{
+ const {dialog,writes}=await open(page,false,true,true,10,false,'Both','20DC',false,false,false,false,[1,3,1]);
+ const parent=dialog.locator('#tcb-item-10'),child=dialog.locator('#tcb-item-11');
+ await expect(parent.getByRole('columnheader',{name:'Quaternary PM ($/EA)',exact:true})).toBeVisible();
+ await expect(child.getByRole('columnheader',{name:'Tertiary PM ($/EA)',exact:true})).toBeVisible();
+ await expect(parent.getByRole('table',{name:'Packaging layers item 10',exact:true}).locator('td input')).toHaveCount(1);
+ await expect(child.getByRole('table',{name:'Packaging layers item 11',exact:true}).locator('td input')).toHaveCount(3);
+ await parent.getByLabel('Packaging loss ratio item 10 layer 1',{exact:true}).fill('4');
+ for(const [index,value] of ['1','2','3'].entries())await child.getByLabel('Packaging loss ratio item 11 layer '+(index+1),{exact:true}).fill(value);
+ await child.getByLabel('Direct USD/lb item 11 grade 0/1/1',{exact:true}).fill('0.1');
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
+ await dialog.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect.poll(()=>writes.map(w=>w.id)).toContain(11);
+ expect(writes.find(w=>w.id===10).Inputs.LossProcesses).toEqual([expect.objectContaining({ProcessType:'MixPrimaryPackaging',LossPct:'4'})]);
+ expect(writes.find(w=>w.id===11).Inputs.LossProcesses.map((step:any)=>[step.ProcessType,step.LossPct])).toEqual([['PrimaryPackaging','1'],['SecondaryPackaging','2'],['TertiaryPackaging','3']]);
 });

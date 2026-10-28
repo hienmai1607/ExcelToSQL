@@ -167,11 +167,11 @@ test('calculator selects prices, calculates live and saves item inputs even with
  await dialog.getByRole('button',{name:'Close TCB Review'}).click();
  await expect(page.getByRole('table',{name:'Opportunity items'})).toBeVisible();
 });
-test('Mix parent has only Mix packaging inputs, losses and pallet; no Product costing',async({page})=>{
- const {dialog,writes}=await setup(page,true,false,{Inputs:{LossProcesses:[{ProcessType:'MixSecondaryPackaging',Sequence:1,LossPct:'3',MasterID:8,MasterVersion:version}]}});
+test('Mix parent has cumulative packaging labels, losses and pallet; no Product costing',async({page})=>{
+ const {dialog,writes}=await setup(page,true,false,{Inputs:{LossProcesses:[{ProcessType:'MixSecondaryPackaging',Sequence:1,LossPct:'3',MasterID:8,MasterVersion:version}]}},2,'15.5',prices,grades,{PackagingLayerStart:3});
  await expect(dialog.getByRole('heading',{name:'Product',exact:true})).toHaveCount(0);
- await expect(dialog.getByText('Mix Primary PM ($/EA)',{exact:true})).toBeVisible();
- await expect(dialog.getByText('Mix Secondary PM ($/EA)',{exact:true})).toBeVisible();
+ await expect(dialog.getByText('Tertiary PM ($/EA)',{exact:true})).toBeVisible();
+ await expect(dialog.getByText('Quaternary PM ($/EA)',{exact:true})).toBeVisible();
  await expect(dialog.getByLabel('Palletization ($/EA)')).toHaveValue('15.5');
  await expect(dialog.getByLabel('Palletization ($/EA)')).toHaveAttribute('readonly','');
  await dialog.getByLabel('Packaging loss ratio item 11 layer 2',{exact:true}).fill('4');
