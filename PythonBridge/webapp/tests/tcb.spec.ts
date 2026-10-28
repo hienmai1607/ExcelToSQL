@@ -7,9 +7,9 @@ const grades=[{Path:'0/1',RawGradeID:1,RawMaterialID:10,Grade:'Almonds',Proporti
 const prices=[{PriceID:1,PriceVersion:version,RawGradeID:1,MaterialID:10,MaterialCode:'RM-A',VendorName:'Vendor A',QuantityFrom:0,QuantityTo:100,PriceBasis:'KG',USDPerLb:'2'},{PriceID:2,PriceVersion:version,RawGradeID:2,MaterialID:11,MaterialCode:'RM-B',VendorName:'Vendor B',QuantityFrom:100,QuantityTo:null,PriceBasis:'LB',USDPerLb:'4'}];
 const row={OpportunityID:1,OpportunityNumber:'OPP-TCB',CustomerName:'Northstar',HeaderStage:'Draft',HeaderRowVersion:rv,ItemID:11,ProductID:2,ProductCode:'PRD-2',ProductName:'Almonds',ItemStage:'Draft',ItemRowVersion:rv,AnnualUnit:1000,WeightGrams:150,CustomerCurrencyCode:'AUD',ExchangeRateCustomerCurrencyPerUSD:'1.5',ExchangeRateVNDPerUSD:'25000',PackagingRequestID:9,ResponseLayerCount:2,PrimaryPricePerUnit:'2500',PrimaryPriceCurrencyCode:'VND',SecondaryPricePerUnit:'.3',SecondaryPriceCurrencyCode:'AUD',HasOpenPackagingRequest:true};
 const lossMasters=[['Sorting','5',1],['Processing','10',2],['PrimaryPackaging','2',3],['PrimaryPackaging','3',4],['SecondaryPackaging','7',5],['PrimaryPackaging','5',6],['MixPrimaryPackaging','2',1],['MixSecondaryPackaging','3',2],['Processing','8',1]].map(([ProcessType,LossPct,Sequence],i)=>({MasterID:i+1,MasterVersion:version,ProcessType,LossPct,Sequence}));
-async function setup(page:Page,mix=false,readonly=false,saved:Record<string,unknown>={},layers=2,palletUSD:string|null='15.5',quoteRows:Record<string,unknown>[]=prices,leafRows:typeof grades=grades){
+async function setup(page:Page,mix=false,readonly=false,saved:Record<string,unknown>={},layers=2,palletUSD:string|null='15.5',quoteRows:Record<string,unknown>[]=prices,leafRows:typeof grades=grades,itemOverrides:Record<string,unknown>={}){
  const writes:any[]=[];
- const item={...row,IsMixParent:mix,HeaderStage:readonly?'Closed':'Draft',ItemStage:readonly?'Approved':'Draft'};
+ const item={...row,...itemOverrides,IsMixParent:mix,HeaderStage:readonly?'Closed':'Draft',ItemStage:readonly?'Approved':'Draft'};
  const tree=new Map<string,any>();
  for(const leaf of leafRows){const parts=leaf.Path.split('/');for(let n=2;n<=parts.length;n++){const path=parts.slice(0,n).join('/');if(!tree.has(path))tree.set(path,{ParentID:parts.slice(0,n-1).join('/'),ID:Number(parts[n-1]),Grade:n===parts.length?leaf.Grade:'Parent '+path,RawGradeID:leaf.RawGradeID,RawMaterialID:n===parts.length?leaf.RawMaterialID:null,RatioPct:'100'});}}
  for(const [path,node] of tree){const weight=(prefix:string)=>leafRows.filter(g=>g.Path===prefix||g.Path.startsWith(prefix+'/')).reduce((sum,g)=>sum+Number(g.Proportion),0);const denominator=weight(node.ParentID);node.RatioPct=String(Number((weight(path)/denominator*100).toFixed(2)));}
@@ -287,8 +287,8 @@ test('Product Loss variable list exposes the captured net weight without editing
  await expect(dialog).toBeVisible();expect(writes).toHaveLength(0);
 });
 
-test('packaging layers are horizontal columns with price and loss on one line and a separate pallet field',async({page})=>{
- for(const layers of [1,3]){
+test('packaging layers are horizontal columns with price and loss on one line and a separate pallet field',async({page},info)=>{
+ for(const layers of [1,2,3,4]){
   await page.setViewportSize({width:1440,height:1000});
   const {dialog}=await setup(page,false,false,{},layers);
   const packaging=dialog.locator('[aria-label="Packaging"]'),table=packaging.getByRole('table');
@@ -299,6 +299,7 @@ test('packaging layers are horizontal columns with price and loss on one line an
    const price=(await cell.locator('output').boundingBox())!,loss=(await cell.locator('input').boundingBox())!;
    expect(Math.abs(price.y+price.height/2-loss.y-loss.height/2)).toBeLessThan(1);
    expect(loss.x).toBeGreaterThan(price.x);
+   const box=(await cell.boundingBox())!;expect(loss.x+loss.width).toBeLessThanOrEqual(box.x+box.width);
   }
   const inputs=table.locator('input'),bounds=await inputs.evaluateAll(elements=>elements.map(el=>el.getBoundingClientRect().toJSON()));
   expect(bounds).toHaveLength(layers);
@@ -306,6 +307,7 @@ test('packaging layers are horizontal columns with price and loss on one line an
   await expect(packaging.getByLabel('Palletization ($/EA)',{exact:true})).toHaveCount(1);
   const pallet=(await packaging.getByLabel('Palletization ($/EA)',{exact:true}).boundingBox())!,box=(await table.boundingBox())!;
   expect(pallet.y).toBeGreaterThan(box.y+box.height);
+  if(layers===4)await packaging.screenshot({path:info.outputPath('four-layer-packaging-desktop.png')});
   await page.setViewportSize({width:390,height:844});
   expect(await packaging.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
  }
@@ -339,4 +341,18 @@ test('recipe remainder uses exact percentages and rejects an impossible remainde
  expect(changeRecipe({SeasoningRatio:'60',OilPct:'40'},'OilPct','40').RMRatio).toBe('0');
  expect(changeRecipe({SeasoningRatio:'60',OilPct:'40'},'OilPct','41').RMRatio).toBeNull();
  expect(changeRecipe({RMRatio:'100',SeasoningRatio:'0',OilPct:'0'},'ProcessingUSDPerLb','3').RMRatio).toBe('100');
+});
+
+
+test('four-layer TCB shows Quaternary price and saves its loss with a direct price',async({page})=>{
+ const {dialog,writes}=await setup(page,false,false,{Inputs:{Prices:grades.map(g=>({Path:g.Path,DirectUSDPerLb:'0.2'}))}},4,'15.5',prices,grades,{ResponseLayerCount:4,QuaternaryPricePerUnit:'0.75',QuaternaryPriceCurrencyCode:'USD'});
+ const table=dialog.getByRole('table',{name:'Packaging layers item 11',exact:true});
+ await expect(table.getByRole('columnheader',{name:'Quaternary PM ($/EA)',exact:true})).toBeVisible();
+ await expect(table.locator('td').nth(3).locator('output')).toHaveText('0.75 USD');
+ await dialog.getByLabel('Packaging loss ratio item 11 layer 4',{exact:true}).fill('3');
+ await dialog.getByLabel('Direct USD/lb item 11 grade 0/1',{exact:true}).fill('0.1');
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();
+ await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(writes[0].Inputs.LossProcesses).toContainEqual(expect.objectContaining({ProcessType:'QuaternaryPackaging',Sequence:1,LossPct:'3'}));
+ expect(writes[0].Prices).toContainEqual(expect.objectContaining({Path:'0/1',DirectUSDPerLb:'0.1'}));
 });

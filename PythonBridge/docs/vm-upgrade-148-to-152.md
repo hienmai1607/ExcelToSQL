@@ -23,3 +23,9 @@ Migration 152 adds Quaternary to the same Sequence 1 packaging-loss rule and its
 The exact error was reproduced through the real commercial save API and SQL procedure with a direct price of 0.1 and four packaging-loss rows. Six rollback-only tests cover consecutive save/reopen, legacy fourth-layer aggregates, invalid sequence, invalid loss percentage, unknown master and unnamed processing assignment rejection. Fixtures and rowversions are restored. The combined bundle contract verifies exact sources, guard/verification coverage and two SQL reruns with unchanged business data.
 
 Regenerate using `scripts/Build-VMUpgrade148To152.ps1`. Desktop-only tests: `tests/python/tcb_quaternary_loss_contract.py` and `tests/python/vm_upgrade_148_to_152_contract.py`. Do not run fixture/audit scripts against the VM; use disposable UAT data for the smoke check.
+
+## Four-layer TCB display hotfix
+
+The TCB Packaging table previously hard-coded Primary/Secondary/Tertiary columns, even when the loaded item had four layers. The hidden Quaternary loss row was still submitted on save; three visible columns therefore did not prove that the item had only three configured layers. The table now uses the shared four-layer list and displays Quaternary price and its editable loss percentage. One/two/three-layer items retain their actual column count. The table has sufficient minimum width for four price/ratio pairs without overlapping controls.
+
+Deploy the latest `webapp/dist/` and hard-refresh the browser to load this display fix. No additional SQL or API changes are required beyond migration 152 and the previously published API hotfixes. Migration 152 remains required to save the fourth-layer loss assignment. Regression coverage verifies 1-4 layer layouts on desktop/mobile and saving a Direct price of 0.1 together with Quaternary loss.

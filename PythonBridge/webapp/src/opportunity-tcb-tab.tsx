@@ -1,4 +1,5 @@
 import {type ReactNode} from 'react';
+import {packagingOrders} from './packaging-orders';
 import {decimalDisplay} from './number-format';
 import {FieldLabel} from './ui';
 import {IconButton} from './icons';
@@ -32,8 +33,8 @@ export function OpportunityTCBTab({drafts,renderProductLoss,renderVersions,...pr
    <section aria-label="Packaging"><h3>Packaging</h3>{d.mix&&<h4>Mix packaging</h4>}
     <div className="tcb-packaging-scroll" role="region" aria-label={'Packaging layers item '+id} tabIndex={0}>
      <table className="tcb-packaging-table" aria-label={'Packaging layers item '+id}>
-      <thead><tr><th scope="col">Packaging layer</th>{['Primary','Secondary','Tertiary'].slice(0,d.layers).map(layer=><th scope="col" key={layer}>{(d.mix?'Mix ':'')+layer+' PM ($/EA)'}</th>)}</tr></thead>
-      <tbody><tr><th scope="row">PM price ($/EA) / Loss ratio (%)</th>{['Primary','Secondary','Tertiary'].slice(0,d.layers).map((layer,index)=>{
+      <thead><tr><th scope="col">Packaging layer</th>{packagingOrders.slice(0,d.layers).map(layer=><th scope="col" key={layer}>{(d.mix?'Mix ':'')+layer+' PM ($/EA)'}</th>)}</tr></thead>
+      <tbody><tr><th scope="row">PM price ($/EA) / Loss ratio (%)</th>{packagingOrders.slice(0,d.layers).map((layer,index)=>{
        const stepIndex=d.steps.findIndex(s=>s.ProcessType===(d.mix?'Mix':'')+layer+'Packaging'),error=lossIssues.find(issue=>issue.index===stepIndex)?.message,errorId='tcb-loss-error-'+id+'-'+stepIndex;
        return <td key={layer}>
        <div className="tcb-packaging-price-loss"><output>{money(packagingUSD(d.row,index,d.row))}</output>
