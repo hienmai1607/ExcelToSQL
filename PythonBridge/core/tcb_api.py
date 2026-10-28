@@ -1,6 +1,6 @@
 """Opportunity-owned TCB selection and costs; never mutates grade or pricing masters."""
 import json
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP, localcontext
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict
 from auth import AccessContext, get_access_context
@@ -37,6 +37,7 @@ def item_read(item_id, ctx):
     if row.get('DefaultPalletUSDPerEA') is None:
         from pallet_currency import pallet_usd
         row['DefaultPalletUSDPerEA'] = pallet_usd(row.get('PalletPricingJSON'), row)
+    row['DefaultPalletUSDPerEA'] = palletization_usd(row)
     return row
 
 def current_prices(grade_leaves, ctx):
@@ -192,7 +193,13 @@ def resolve_stage_codes(item,inputs,ctx):
 
 def palletization_usd(item):
     value=item.get("DefaultPalletUSDPerEA")
-    return Decimal(str(value)) if not item.get("ParentItemID") and value is not None else None
+    if item.get("ParentItemID") or value is None:return None
+    # FX division can repeat indefinitely; TCB money is DECIMAL(19,6).
+    amount=Decimal(str(value))
+    if amount.as_tuple().exponent>=-6:return amount
+    with localcontext() as context:
+        context.prec=50
+        return amount.quantize(Decimal("0.000001"),rounding=ROUND_HALF_UP)
 
 
 def compute(item, inputs, ctx):
