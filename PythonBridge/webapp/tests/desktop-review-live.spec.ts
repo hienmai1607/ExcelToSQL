@@ -13,6 +13,21 @@ test('TCB balances the first grade ratio per level and puts packaging loss besid
  await page.getByRole('button',{name:/^TCB Review for/}).first().click();
  const dialog=page.getByRole('dialog',{name:'TCB Review',exact:true});
  await expect(dialog.getByRole('button',{name:'Analysis',exact:true})).toBeEnabled({timeout:20000});
+ await expect(dialog.locator('.grade-pricing-heading>small')).toHaveCount(0);
+ for(const width of [1920,1366]){
+  await page.setViewportSize({width,height:1080});
+  for(const card of await dialog.locator('.tcb-grade-price').all()){
+   expect(await card.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
+   const price=card.locator('.grade-pricing-heading output');
+   if(await price.count()){
+    await expect(price).toContainText('USD/lbs');
+    const label=await card.locator('.grade-direct-price>label').boundingBox(),amount=await price.boundingBox();
+    expect(amount!.y>=label!.y+label!.height||amount!.x>=label!.x+label!.width).toBeTruthy();
+   }
+  }
+ }
+ await page.setViewportSize({width:1920,height:1080});
+ await dialog.locator('.tcb-grade-price').first().screenshot({path:'../artifacts/layout-testing/pricing-usd-per-lbs.png'});
  const first=dialog.getByLabel('Ratio 0/1',{exact:true}).first();
  await expect(first).toHaveAttribute('readonly','');
  await dialog.getByLabel('Ratio 0/2',{exact:true}).first().fill('35');

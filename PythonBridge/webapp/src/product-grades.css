@@ -154,8 +154,8 @@
 .tcb-grade-price select{width:100%;min-width:0;font-variant-numeric:tabular-nums}
 .grade-pricing-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
 .grade-pricing-heading small{min-width:0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.grade-pricing-heading output{white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:600}
-.grade-direct-price{display:flex;align-items:center;gap:6px;min-height:26px;flex:none;margin-left:auto}
+.grade-pricing-heading output{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:600}
+.grade-direct-price{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:26px;min-width:0;width:100%;box-sizing:border-box}
 .grade-direct-price>label{display:flex;flex-direction:row;align-items:center;gap:6px;white-space:nowrap;margin:0}
 .grade-direct-price input[type=checkbox]{width:16px;height:16px;min-height:0;margin:0}
 .grade-direct-price>.grade-direct-amount{display:flex;align-items:center;gap:6px;margin-left:auto;white-space:nowrap}
