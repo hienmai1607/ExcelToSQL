@@ -1,5 +1,17 @@
 import type {Row} from './api';
 
+export function mixPackingWay(quantity:unknown,response:Record<string,unknown>|undefined):string|null{
+ const layers=Number(response?.ResponseLayerCount),q=String(quantity??'');
+ if(![1,2,3,4].includes(layers)||!/^\d+(?:\.0+)?$/.test(q)||BigInt(q.split('.')[0])<1n)return null;
+ const factors=['UnitsPerCarton','UnitsPerTertiary','UnitsPerQuaternary'].slice(0,layers-1).map(key=>String(response?.[key]??''));
+ if(factors.some(v=>!/^\d+(?:\.0+)?$/.test(v)||BigInt(v.split('.')[0])<1n))return null;
+ const counts=factors.map(v=>BigInt(v.split('.')[0])),units=counts.reduce((a,b)=>a*b,1n),total=BigInt(q.split('.')[0]);
+ if(total%units!==0n)return null;
+ const packs=total/units;
+ // Group the child's complete packing configuration separately from parent usage.
+ return '('+[...counts,1n].join('x')+')x'+packs;
+}
+
 export function capturedMixQuantity(child:Row,rows:Row[]):string|null{
  if(!child.ParentItemID)return null;
  const parent=rows.find(r=>r.RequestID===child.RequestID&&r.OpportunityItemID===child.ParentItemID);

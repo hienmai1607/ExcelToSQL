@@ -4,7 +4,7 @@ import {responseOrderFields} from './packaging-orders';
 import type {GradeItem} from './product-grades';
 import {processLossValue,type GradeLoss,type GradeLossResult} from './grade-process-loss';
 
-export type TCBSelection={Path:string;PriceID?:number;PriceVersion?:string;ExpectedUSDPerLb?:string;DirectUSDPerLb?:string|null};
+export type TCBSelection={Path:string;PriceID?:number|null;PriceVersion?:string|null;ExpectedUSDPerLb?:string|null;DirectUSDPerLb?:string|null};
 export type MaterialCost={Path:string}&Record<string,unknown>;
 export type TCBInputs={Prices:TCBSelection[];MaterialCosts?:MaterialCost[];ProcessLosses?:GradeLoss[]|null;ProcessLossMode?:'Stages'|'GradePath';ProcessLossLayout?:'Local'|'Aligned';ProcessLossFormulas?:Record<string,string>;ProcessLossResults?:GradeLossResult[];ProcessLossWeight?:unknown}&Record<string,unknown>;
 export type TCBGrade=Row&{Path:string;Proportion:string};
@@ -49,9 +49,15 @@ export function recipeCost(inputs:Record<string,unknown>,rm:Fraction|null){
  }
  return {product,balanced};
 }
+export function matchesRawQuote(price:Row,selected:TCBSelection|undefined){
+ if(selected?.PriceID==null||price.PriceID!==selected.PriceID||typeof price.PriceVersion!=='string'||!selected.PriceVersion||price.PriceVersion.toLowerCase()!==selected.PriceVersion.toLowerCase())return false;
+ if(selected.ExpectedUSDPerLb==null)return true;
+ const actual=quantity(price.USDPerLb,true),expected=quantity(selected.ExpectedUSDPerLb,true);
+ return !!actual&&!!expected&&actual.n*expected.d===expected.n*actual.d;
+}
 export function rawPrice(inputs:TCBInputs,leaf:TCBGrade,prices:Row[]){
  const selected=inputs.Prices.find(p=>p.Path===leaf.Path);
- const price=prices.find(p=>p.PriceID===selected?.PriceID&&p.PriceVersion===selected?.PriceVersion&&(selected?.ExpectedUSDPerLb===undefined||String(p.USDPerLb)===selected.ExpectedUSDPerLb)&&p.RawGradeID===leaf.RawGradeID&&(!leaf.RawMaterialID||p.MaterialID===leaf.RawMaterialID));
+ const price=prices.find(p=>matchesRawQuote(p,selected)&&p.RawGradeID===leaf.RawGradeID&&(!leaf.RawMaterialID||p.MaterialID===leaf.RawMaterialID));
  return selected&&!selected.PriceID&&'DirectUSDPerLb' in selected?quantity(selected.DirectUSDPerLb,true):quantity(price?.USDPerLb,true);
 }
 export type CostGroup={Path:string;Grade:string;process:boolean;leaves:TCBGrade[];proportion:Fraction;rm:Fraction|null;product:Fraction|null;balanced:boolean};

@@ -4,7 +4,7 @@ import {call,type Row} from './api';
 import {Modal,ErrorNote,InfoTip,FieldLabel,Notification} from './ui';
 import {IconButton} from './icons';
 import {objectValue,quantity,quantityDisplay} from './packaging-summary-model';
-import {defaultInputs,changeRecipe,costs,money,packagingUSD,palletizationValue,productFields,type TCBInputs,type TCBGrade} from './tcb-model';
+import {defaultInputs,changeRecipe,costs,money,matchesRawQuote,packagingUSD,palletizationValue,productFields,type TCBInputs,type TCBGrade} from './tcb-model';
 import {migrateLossProcesses,processOptions,lossError,lossTotals,lossDisplay,lossFields,type LossStep} from './loss-processes';
 import './tcb-calculator.css';
 import {rawPriceOption,decimalDisplay} from './number-format';
@@ -51,10 +51,10 @@ export function TCBCalculator({row,opportunity,onClose,onSaved,lossOnly=false}:{
    {!lossOnly&&!mix&&<section aria-label="Product"><h3>Product</h3>
     <ErrorNote value={data.gradeError}/>{staleGrades&&<p role="alert">Grades changed since this calculation was saved. Recheck all price selections.</p>}
     <div className="table-scroll"><table className="tcb-grades"><thead><tr><th>Grades (summary)</th><th>Ratio</th><th>Material / vendor / quantity tier</th><th>USD/lb</th></tr></thead><tbody>{data.grades.map(leaf=>{
-     const selection=inputs.Prices.find(p=>p.Path===leaf.Path),selected=prices.find(p=>p.PriceID===selection?.PriceID&&p.PriceVersion===selection?.PriceVersion&&(selection?.ExpectedUSDPerLb===undefined||String(p.USDPerLb)===selection.ExpectedUSDPerLb));
+     const selection=inputs.Prices.find(p=>p.Path===leaf.Path),selected=prices.find(p=>matchesRawQuote(p,selection));
      const candidates=data.prices.filter(p=>p.RawGradeID===leaf.RawGradeID&&(!leaf.RawMaterialID||p.MaterialID===leaf.RawMaterialID));
      const quote=(p:Row)=>p.PriceID+':'+p.PriceVersion+':'+p.USDPerLb;
-     const value=selection?selection.PriceID+':'+selection.PriceVersion+':'+(selection.ExpectedUSDPerLb??selected?.USDPerLb):'';
+     const value=selected?quote(selected):selection?selection.PriceID+':'+selection.PriceVersion+':'+selection.ExpectedUSDPerLb:'';
      return <tr key={leaf.Path}><td>{leaf.Path} · {leaf.Grade}</td><td>{quantityDisplay(quantity(leaf.Proportion)?{n:quantity(leaf.Proportion)!.n*100n,d:quantity(leaf.Proportion)!.d}:null,4)}%</td><td><select aria-label={'Price for grade '+leaf.Path} disabled={readonly||saving} value={value} onChange={e=>{const p=candidates.find(p=>quote(p)===e.target.value);change('Prices',[...inputs.Prices.filter(p=>p.Path!==leaf.Path),...(p?[{Path:leaf.Path,PriceID:Number(p.PriceID),PriceVersion:String(p.PriceVersion),ExpectedUSDPerLb:String(p.USDPerLb)}]:[])])}}>
       <option value="">Choose material price</option>{selection&&!candidates.some(p=>quote(p)===value)&&<option value={value}>Saved price snapshot — reselect a current price before saving</option>}
       {candidates.map(p=><option key={String(p.PriceID)} value={quote(p)} disabled={p.USDPerLb===null}>{rawPriceOption(p)}</option>)}</select></td><td>{money(quantity(selected?.USDPerLb,true))}</td></tr>

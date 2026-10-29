@@ -1,0 +1,84 @@
+import {test,expect,type Page} from '@playwright/test';
+test.skip(true,'Testing layout was withdrawn; previous layout is restored.');
+test.skip(process.env.DESKTOP_LAYOUT_CHECK!=='1','Opt-in, read-only desktop layout checks; saves are intercepted.');
+async function open(page:Page,number:string){
+ await page.addInitScript(()=>{sessionStorage.setItem('bridge.testUser','Admin');localStorage.removeItem('bridge.opportunityLayout.1')});
+ await page.goto('./');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.getByLabel('Opportunity number',{exact:true}).fill(number);await page.getByRole('button',{name:'Search',exact:true}).click();
+ await page.getByRole('button',{name:'Edit Opportunity '+number,exact:true}).click();
+ return page.getByRole('dialog',{name:'Edit Opportunity',exact:true});
+}
+test('testing layout retains popup size, avoids nested scrolling and sends the current save payload',async({page})=>{
+ const writes:unknown[]=[];
+ await page.route('**/api/opportunity/batch',r=>{writes.push(r.request().postDataJSON());return r.fulfill({status:422,json:{detail:'Layout test: captured only; no database write.'}})});
+ const editor=await open(page,'OPP-2026-10328');
+ await expect(editor.getByText('Layout testing',{exact:true})).toBeVisible();
+ await expect(editor.getByRole('table',{name:'Opportunity item summary',exact:true})).toBeVisible();
+ const size=await editor.boundingBox();expect(size!.width).toBeGreaterThan(1700);expect(size!.height).toBeGreaterThan(950);
+ await editor.getByRole('button',{name:'Current layout',exact:true}).click();const classic=await editor.boundingBox();
+ expect(Math.abs(size!.width-classic!.width)).toBeLessThan(2);expect(Math.abs(size!.height-classic!.height)).toBeLessThan(2);
+ await editor.getByRole('button',{name:'Testing layout',exact:true}).click();
+ await editor.getByRole('button',{name:'Edit details item 1',exact:true}).click();
+ await editor.getByRole('tab',{name:'Packaging',exact:true}).click();
+ for(const layer of ['Primary','Secondary','Tertiary','Quaternary']){
+  await editor.getByRole('group',{name:'Packaging layers',exact:true}).getByRole('button',{name:layer,exact:true}).click();
+  await expect(editor.getByLabel(layer+' Type',{exact:true})).toBeVisible();
+  await expect(editor.locator('.packaging-request-layers>section')).toHaveCount(1);
+ }
+ expect(await editor.locator('.record-dialog-content').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBeTruthy();
+ expect(await editor.locator('.opportunity-entry-list').evaluate(el=>getComputedStyle(el).overflowY)).not.toBe('auto');
+ const action=await editor.getByRole('button',{name:'Review & save',exact:true}).boundingBox();
+ expect(action!.x).toBeGreaterThan(size!.x+size!.width*.75);
+ await editor.screenshot({path:'../artifacts/layout-testing/standalone-packaging.png'});
+ await editor.getByRole('tab',{name:'Financials',exact:true}).click();
+ await editor.getByLabel('Shelf price',{exact:true}).fill('13.25');
+ await editor.getByRole('tab',{name:'Product Info',exact:true}).click();
+ await expect(editor.getByLabel('Net weight (g)',{exact:true})).toHaveValue('400');
+ await editor.getByRole('tab',{name:'Financials',exact:true}).click();await expect(editor.getByLabel('Shelf price',{exact:true})).toHaveValue('13.25');
+ await editor.getByRole('button',{name:'Apply to item list',exact:true}).click();
+ await expect(editor.getByRole('cell',{name:'13.25',exact:true})).toBeVisible();
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect(editor.getByText('Layout test: captured only; no database write.',{exact:true})).toBeVisible();
+ await editor.getByRole('button',{name:'Current layout',exact:true}).click();
+ await expect(editor.getByLabel('Shelf price',{exact:true})).toHaveValue('13.25');
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ await expect.poll(()=>writes.length).toBe(2);expect(writes[0]).toEqual(writes[1]);
+});
+test('Mix children use focused full-width tabs; parent weight and draft survive layout rollback',async({page})=>{
+ const editor=await open(page,'OPP-2026-10321');
+ await expect(editor.getByRole('table',{name:'Opportunity item summary',exact:true}).locator('tbody tr')).toHaveCount(4);
+ await editor.screenshot({path:'../artifacts/layout-testing/mix-summary.png'});
+ await editor.getByRole('button',{name:'Edit details item 1.1',exact:true}).click();
+ await expect(editor.getByText('Child of Item 1',{exact:true})).toBeVisible();
+ const weight=editor.getByLabel('Net weight (g)',{exact:true});await weight.fill('210');
+ await editor.getByRole('button',{name:'Apply to item list',exact:true}).click();
+ await expect(editor.getByRole('cell',{name:'2,860',exact:true})).toBeVisible();
+ await editor.getByRole('button',{name:'Edit details item 1',exact:true}).click();
+ await expect(editor.getByLabel('Net weight (g)',{exact:true})).toHaveValue('2860');
+ await expect(editor.getByLabel('Net weight (g)',{exact:true})).toHaveAttribute('readonly','');
+ await editor.getByRole('tab',{name:'Financials',exact:true}).click();
+ await expect(editor.getByRole('heading',{name:'Child financials',exact:true})).toBeVisible();
+ await editor.getByRole('button',{name:'Edit details item 1.1',exact:true}).click();
+ await editor.getByRole('tab',{name:'Financials',exact:true}).click();
+ await expect(editor.getByLabel('Packing cost (USD/lbs)',{exact:true})).toBeVisible();
+ await editor.screenshot({path:'../artifacts/layout-testing/mix-child-financials.png'});
+ await editor.getByRole('button',{name:'Current layout',exact:true}).click();
+ await expect(editor.getByLabel('Net weight (g)',{exact:true}).nth(1)).toHaveValue('210');
+});
+test('smaller desktop uses one scroll surface and invalid hidden values reveal the correct tab',async({page})=>{
+ await page.setViewportSize({width:1366,height:768});
+ const editor=await open(page,'OPP-2026-10328');
+ await editor.getByRole('button',{name:'Edit details item 1',exact:true}).click();
+ await editor.getByRole('tab',{name:'Packaging',exact:true}).click();
+ const surfaces=await editor.evaluate(root=>[...root.querySelectorAll<HTMLElement>('*')].filter(el=>el.clientHeight>0&&el.scrollHeight>el.clientHeight+2&&['auto','scroll'].includes(getComputedStyle(el).overflowY)).map(el=>el.className));
+ expect(surfaces.length).toBeLessThanOrEqual(1);
+ expect(await editor.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBeTruthy();
+ await editor.screenshot({path:'../artifacts/layout-testing/desktop-1366-packaging.png'});
+ await editor.getByRole('tab',{name:'Product Info',exact:true}).click();
+ await editor.getByLabel('Net weight (g)',{exact:true}).fill('0');
+ await editor.getByRole('tab',{name:'Financials',exact:true}).click();
+ await editor.getByRole('button',{name:'Review & save',exact:true}).click();
+ await expect(editor.getByRole('tab',{name:'Product Info',exact:true})).toHaveAttribute('aria-selected','true');
+ await expect(editor.getByText(/net weight must be positive grams/)).toBeVisible();
+ await expect(editor.getByLabel('Net weight (g)',{exact:true})).toHaveValue('0');
+});

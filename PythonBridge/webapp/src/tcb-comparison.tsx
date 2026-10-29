@@ -6,7 +6,7 @@ import type {Draft} from './opportunity-losses';
 import {contextDrafts,draftFromTCB,type ComparisonReply,type VersionReply} from './tcb-draft';
 import {buildTCBAnalysis} from './tcb-analysis-model';
 import {TCBCostTable,type TCBCostColumn} from './tcb-analysis';
-export function TCBComparison({mode,drafts,onClose}:{mode:'versions'|'items';drafts:Draft[];onClose:()=>void}){
+export function TCBComparison({mode,drafts,onClose,embedded=false}:{mode:'versions'|'items';drafts:Draft[];onClose:()=>void;embedded?:boolean}){
  const [item,setItem]=useState(String(drafts.find(d=>!d.mix)?.row.ItemID??drafts[0]?.row.ItemID??'')),[columns,setColumns]=useState<TCBCostColumn[]>([]),[loading,setLoading]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState(''),[choices,setChoices]=useState<Row[]>([]),[selected,setSelected]=useState('');
  const title=mode==='versions'?'Compare TCB versions':'Compare opportunity items';
  function fromContext(reply:ComparisonReply,itemID:number,key:string,label:string,active=false){
@@ -44,8 +44,8 @@ export function TCBComparison({mode,drafts,onClose}:{mode:'versions'|'items';dra
    setColumns(old=>[...old.filter(c=>!c.key.startsWith('item:'+selected+':')),...next]);
   }catch(e){setError((e as Error).message)}finally{setLoading(false)}
  }
- return <Modal label={title} className="dialog opportunity-loss-dialog" onClose={onClose}>
-  <header className="customer-editor-heading"><h2>{title}</h2><IconButton icon="close" label={'Close '+title} onClick={onClose}/></header>
+ const content=<>
+  {embedded?<h3>{title}</h3>:<header className="customer-editor-heading"><h2>{title}</h2><IconButton icon="close" label={'Close '+title} onClick={onClose}/></header>}
   {mode==='versions'?<label>Opportunity item<select aria-label="Compare versions for item" value={item} disabled={loading} onChange={e=>setItem(e.target.value)}>{drafts.map(d=><option key={String(d.row.ItemID)} value={String(d.row.ItemID)}>{d.row.ProductCode+' · '+d.row.ProductName}</option>)}</select></label>:
    <div className="tcb-comparison-picker"><label>Opportunity, product or customer<input aria-label="Find comparison item" maxLength={120} value={search} onChange={e=>setSearch(e.target.value)}/></label><button disabled={loading} onClick={find}>Search items</button>
     <label>Item<select aria-label="Comparison item" value={selected} disabled={loading} onChange={e=>setSelected(e.target.value)}><option value="">Choose opportunity item</option>{choices.map(r=><option key={String(r.ItemID)} value={String(r.ItemID)} disabled={String(r.ItemID)===item}>{r.OpportunityNumber+' · '+r.ProductCode+' · '+r.ProductName}</option>)}</select></label><button disabled={loading||!selected||selected===item||!columns.some(c=>c.active)} onClick={add}>Add comparison</button>
@@ -53,5 +53,6 @@ export function TCBComparison({mode,drafts,onClose}:{mode:'versions'|'items';dra
   {error&&<p role="alert">{error}</p>}{loading&&<p role="status">Loading comparison…</p>}
   <p>Saved approaches, per smallest product unit. Each column retains its own container and currency. Comparing or removing a column does not change any item.</p>
   {columns.length?<TCBCostTable name={title} columns={columns.map(c=>({...c,onRemove:mode==='items'&&!c.active?()=>setColumns(old=>old.filter(x=>x.key!==c.key)):undefined}))}/>:!loading&&<p>No comparison columns yet.</p>}
- </Modal>;
+ </>;
+ return embedded?<section aria-label={title}>{content}</section>:<Modal label={title} className="dialog opportunity-loss-dialog" onClose={onClose}>{content}</Modal>;
 }

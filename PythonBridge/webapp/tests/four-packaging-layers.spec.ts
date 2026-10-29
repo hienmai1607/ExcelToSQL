@@ -81,6 +81,14 @@ test('four-layer response exposes every type and remains within the viewport',as
  expect(master!.height).toBeLessThanOrEqual(calculator!.height+1);
  for(const width of [1920,1280,390]){
   await page.setViewportSize({width,height:1080});
+  for(const order of orders){
+   const section=editor.getByRole('region',{name:order+' packaging response',exact:true});
+   const quantity=await section.locator('.packing-layer-quantity').boundingBox();
+   const pricing=await section.locator('.response-layer-pricing').boundingBox();
+   expect(pricing!.y).toBeGreaterThanOrEqual(quantity!.y+quantity!.height);
+   await expect(section.getByLabel(order+' Type',{exact:true})).toBeVisible();
+   await expect(section.getByLabel(order+' net weight (g)',{exact:true})).toBeVisible();
+  }
   expect(await editor.locator('.record-dialog-content').evaluate(e=>e.scrollWidth-e.clientWidth)).toBeLessThanOrEqual(1);
  }
 });

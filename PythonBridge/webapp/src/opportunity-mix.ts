@@ -1,5 +1,17 @@
 import {type Row} from './api';
 import {sortItems,type OpportunityRule} from './opportunity-view';
+import {quantity,add,multiply,quantityDisplay} from './packaging-summary-model';
+
+export function mixNetWeight(children:Record<string,unknown>[]):string|null{
+ if(!children.length)return null;
+ let total=quantity('0',true)!;
+ for(const child of children){
+  const weight=quantity(child.WeightGrams),count=quantity(child.UnitQuantity??child.MixUnitQuantity);
+  if(!weight||!count)return null;
+  total=add(total,multiply(weight,count));
+ }
+ return quantityDisplay(total,2).replaceAll(',','');
+}
 
 // A four-decimal multiplier times an integer, without floating-point rounding.
 export function mixAnnualUnits(units:string,quantity:string):string{

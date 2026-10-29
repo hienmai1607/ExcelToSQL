@@ -1,8 +1,19 @@
 import {test,expect,type Page} from '@playwright/test';
-import {costs,changeRecipe,defaultInputs,money,packagingUSD,compareGradePaths} from '../src/tcb-model';
+import {costs,changeRecipe,defaultInputs,money,packagingUSD,compareGradePaths,rawPrice} from '../src/tcb-model';
 import {withTCBGrades,activeCostInputs} from '../src/tcb-grade-pricing';
 import {classifyProcessLeaves,savedProcessTree} from '../src/grade-process';
 const version='0x0000000000000001',rv='AAAAAAAAAAE=';
+test('saved raw quote accepts hex casing and nullable expected price without accepting stale quotes',()=>{
+ const leaf={Path:'0/1',RawGradeID:1,RawMaterialID:10,Proportion:'1'};
+ const quote={PriceID:1,PriceVersion:'0x00000000000427AB',RawGradeID:1,MaterialID:10,USDPerLb:'3.60000000'};
+ const selected={Path:'0/1',PriceID:1,PriceVersion:'0x00000000000427ab',ExpectedUSDPerLb:null};
+ const inputs={...defaultInputs(),Prices:[selected]};
+ expect(money(rawPrice(inputs,leaf,[quote]))).toBe('3.60 USD');
+ expect(money(rawPrice({...inputs,Prices:[{...selected,ExpectedUSDPerLb:'3.6'}]},leaf,[quote]))).toBe('3.60 USD');
+ expect(rawPrice(inputs,leaf,[{...quote,PriceVersion:'0x00000000000427AC'}])).toBeNull();
+ expect(rawPrice({...inputs,Prices:[{...selected,ExpectedUSDPerLb:'3.5'}]},leaf,[quote])).toBeNull();
+ expect(rawPrice(inputs,leaf,[{...quote,MaterialID:11}])).toBeNull();
+});
 const grades=[{Path:'0/1',RawGradeID:1,RawMaterialID:10,Grade:'Almonds',Proportion:'.6'},{Path:'0/2',RawGradeID:2,RawMaterialID:11,Grade:'Cashew',Proportion:'.4'}];
 const prices=[{PriceID:1,PriceVersion:version,RawGradeID:1,MaterialID:10,MaterialCode:'RM-A',VendorName:'Vendor A',QuantityFrom:0,QuantityTo:100,PriceBasis:'KG',USDPerLb:'2'},{PriceID:2,PriceVersion:version,RawGradeID:2,MaterialID:11,MaterialCode:'RM-B',VendorName:'Vendor B',QuantityFrom:100,QuantityTo:null,PriceBasis:'LB',USDPerLb:'4'}];
 const row={OpportunityID:1,OpportunityNumber:'OPP-TCB',CustomerName:'Northstar',HeaderStage:'Draft',HeaderRowVersion:rv,ItemID:11,ProductID:2,ProductCode:'PRD-2',ProductName:'Almonds',ItemStage:'Draft',ItemRowVersion:rv,AnnualUnit:1000,WeightGrams:150,CustomerCurrencyCode:'AUD',ExchangeRateCustomerCurrencyPerUSD:'1.5',ExchangeRateVNDPerUSD:'25000',PackagingRequestID:9,ResponseLayerCount:2,PrimaryPricePerUnit:'2500',PrimaryPriceCurrencyCode:'VND',SecondaryPricePerUnit:'.3',SecondaryPriceCurrencyCode:'AUD',HasOpenPackagingRequest:true};

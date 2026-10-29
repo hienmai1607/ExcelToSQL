@@ -9,7 +9,7 @@ export const productFields:Record<string,string>={
  WeightGrams:'Net weight (g)',ApplicableNetWeightGrams:'Applicable Net weight (g)',ShelfLifeDays:'Shelf life (days)',ItemStage:'Stage',NutDensity:'Nut density (g/ml)',UsedVolumeML:'Used volume (ml)',
 };
 export const requestFields:Record<string,string>={
- RequestedLayerCount:'Requested packaging layers',PalletSize:'Pallet size',PalletStacking:'Pallet stacking',MaxPalletHeightMM:'Max pallet height (mm)',
+ RequestedLayerCount:'Requested packaging layers',PalletSize:'Pallet size',PalletStacking:'Pallet stacking',MaxPalletHeightMM:'Max pallet height (mm)',PalletSpecialComments:'Pallet special comments',
  ContainerRequest:'Container Type',ConfigurationRequest:'Loading request',
  PrimaryTypeName:'Requested Primary Type',Transparency:'Primary Transparent / opaque',
  SecondaryTypeName:'Requested Secondary Type',NumberOfPrimary:'No of Primary Unit',SecondaryTransparency:'Secondary Transparent / opaque',

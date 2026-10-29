@@ -1,3 +1,4 @@
+import {balanceFirstGradeRatio} from './grade-ratios';
 import {rawPriceOption} from './number-format';
 import {useEffect,useState} from 'react';
 import {IconButton} from './icons';
@@ -6,7 +7,7 @@ import {InlineMasterCreate} from './inline-master-create';
 import {AddMasterButton,canCreateMaster} from './add-master-button';
 import {useSession} from './session';
 import {withTCBGrades} from './tcb-grade-pricing';
-import {materialRecipe,changeRecipe,recipeRows,rawPrice,productFields,money,type TCBGrade} from './tcb-model';
+import {materialRecipe,changeRecipe,recipeRows,rawPrice,matchesRawQuote,productFields,money,type TCBGrade} from './tcb-model';
 
 import {FieldLabel,Notification} from './ui';
 import {quantityDisplay} from './packaging-summary-model';
@@ -46,10 +47,10 @@ export function ItemGradeEditor({d,lookups,busy,review,changeGrades,update,loadP
  {JSON.stringify(d.grades)!==d.baselineGrades&&gradeError(d.grades)&&<p className="tcb-field-error">{gradeError(d.grades)}</p>}
  {d.gradeLocked&&<p>Grades are captured by an active Packaging Request. Complete or cancel that request before changing the snapshot.</p>}
 
- <GradeTree compactCards onMaterialEdited={(item,record)=>void created({entity:'raw-materials',path:item.ParentID+'/'+item.ID,gradeID:Number(item.RawGradeID)},[record])} onNewMaterial={!locked&&canCreateMaster(session,'raw-materials')?item=>setMaster({entity:'raw-materials',path:item.ParentID+'/'+item.ID,gradeID:Number(item.RawGradeID)}):undefined} renderPricing={ready?item=>{const leaf=d.quoteGrades.find(g=>g.Path===item.ParentID+'/'+item.ID);return leaf?<GradePrice d={d} leaf={leaf} busy={busy||masterBusy} review={review} update={update} onPriceEdited={record=>void created({entity:'raw-prices',path:leaf.Path,gradeID:Number(leaf.RawGradeID),materialID:Number(leaf.RawMaterialID)},[record])} onNewPrice={canCreateMaster(session,'raw-prices')?()=>setMaster({entity:'raw-prices',path:leaf.Path,gradeID:Number(leaf.RawGradeID),materialID:Number(leaf.RawMaterialID)}):undefined}/>:<small>Select a final grade and load its pricing.</small>}:undefined} items={d.grades} rawGrades={lookups.rows} rawMaterials={lookups.materials} busy={busy||masterBusy} readonly={locked} disabled={locked||busy||review||masterBusy}
- onAdd={parent=>changeGrades(id,items=>[...items,{ParentID:parent,ID:Math.max(0,...items.filter(i=>i.ParentID===parent).map(i=>i.ID))+1,Grade:'',Process:false,RawGradeID:null,RawMaterialID:null,RatioPct:'100'}])}
- onRemove={item=>changeGrades(id,items=>{const path=item.ParentID+'/'+item.ID;return items.filter(i=>i!==item&&i.ParentID!==path&&!i.ParentID.startsWith(path+'/'))})}
- onChange={(item,patch)=>changeGrades(id,items=>{const path=item.ParentID+'/'+item.ID;return items.filter(i=>patch.RawGradeID===undefined||i===item||(i.ParentID!==path&&!i.ParentID.startsWith(path+'/'))).map(i=>i===item?{...i,...patch}:i)})}/>
+ <GradeTree compactCards autoFirstRatio onMaterialEdited={(item,record)=>void created({entity:'raw-materials',path:item.ParentID+'/'+item.ID,gradeID:Number(item.RawGradeID)},[record])} onNewMaterial={!locked&&canCreateMaster(session,'raw-materials')?item=>setMaster({entity:'raw-materials',path:item.ParentID+'/'+item.ID,gradeID:Number(item.RawGradeID)}):undefined} renderPricing={ready?item=>{const leaf=d.quoteGrades.find(g=>g.Path===item.ParentID+'/'+item.ID);return leaf?<GradePrice d={d} leaf={leaf} busy={busy||masterBusy} review={review} update={update} onPriceEdited={record=>void created({entity:'raw-prices',path:leaf.Path,gradeID:Number(leaf.RawGradeID),materialID:Number(leaf.RawMaterialID)},[record])} onNewPrice={canCreateMaster(session,'raw-prices')?()=>setMaster({entity:'raw-prices',path:leaf.Path,gradeID:Number(leaf.RawGradeID),materialID:Number(leaf.RawMaterialID)}):undefined}/>:<small>Select a final grade and load its pricing.</small>}:undefined} items={d.grades} rawGrades={lookups.rows} rawMaterials={lookups.materials} busy={busy||masterBusy} readonly={locked} disabled={locked||busy||review||masterBusy}
+ onAdd={parent=>changeGrades(id,items=>[...items,{ParentID:parent,ID:Math.max(0,...items.filter(i=>i.ParentID===parent).map(i=>i.ID))+1,Grade:'',Process:false,RawGradeID:null,RawMaterialID:null,RatioPct:items.some(i=>i.ParentID===parent)?'':'100'}])}
+ onRemove={item=>changeGrades(id,items=>{const path=item.ParentID+'/'+item.ID;return balanceFirstGradeRatio(items.filter(i=>i!==item&&i.ParentID!==path&&!i.ParentID.startsWith(path+'/')),item.ParentID)})}
+ onChange={(item,patch)=>changeGrades(id,items=>{const path=item.ParentID+'/'+item.ID;const next=items.filter(i=>patch.RawGradeID===undefined||i===item||(i.ParentID!==path&&!i.ParentID.startsWith(path+'/'))).map(i=>i===item?{...i,...patch}:i);return patch.RatioPct===undefined?next:balanceFirstGradeRatio(next,item.ParentID)})}/>
  <Notification value={notice} onDismiss={()=>setNotice('')}/><Notification value={masterError} severity="warning" onDismiss={()=>setMasterError('')}/>
  {retryMaster&&<IconButton icon="refresh" label="Reload saved master choices" disabled={busy||masterBusy||review} onClick={()=>void created(retryMaster.target,retryMaster.records)}/>}
  {master&&<InlineMasterCreate entity={master.entity} initialValues={master.entity==='raw-materials'?{GradeID:String(master.gradeID)}:{MaterialID:String(master.materialID)}} lockedFields={master.entity==='raw-materials'?['GradeID']:['MaterialID']} onClose={()=>setMaster(null)} onSaved={records=>void created(master,records)}/>}
@@ -59,8 +60,9 @@ function GradePrice({d,leaf,busy,review,update,onNewPrice,onPriceEdited}:Pick<Co
  const id=Number(d.row.ItemID),disabled=d.readonly||busy||review;
  const selected=d.selections.find(p=>p.Path===leaf.Path),manual=!!selected&&!selected.PriceID&&'DirectUSDPerLb' in selected,candidates=leaf.RawMaterialID?d.quotes.filter(p=>p.RawGradeID===leaf.RawGradeID&&p.MaterialID===leaf.RawMaterialID):[];
  const key=(p:Row)=>p.PriceID+':'+p.PriceVersion+':'+p.USDPerLb;
- const value=selected&&!manual?selected.PriceID+':'+selected.PriceVersion+':'+(selected.ExpectedUSDPerLb??candidates.find(p=>p.PriceID===selected.PriceID&&p.PriceVersion===selected.PriceVersion)?.USDPerLb):'';
- const quote=candidates.find(p=>key(p)===value),error=disabled?'':tcbInputIssues(d).find(x=>x.field==='Price:'+leaf.Path)?.message,errorId='tcb-price-error-'+id+'-'+leaf.Path;
+ const quote=candidates.find(p=>matchesRawQuote(p,selected));
+ const value=selected&&!manual?quote?key(quote):selected.PriceID+':'+selected.PriceVersion+':'+selected.ExpectedUSDPerLb:'';
+ const error=disabled?'':tcbInputIssues(d).find(x=>x.field==='Price:'+leaf.Path)?.message,errorId='tcb-price-error-'+id+'-'+leaf.Path;
  function select(value:Draft['selections'][number]|null){update(id,x=>({...x,selections:[...x.selections.filter(s=>s.Path!==leaf.Path),...(value?[value]:[])]}))}
  return <div className="tcb-grade-price" data-tcb-field={'Price:'+leaf.Path}>
   <div className="grade-pricing-heading"><small title={leaf.Path+' · '+leaf.Grade}>{leaf.Path+' · '+leaf.Grade}</small><div className="grade-direct-price"><label><input type="checkbox" aria-label={'Direct price item '+id+' grade '+leaf.Path} checked={manual} disabled={disabled} onChange={e=>select(e.target.checked?{Path:leaf.Path,DirectUSDPerLb:null}:null)}/>Direct price</label><FieldLabel help="Opportunity-only USD/lb price. Does not change the pricing master. Uncheck to choose a master quote.">{null}</FieldLabel>

@@ -5,7 +5,7 @@ PRODUCT_FIELDS = {
     "ItemStage", "NutDensity", "UsedVolumeML", "ShelfLifeDays",
 }
 REQUEST_FIELDS = {
-    "RequestedLayerCount", "PalletSize", "PalletStacking", "MaxPalletHeightMM",
+    "RequestedLayerCount", "PalletSpecialComments", "PalletSize", "PalletStacking", "MaxPalletHeightMM",
     "ContainerRequest", "ConfigurationRequest", "PrimaryTypeName", "Transparency",
     "SecondaryTypeName", "NumberOfPrimary", "SecondaryTransparency", "TertiaryTypeName",
     "NumberOfSecondary", "TertiaryTransparency", "NumberOfTertiary", "QuaternaryTypeName", "QuaternaryTransparency", "ShelfLifeDays", "RecyclableRequirement",

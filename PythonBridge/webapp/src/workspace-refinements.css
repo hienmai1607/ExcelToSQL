@@ -16,7 +16,8 @@
  .customers-page>.opportunity-view-tools .layout-panel{max-width:100%}
 }
 @media(min-width:1400px){
- .opportunity-entry-dialog .opportunity-header-fields{grid-template-columns:minmax(140px,1.3fr) minmax(180px,2fr) repeat(2,minmax(128px,.75fr)) minmax(120px,.85fr) minmax(150px,1.1fr);align-items:end}
+ .opportunity-entry-dialog .opportunity-header-fields{grid-template-columns:minmax(200px,1.25fr) minmax(260px,2.75fr) repeat(4,minmax(145px,.65fr));align-items:end}
+ .opportunity-entry-dialog .opportunity-header-fields>.opportunity-rate input{width:100%!important}
  .opportunity-entry-dialog .opportunity-header-fields>label,.opportunity-entry-dialog .opportunity-header-fields>label:nth-child(2),.opportunity-entry-dialog .opportunity-bid-dates>label,.opportunity-entry-dialog .opportunity-header-fields>.opportunity-currency,.opportunity-entry-dialog .opportunity-header-fields>.opportunity-rate,.opportunity-entry-dialog .opportunity-header-fields>.opportunity-rate:nth-of-type(5){grid-column:auto}
  .opportunity-entry-dialog .opportunity-entry-summary{grid-column:1/-1;display:flex;justify-content:flex-end;gap:24px;border:0;padding:4px 0 0}
  .opportunity-entry-summary>div{display:flex;align-items:center;gap:8px}.opportunity-entry-summary span{margin:0}
@@ -63,6 +64,14 @@
 .response-sections .packing-way-grid[data-layers="3"],
 .response-sections .packaging-layer-sections[data-layers="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
 .response-sections .packing-way-grid{overflow:visible;padding-bottom:4px}
+.response-sections .response-layer-groups>section{display:flex;flex-direction:column;gap:10px;padding:10px!important;border:1px solid var(--border)!important;border-radius:6px!important;background:var(--layer-background)!important}
+.requirement-sections [data-layer="Primary"]{--layer-background:#f0f7f5}
+.requirement-sections [data-layer="Secondary"]{--layer-background:#f0f5fa}
+.requirement-sections [data-layer="Tertiary"]{--layer-background:#faf6ed}
+.requirement-sections [data-layer="Quaternary"]{--layer-background:#f5f1f9}
+.response-sections .response-layer-groups>section::before{display:none}
+.response-sections .response-layer-pricing{position:relative}
+.response-sections .response-layer-pricing .response-layer-symbol{top:0}
 .response-sections .packing-way-layer,
 .response-sections .packing-way-layer[data-shipping="true"]{
  min-width:0;container-type:inline-size;grid-template-columns:minmax(max-content,.75fr) minmax(74px,.75fr) minmax(80px,.8fr) minmax(0,1.7fr);gap:6px}
@@ -149,3 +158,20 @@ dialog .add-section{scroll-margin-block-end:80px}
 .packaging-parent-options>label{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;margin:0!important;font-size:12px}
 .packaging-parent-options input[type=checkbox]{flex:none;width:16px;height:16px}
 .packaging-parent-options>small{font-size:11px}
+
+/* Shared requirement cards in Opportunity and Packaging Request. */
+.requirement-sections .packaging-request-layers>section{padding:10px!important;border:1px solid var(--border)!important;border-radius:6px!important;background:var(--layer-background)!important}
+.requirement-sections .packaging-request-layers>section::before{display:none}
+.requirement-sections .packaging-request-layers>section>h4{top:10px;right:10px}
+.requirement-sections .packaging-request-layers .packaging-entry-grid,
+.requirement-sections .pallet-requirement-grid{grid-template-columns:repeat(4,minmax(0,1fr));padding-right:0}
+.requirement-sections .packaging-request-layers .packaging-entry-grid>*{min-width:0}
+.requirement-sections .packaging-request-layers .packaging-entry-grid>.requirement-comments{grid-column:2/-1}
+.requirement-sections .pallet-requirement-grid>.requirement-comments{grid-column:1/-1}
+.requirement-sections .requirement-comments input{width:100%;max-width:none;box-sizing:border-box}
+.requirement-sections .requirement-comments p{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:700px){
+ .requirement-sections .packaging-request-layers .packaging-entry-grid,.requirement-sections .pallet-requirement-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .requirement-sections .packaging-request-layers .packaging-entry-grid>.requirement-comments{grid-column:1/-1}
+}
+@media(max-width:450px){.requirement-sections .packaging-request-layers .packaging-entry-grid,.requirement-sections .pallet-requirement-grid{grid-template-columns:minmax(0,1fr)}}

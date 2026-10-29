@@ -59,8 +59,10 @@ WEB_ITEM_FIELDS = ["PrimaryTypeID", "SecondaryTypeID", "SecondaryTransparency", 
                   "PackagingLayerCount", "TertiaryTypeID", "TertiaryTransparency", "NumberOfSecondary"]
 WEB_ITEM_FIELDS += ["MaxPalletHeightMM","ProductGradeSnapshot","SecondaryRecyclableRequirement","SecondaryRecycledContent","SecondaryMetalizedAluminum","SecondarySpecialComments","TertiaryRecyclableRequirement","TertiaryRecycledContent","TertiaryMetalizedAluminum","TertiarySpecialComments"]
 PARENT_LOGISTICS_FIELDS.add("MaxPalletHeightMM")
-WEB_ITEM_FIELDS.extend(["ShipmentCostInfo","QuaternaryTypeID","QuaternaryTransparency","NumberOfTertiary","QuaternaryRecyclableRequirement","QuaternaryRecycledContent","QuaternaryMetalizedAluminum","QuaternarySpecialComments"])
+WEB_ITEM_FIELDS.extend(["ShipmentCostInfo","QuaternaryTypeID","QuaternaryTransparency","NumberOfTertiary","QuaternaryRecyclableRequirement","QuaternaryRecycledContent","QuaternaryMetalizedAluminum","QuaternarySpecialComments","PalletSpecialComments"])
+PARENT_LOGISTICS_FIELDS.add('PalletSpecialComments')
 class ItemFields(BaseModel):
+    PalletSpecialComments: str | None = Field(None,max_length=1000)
     NetWeightGrams: Decimal | None = Field(None, gt=0, max_digits=10, decimal_places=2, allow_inf_nan=False)
     RefreshProductWeight: bool = Field(False, strict=True)
 
@@ -304,6 +306,8 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                         result["NewRowVersion"]=consume(cursor)[0][0]["ProductRowVersion"]
             if kinds == ["Opportunity","OpportunityItem"]:
                 sets[1].extend(child_results)
+                from opportunity_item_weight import refresh_mix_parent_weights
+                refresh_mix_parent_weights(cursor,[r['NewID'] for r in sets[1] if r.get('NewID') and r.get('Status')=='OK'],scalar_params[0])
                 for result in sets[1]:
                     if result.get("NewID") and result.get("NewRowVersion"):
                         cursor.execute("SELECT RowVersion FROM dbo.OpportunityItem WHERE ID=?", result["NewID"])

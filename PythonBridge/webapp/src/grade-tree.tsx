@@ -7,11 +7,11 @@ import type {Row} from './api';
 import {IconButton} from './icons';
 import type {GradeItem,RawGradeOption,RawMaterialOption} from './product-grades';
 
-type Props={compactCards?:boolean;renderPricing?:(item:GradeItem)=>ReactNode;rawGrades?:RawGradeOption[];rawMaterials?:RawMaterialOption[];items:GradeItem[];busy:boolean;readonly:boolean;disabled:boolean;
+type Props={autoFirstRatio?:boolean;compactCards?:boolean;renderPricing?:(item:GradeItem)=>ReactNode;rawGrades?:RawGradeOption[];rawMaterials?:RawMaterialOption[];items:GradeItem[];busy:boolean;readonly:boolean;disabled:boolean;
  onNewGrade?:(item:GradeItem)=>void;onNewMaterial?:(item:GradeItem)=>void;onGradeEdited?:(item:GradeItem,record:Row)=>void;onMaterialEdited?:(item:GradeItem,record:Row)=>void;
  onAdd:(parent:string)=>void;onRemove:(item:GradeItem)=>void;
  onChange:(item:GradeItem,patch:Partial<Pick<GradeItem,'Grade'|'RawGradeID'|'RawMaterialID'|'RatioPct'|'Process'>>)=>void};
-export function GradeTree({rawGrades=[],rawMaterials=[],items,busy,readonly,disabled,onNewGrade,onNewMaterial,onGradeEdited,onMaterialEdited,onAdd,onRemove,onChange,renderPricing,compactCards=false}:Props){
+export function GradeTree({rawGrades=[],rawMaterials=[],items,busy,readonly,disabled,onNewGrade,onNewMaterial,onGradeEdited,onMaterialEdited,onAdd,onRemove,onChange,renderPricing,compactCards=false,autoFirstRatio=false}:Props){
  const canvas=useRef<HTMLDivElement>(null);
  const processItems=editableProcessTree(items);
  const aligned=useGradeMaterialAlignment(canvas,JSON.stringify([readonly,!!renderPricing,items.map(i=>[i.ParentID,i.ID,i.RawGradeID,i.RawMaterialID]),rawGrades.map(g=>[g.ID,g.FinalGrade])]),compactCards);
@@ -43,7 +43,7 @@ export function GradeTree({rawGrades=[],rawMaterials=[],items,busy,readonly,disa
      {item.RawGradeID&&!options.some(g=>g.ID===item.RawGradeID)&&<option value={item.RawGradeID} disabled>{item.Grade} (unavailable for this parent)</option>}
      {options.map(g=><option key={g.ID} value={g.ID}>{g.GradeName}</option>)}
     </select>{onNewGrade&&<AddMasterButton entity="raw-grades" selectedValue={item.RawGradeID} onEdited={record=>onGradeEdited?.(item,record)} label={'Add new Raw Grade master for '+id} disabled={parent!=='0'&&!parentGrade} onClick={()=>onNewGrade(item)}/>}</span>{parent!=='0'&&!options.length&&<small>{parentGrade?'No active child grades for this parent in Raw Grade Master.':'Choose the parent grade first.'}</small>}</label>
-    <label>Ratio %<input aria-label={'Ratio '+id} inputMode="decimal" maxLength={6} value={item.RatioPct} onChange={e=>onChange(item,{RatioPct:e.target.value})}/></label>
+    <label>Ratio %<input aria-label={'Ratio '+id} inputMode="decimal" maxLength={6} readOnly={autoFirstRatio&&children.get(item.ParentID)?.[0]===item} title={autoFirstRatio&&children.get(item.ParentID)?.[0]===item?'Automatically calculated as 100% minus the other ratios in this group.':undefined} value={item.RatioPct} onChange={e=>onChange(item,{RatioPct:e.target.value})}/></label>
     </fieldset>}
 
    </div>{hasChildren&&branch(id,depth+1)}</li>;

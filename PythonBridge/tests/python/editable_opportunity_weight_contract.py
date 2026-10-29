@@ -93,7 +93,15 @@ class EditableWeight(unittest.TestCase):
    result=opportunity_batch(payload,username=self.user,is_admin=True,scopes=frozenset({'Admin'}))
   self.assertEqual(result['item_results'][0]['Status'],'OK',result)
   self.assertEqual(self.cur.execute('SELECT ProductNetWeightGrams FROM dbo.OpportunityItem WHERE ID=?',child).fetchval(),Decimal('421.25'))
+  self.assertEqual(self.cur.execute('SELECT ProductNetWeightGrams FROM dbo.OpportunityItem WHERE ID=?',root).fetchval(),Decimal('842.50'))
   self.assertEqual(self.cur.execute('SELECT WeightGrams FROM dbo.Product WHERE ID=?',self.product).fetchval(),395)
+ def test_mix_parent_manual_weight_and_master_refresh_rejected(self):
+  parent,version,root,child=self.mix_fixture()
+  for fields in [dict(NetWeightGrams=999),dict(RefreshProductWeight=True)]:
+   model=OpportunityItemRow(RowNum=1,Command='U',ID=root,OpportunityNumber='mix',ProductID=parent,**fields)
+   result=dict(NewID=root,NewRowVersion=self.cur.execute('SELECT RowVersion FROM dbo.OpportunityItem WHERE ID=?',root).fetchval())
+   with self.assertRaisesRegex(ValueError,'calculated from.*children'):
+    save_item_weight(self.cur,model,result,self.user)
  def test_new_mix_child_weight_is_applied_with_child_requirements(self):
   from schemas import OpportunityItemRow
   from opportunity_mix import save_new_child_requirements
