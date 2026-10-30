@@ -72,7 +72,7 @@ class Contracts(unittest.TestCase):
   r=row();r["ShipmentCostInfo"].update(SpoilageAllowancePct="50",PaymentTermPct="50");add_tcb_columns([r])
   self.assertIsNone(r["TCBDDPPerUnit"]);self.assertIsNotNone(r["TCBCFRPerUnit"])
  def test_revised_loading_interest_margin_clearance_and_informational_days(self):
-  for mode,expected in (("Pallet load",.01),("Floor load",.015),("Both",.025)):
+  for mode,expected in (("Pallet load",.01),("Floor load",.015),("Both",.015)):
    r=row();r.update(ConfigurationRequest=mode,ApplicableNetWeightGrams="150")
    r["ShipmentCostInfo"].update(FloorLoadUSDPerMT="100",InterestDays=30,InterestMonths=None,
     MarginPct=None,MarginMode="USDPerLb",MarginUSDPerLb=".5",ImportClearanceCustomerPerPallet="150",PaymentTermDays=999)

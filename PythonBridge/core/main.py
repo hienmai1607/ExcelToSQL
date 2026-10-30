@@ -651,13 +651,14 @@ def opportunity_grid_read(
     stage: str | None = Query(None),
     bid_open_from: str | None = Query(None),
     bid_open_to: str | None = Query(None),
+    created_by: str | None = Query(None, max_length=200),
     username: str = Depends(get_current_username),
     is_admin: bool = Depends(get_is_admin),
     scopes: frozenset[str] = Depends(get_user_scopes),
 ):
     _require_scope(is_admin, scopes, "Opportunity")
     return sorted_grid(username, page, page_size, sort or "[]", opportunity_number,
-                       customer_name, stage, bid_open_from, bid_open_to)
+                       customer_name, stage, bid_open_from, bid_open_to, created_by if isinstance(created_by,str) else None)
 
 
 @app.get("/api/opportunity/{opportunity_number}/items")

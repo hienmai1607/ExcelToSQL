@@ -1,8 +1,10 @@
 import {test,expect} from '@playwright/test';
 import {buildTCBAnalysis,analysisRows} from '../src/tcb-analysis-model';
 import type {Draft} from '../src/opportunity-losses';
-import {defaultInputs,manualCostInputs} from '../src/tcb-model';
+import {defaultInputs,manualCostInputs,costs,recipeRows} from '../src/tcb-model';
 import {quantityDisplay} from '../src/packaging-summary-model';
+import {packingRate} from '../src/tcb-packing';
+import {finalBoxDisplay} from '../src/tcb-final-box';
 
 function draft(id=1,extra:Partial<Draft>={}):Draft{
  const row={ItemID:id,ProductID:id,ProductCode:'P'+id,ProductName:'Product '+id,ItemNumber:String(id),WeightGrams:'453.59237',AnnualUnit:'1000',EstPctAwarded:'50',ResponseLayerCount:2,UnitsPerCarton:'10',UnitsPerPallet:'1000',PrimaryPricePerUnit:'.1',PrimaryPriceCurrencyCode:'USD',SecondaryPricePerUnit:'1',SecondaryPriceCurrencyCode:'USD',CustomerCurrencyCode:'AUD',ExchangeRateCustomerCurrencyPerUSD:'1.5',ContainerRequest:'20DC',ConfigurationRequest:'Pallet load',SelectedContainerType:'20DC',ContainerLoadProfiles:{'20DC':{PalletsPerContainer:10,CartonsPerContainerFloor:200}},ContainerLoadResults:{'20DC':{CalculatedCartonsPerContainer:100}},ShipmentCostInfo:{PackingUSDPerLb:'.5',InitialDesignUSD:'100',OtherFixedCostsUSD:'50',FobbingUSDPerContainer:'200',InterestPct:'12',InterestMonths:'10',MarginPct:'10'}};
@@ -12,6 +14,60 @@ function draft(id=1,extra:Partial<Draft>={}):Draft{
 return d;
 }
 const values=(column:ReturnType<typeof buildTCBAnalysis>[number]['columns'][number])=>column.cells.map(c=>quantityDisplay(c.value,8).replaceAll(',',''));
+
+test('Processing with Loss and Line product use the same grade yield',()=>{
+ const inputs={...defaultInputs(),Prices:[{Path:'0/1',DirectUSDPerLb:'2'}],ProcessLosses:[{Path:'0/1',Ratios:['20']}],
+  MaterialCosts:[{Path:'0/1',RMRatio:'90',SeasoningRatio:'10',SeasoningUSDPerLb:'1',OilPct:'0',ProcessingUSDPerLb:'.5'}]};
+ const grades=[{Path:'0/1',Proportion:'1',Grade:'Grade'}];
+ const recipe=recipeRows(inputs,[{ParentID:'0',ID:1,Grade:'Grade',RatioPct:'100',Process:true}],grades,[])[0];
+ expect(quantityDisplay(recipe.lossPct,6)).toBe('20');
+ expect(quantityDisplay(recipe.processingWithLoss,6)).toBe('0.625');
+ expect(quantityDisplay(recipe.product,6)).toBe('2.975');
+ expect(quantityDisplay(costs(inputs,grades,[]).product,6)).toBe('2.975');
+ expect(quantityDisplay(costs(inputs,grades,[]).rmWithoutLoss,6)).toBe('1.8');
+ expect(quantityDisplay(costs(inputs,grades,[]).rm,6)).toBe('2.25');
+});
+
+test('RM totals apply each recipe ratio and grade share without changing Line product',()=>{
+ const inputs={...defaultInputs(),Prices:[{Path:'0/1',DirectUSDPerLb:'2'},{Path:'0/2',DirectUSDPerLb:'4'}],ProcessLosses:[{Path:'0/1',Ratios:['20']}],
+  MaterialCosts:[{Path:'0/1',RMRatio:'90',SeasoningRatio:'10',SeasoningUSDPerLb:'1',OilPct:'0',ProcessingUSDPerLb:'.5'},
+   {Path:'0/2',RMRatio:'80',SeasoningRatio:'0',OilPct:'20',OilUSDPerLb:'2',ProcessingUSDPerLb:'.1'}]};
+ const result=costs(inputs,[{Path:'0/1',Proportion:'.6'},{Path:'0/2',Proportion:'.4'}],[]);
+ expect(quantityDisplay(result.rmWithoutLoss,6)).toBe('2.36');
+ expect(quantityDisplay(result.rm,6)).toBe('2.63');
+ expect(quantityDisplay(result.product,6)).toBe('3.265');
+});
+
+test('Mix packing prefills a weighted rate, preserves total, and a parent override uses each child weight',()=>{
+ const root=draft(10,{mix:true,steps:[]}),a=draft(11,{steps:[]}),b=draft(12,{steps:[]});
+ root.row.ProductMixSnapshot={items:[{ProductID:11,UnitQuantity:2},{ProductID:12,UnitQuantity:1}]};
+ for(const child of [a,b]){child.row.ParentItemID=10;child.row.MixUnitQuantity=child===a?2:1}
+ a.row.OwnShipmentCostInfo={PackingUSDPerLb:'.2'};b.row.OwnShipmentCostInfo={PackingUSDPerLb:'.8'};b.row.WeightGrams='907.18474';
+ expect(quantityDisplay(packingRate(root,[a,b]),12)).toBe('0.5');
+ const columns=buildTCBAnalysis([root,a,b])[0].columns;
+ expect(values(columns[0])[4]).toBe('0.5');expect(values(columns[1])[4]).toBe('1');
+ expect(Number(values(columns[0])[4])*2+Number(values(columns[1])[4])).toBe(2);
+ root.costingInputs.PackingUSDPerLb='.3';
+ const overridden=buildTCBAnalysis([root,a,b])[0].columns;
+ expect(values(overridden[0])[4]).toBe('0.3');expect(values(overridden[1])[4]).toBe('0.6');
+ root.costingInputs.PackingUSDPerLb='0';expect(values(buildTCBAnalysis([root,a,b])[0].columns[0])[4]).toBe('0');
+});
+
+test('final box sums the whole Mix with outer layer quantities and rounds currencies independently upward',()=>{
+ const root=draft(10,{mix:true,steps:[]}),a=draft(11,{steps:[]}),b=draft(12,{steps:[]});
+ root.row.ProductMixSnapshot={items:[{ProductID:11,UnitQuantity:2},{ProductID:12,UnitQuantity:1}]};
+ root.row.ShipmentCostInfo={FreightUSDPerContainer:'100'};root.costingInputs.PalletUSDPerEA='0';root.costingInputs.PackingUSDPerLb='.333333';
+ for(const item of [root,a,b]){item.row.PrimaryPricePerUnit='0';item.row.SecondaryPricePerUnit='0'}
+ for(const child of [a,b]){child.row.ParentItemID=10;child.row.OwnShipmentCostInfo={};child.row.MixUnitQuantity=child===a?2:1}
+ b.row.WeightGrams='907.18474';
+ const [first,second]=buildTCBAnalysis([root,a,b])[0].columns,box=first.finalBox!;
+ expect(first.finalBox).toBe(second.finalBox);
+ expect(finalBoxDisplay(box.FOB.usd.value!,'USD')).toBe('93.34 USD');
+ expect(finalBoxDisplay(box.FOB.customer.value!,'AUD')).toBe('140.00 AUD');
+ expect(finalBoxDisplay(box.CFR.usd.value!,'USD')).toBe('94.34 USD');
+ expect(finalBoxDisplay(box.DDP.customer.value!,'AUD')).toBe('141.50 AUD');
+ root.row.UnitsPerCarton='';expect(buildTCBAnalysis([root,a,b])[0].columns[0].finalBox!.FOB.usd.value).toBeNull();
+});
 
 function pair(child=draft(11)){
  const parent=draft(10,{mix:true,steps:[]});
@@ -49,19 +105,23 @@ test('child Others never inherit from parent and fixed costs use own awarded chi
  const [first,second]=buildTCBAnalysis([root,a,b])[0].columns;
  expect(values(first)[7]).toBe('4');expect(values(second)[7]).toBe('4');
  expect(Number(values(first)[7])*2).toBe(8);
- expect(values(first).slice(4,7)).toEqual(['2','0.1','0.2']);
- expect(values(second).slice(4,7)).toEqual(['0','0','0']);
+ expect(values(first).slice(4,7)).toEqual(['1.33333333','0.1','0.2']);
+ expect(values(second).slice(4,7)).toEqual(['1.33333333','0','0']);
  expect(values(first)[9]).toBe('0.5');expect(values(second)[9]).toBe('0');
  expect(Number(values(first)[8])).toBeGreaterThan(0);expect(values(second)[8]).toBe('0');
 });
 
-test('Both has one child-only result with pallet plus floor cost',()=>{
+test('Both allocates only floor cost to the child, excluding pallet cost',()=>{
  const drafts=pair();drafts[0].row.ConfigurationRequest='Both';
  drafts[0].row.ShipmentCostInfo={FloorLoadUSDPerMT:'100'};
  drafts[1].row.ApplicableNetWeightGrams='150';
  const scenario=buildTCBAnalysis(drafts)[0];
  expect(scenario.columns.map(c=>c.id)).toEqual([11]);
- expect(values(scenario.columns[0])[3]).toBe('0.025');
+ expect(values(scenario.columns[0])[3]).toBe('0.015');
+ const cartonBefore=finalBoxDisplay(scenario.columns[0].finalBox!.FOB.usd.value!,'USD');
+ drafts[0].row.PalletPricingJSON={UnitUSDPrice:'99999'};
+ expect(finalBoxDisplay(buildTCBAnalysis(drafts)[0].columns[0].finalBox!.FOB.usd.value!,'USD')).toBe(cartonBefore);
+ expect(values(buildTCBAnalysis(drafts)[0].columns[0])[3]).toBe('0.015');
  expect(scenario.columns[0].cells[10].value).not.toBeNull();
 });
 

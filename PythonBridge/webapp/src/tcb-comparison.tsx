@@ -10,7 +10,7 @@ export function TCBComparison({mode,drafts,onClose,embedded=false}:{mode:'versio
  const [item,setItem]=useState(String(drafts.find(d=>!d.mix)?.row.ItemID??drafts[0]?.row.ItemID??'')),[columns,setColumns]=useState<TCBCostColumn[]>([]),[loading,setLoading]=useState(false),[error,setError]=useState(''),[search,setSearch]=useState(''),[choices,setChoices]=useState<Row[]>([]),[selected,setSelected]=useState('');
  const title=mode==='versions'?'Compare TCB versions':'Compare opportunity items';
  function fromContext(reply:ComparisonReply,itemID:number,key:string,label:string,active=false){
-  return buildTCBAnalysis(contextDrafts(reply)).flatMap((s,si)=>s.columns.filter(c=>c.id===itemID).map(c=>({key:key+':'+si,label:label+' · '+s.label,currency:s.currency,cells:c.cells,active})));
+  return buildTCBAnalysis(contextDrafts(reply)).flatMap((s,si)=>s.columns.filter(c=>c.id===itemID).map(c=>({...c,key:key+':'+si,label:label+' · '+s.label,currency:s.currency,cells:c.cells,active})));
  }
  useEffect(()=>{let live=true;if(!item)return;setLoading(true);setError('');setColumns([]);
   (async()=>{
@@ -24,7 +24,7 @@ export function TCBComparison({mode,drafts,onClose,embedded=false}:{mode:'versio
     const captured=reply.rows.filter(r=>r.TCBContext).map(r=>draftFromTCB(r,r.TCBContext!));
     const related=captured.length?captured.map(d=>Number(d.row.ItemID)===Number(item)?ownDraft:d):[ownDraft];
     for(const s of buildTCBAnalysis(related))for(const c of s.columns.filter(c=>c.id===Number(item)||ownDraft.mix&&related.some(d=>Number(d.row.ItemID)===c.id&&Number(d.row.ParentItemID)===Number(item))))
-     result.push({key:(mode==='items'?'baseline:':'')+v.ID+':'+c.id+':'+s.label,label:(mode==='items'?own.OpportunityNumber+' · '+own.ProductCode+' · '+own.ProductName+' · ':'')+'V'+v.Version+' · '+v.Name+' · '+(ownDraft.mix?c.label+' · ':'')+s.label,currency:s.currency,cells:c.cells,active:v.IsActive});
+     result.push({...c,key:(mode==='items'?'baseline:':'')+v.ID+':'+c.id+':'+s.label,label:(mode==='items'?own.OpportunityNumber+' · '+own.ProductCode+' · '+own.ProductName+' · ':'')+'V'+v.Version+' · '+v.Name+' · '+(ownDraft.mix?c.label+' · ':'')+s.label,currency:s.currency,cells:c.cells,active:v.IsActive});
    }
    if(live)setColumns(result);
   })().catch(e=>{if(live)setError(e.message)}).finally(()=>{if(live)setLoading(false)});
@@ -51,8 +51,8 @@ export function TCBComparison({mode,drafts,onClose,embedded=false}:{mode:'versio
     <label>Item<select aria-label="Comparison item" value={selected} disabled={loading} onChange={e=>setSelected(e.target.value)}><option value="">Choose opportunity item</option>{choices.map(r=><option key={String(r.ItemID)} value={String(r.ItemID)} disabled={String(r.ItemID)===item}>{r.OpportunityNumber+' · '+r.ProductCode+' · '+r.ProductName}</option>)}</select></label><button disabled={loading||!selected||selected===item||!columns.some(c=>c.active)} onClick={add}>Add comparison</button>
    </div>}
   {error&&<p role="alert">{error}</p>}{loading&&<p role="status">Loading comparison…</p>}
-  <p>Saved approaches, per smallest product unit. Each column retains its own container and currency. Comparing or removing a column does not change any item.</p>
+  <p>Saved approaches, per smallest product unit, with final-carton totals on the per final box rows. Each column retains its own container and currency. Comparing or removing a column does not change any item.</p>
   {columns.length?<TCBCostTable name={title} columns={columns.map(c=>({...c,onRemove:mode==='items'&&!c.active?()=>setColumns(old=>old.filter(x=>x.key!==c.key)):undefined}))}/>:!loading&&<p>No comparison columns yet.</p>}
  </>;
- return embedded?<section aria-label={title}>{content}</section>:<Modal label={title} className="dialog opportunity-loss-dialog" onClose={onClose}>{content}</Modal>;
+ return embedded?<section className="tcb-comparison-view" aria-label={title}>{content}</section>:<Modal label={title} className="dialog opportunity-loss-dialog" onClose={onClose}>{content}</Modal>;
 }

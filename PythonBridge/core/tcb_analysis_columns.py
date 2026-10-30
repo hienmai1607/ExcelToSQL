@@ -5,6 +5,7 @@ from decimal import Decimal, localcontext
 from fractions import Fraction as F
 from container_loading import container_types
 from shipment_ownership import own_others
+from tcb_snapshot_costs import processing_snapshot_costs
 
 TCB_GROUPS = [
  [
@@ -91,7 +92,7 @@ def ratio(row, key):
     return value / 100 if value is not None and value <= 100 else None
 
 def saved(row):
-    return obj(row.get("_TCBCostInfo"))
+    return processing_snapshot_costs(obj(row.get("_TCBCostInfo")))
 
 def final_units(row):
     count = row.get("ResponseLayerCount")
@@ -163,6 +164,23 @@ def display(value):
         ctx.prec = 60
         return format(Decimal(value.numerator)/Decimal(value.denominator),".12f").rstrip("0").rstrip(".") or "0"
 
+def packing_rate(root, children):
+    entered = obj(saved(root).get("Inputs")).get("PackingUSDPerLb")
+    if entered is not None: return num(entered, True)
+    if not root.get("IsMixParent"):
+        return optional({**root, **obj(root.get("ShipmentCostInfo"))}, "PackingUSDPerLb")
+    capture = obj(root.get("ProductMixSnapshot")).get("items")
+    if not children or isinstance(capture,list) and len(capture) != len(children): return None
+    mass = F(0);cost = F(0)
+    for child in children:
+        matches = [c for c in capture if c.get("ProductID") == child.get("ProductID")] if isinstance(capture,list) else None
+        count = num(matches[0].get("UnitQuantity",matches[0].get("MixUnitQuantity"))) if matches is not None and len(matches)==1 else num(child.get("MixUnitQuantity")) if matches is None else None
+        weight = num(child.get("WeightGrams"));rate = optional(own_others(child),"PackingUSDPerLb")
+        if count is None or weight is None or rate is None: return None
+        mass += count * weight;cost += count * weight * rate
+    return cost / mass if mass > 0 else None
+
+
 def add_tcb_columns(rows):
     """Only use saved item costs and permission-filtered response fields; no pricing-master reads."""
     for row in rows: row.update({key:None for key in TCB_COLUMNS})
@@ -189,9 +207,10 @@ def add_tcb_columns(rows):
         def container(key): return per(optional(shipping,key),container_units) if resolved else None
         def pallet(key): return per(optional(shipping,key),pallet_units) if resolved else None
         pallet_price=root.get("DefaultPalletUSDPerEA") if "DefaultPalletUSDPerEA" in root else pallet_usd(root.get("PalletPricingJSON"),root) if "PalletPricingJSON" in root else inputs.get("PalletUSDPerEA")
-        pallet_cost = None if not resolved else F(0) if mode=="Floor load" else per(num(pallet_price,True),pallet_units)
+        pallet_cost = None if not resolved else F(0) if mode in ("Floor load","Both") else per(num(pallet_price,True),pallet_units)
         currency = str(root.get("CustomerCurrencyCode") or "").upper()
         rate = F(1) if currency=="USD" else num(root.get("ExchangeRateVNDPerUSD" if currency=="VND" else "ExchangeRateCustomerCurrencyPerUSD")) if currency else None
+        calculated=[]
         for row in products:
             others = own_others(row) if root.get("IsMixParent") else shipping
             capture = obj(root.get("ProductMixSnapshot")).get("items")
@@ -206,7 +225,7 @@ def add_tcb_columns(rows):
             applicable_weight = num(row.get("ApplicableNetWeightGrams") if "ApplicableNetWeightGrams" in row else row.get("WeightGrams"))
             floor_cost = times(optional(shipping,"FloorLoadUSDPerMT"),per(applicable_weight,F(1000000))) if mode in ("Floor load","Both") else F(0)
             loading_cost = plus([pallet_cost,floor_cost])
-            cells = [product,packaging(row,root),parent_pm,loading_cost,times(optional(others,"PackingUSDPerLb"),per(weight,F("453.59237"))),
+            cells = [product,packaging(row,root),parent_pm,loading_cost,times(packing_rate(root,children),per(weight,F("453.59237"))),
                      per(per(optional(others,"InitialDesignCustomer"),rate) if others.get("InitialDesignCustomer") is not None else optional(others,"InitialDesignUSD"),awarded),per(optional(others,"OtherFixedCostsUSD"),awarded),container("FobbingUSDPerContainer")]
             cells.append(times(plus(cells),times(ratio(others,"InterestPct"),per(optional(others,"InterestDays"),F(360)) if others.get("InterestDays") is not None else per(optional(others,"InterestMonths"),F(12)))))
             cells.append(times(optional(others,"MarginUSDPerLb"),per(weight,F("453.59237"))) if others.get("MarginMode") == "USDPerLb" or others.get("MarginMode") is None and others.get("MarginUSDPerLb") is not None else times(plus(cells),ratio(others,"MarginPct")))
@@ -225,5 +244,16 @@ def add_tcb_columns(rows):
             ddp = plus([base,*allowances])
             cells.extend([*destination,*allowances,plus([cells[10],freight]),ddp,times(ddp,rate)])
             row.update({key:display(value) for key,value in zip(TCB_LABELS,cells)})
+            row["TCBCFRCustomerPerUnit"]=display(times(cells[25],rate))
+            calculated.append((row,cells,quantity if root.get("IsMixParent") else F(1)))
+        def up(value):
+            if value is None:return None
+            cents=(value.numerator*100+value.denominator-1)//value.denominator
+            return str(cents//100)+"."+str(cents%100).zfill(2)
+        for term,index in (("FOB",10),("CFR",25),("DDP",26)):
+            box=times(plus([times(cells[index],quantity) for _,cells,quantity in calculated]),final_units(root))
+            values={"TCB"+term+"FinalBoxUSD":up(box),"TCB"+term+"FinalBoxCustomer":up(times(box,rate))}
+            root.update(values)
+            for row,_,_ in calculated:row.update(values)
     for row in rows: row.pop("_TCBCostInfo",None)
     return rows

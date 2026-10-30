@@ -190,8 +190,8 @@ class ReviewCase(Audit):
   selections=[[self.price_selection('0/1/1','W210'),self.price_selection('0/1/2','W320'),self.price_selection('0/2','Almond')],[self.price_selection('0/1','Pistachio'),self.price_selection('0/2','Raisin')],[self.price_selection('0/1','Macadamia',True)]]
   a_rm=D('.7')*D('3.6')/(D('.995')*D('.988')*D('.997'))+D('.3')*D('3.2')/(D('.9925')*D('.988')*D('.997'))
   almond=D('2.8')/(D('.992')*D('.997'));pistachio=D(5)/(D('.99')*D('.995')*D('.998'));raisin=D('1.2')/(D('.996')*D('.998'));mac=D('.1')/(D('.997')*D('.996')*D('.995'))
-  raw_expected=[a_rm*D('.6')+almond*D('.4'),pistachio*D('.7')+raisin*D('.3'),mac]
-  product_expected=[(a_rm*D('.95')+D('.116'))*D('.6')+(almond*D('.97')+D('.0845'))*D('.4'),(pistachio*D('.98')+D('.125'))*D('.7')+(raisin+D('.02'))*D('.3'),mac+D('.03')]
+  raw_expected=[a_rm*D('.95')*D('.6')+almond*D('.97')*D('.4'),pistachio*D('.98')*D('.7')+raisin*D('.3'),mac]
+  product_expected=[(a_rm*D('.95')+D('.016')+D('.1')*a_rm/D('3.48'))*D('.6')+(almond*D('.97')+D('.0045')+D('.08')*almond/D('2.8'))*D('.4'),(pistachio*D('.98')+D('.005')+D('.12')*pistachio/D('5'))*D('.7')+(raisin+D('.02')*raisin/D('1.2'))*D('.3'),mac+D('.03')*mac/D('.1')]
   package_losses=[[1,2,3],[2,1],[1]]
   for index,item in enumerate(self.child_items):
    opened=tcb.read(item,self.ctx)
@@ -230,7 +230,7 @@ class ReviewCase(Audit):
    r=next(r for r in rows if r['ItemID']==item);weight=lbs[index];q=D(self.quantities[index]);awarded=D(12000)*D('.6')*q
    others=self.others[index]
    initial=D(str(others.get('InitialDesignUSD',0))) if 'InitialDesignUSD' in others else D(str(others['InitialDesignCustomer']))/self.customer_fx
-   values=dict(TCBProductPerUnit=self.expected_products[index]*weight,TCBSelfPackagingPerUnit=own_pm[index],TCBParentPackagingPerUnit=parent_pm,TCBPalletPerUnit=(D(300000)/self.fx)/pallet_units+D(20)*D(self.weights[index])/1000000,TCBPackingPerUnit=D(others['PackingUSDPerLb'])*weight,TCBInitialDesignPerUnit=initial/awarded,TCBFixedCostsPerUnit=D(others['OtherFixedCostsUSD'])/awarded,TCBFobbingPerUnit=D(650)/container_units)
+   values=dict(TCBProductPerUnit=self.expected_products[index]*weight,TCBSelfPackagingPerUnit=own_pm[index],TCBParentPackagingPerUnit=parent_pm,TCBPalletPerUnit=D(20)*D(self.weights[index])/1000000,TCBPackingPerUnit=(D(1200)*D('.25')+D(600)*D('.30')+D(1000)*D('.20'))/D(2800)*weight,TCBInitialDesignPerUnit=initial/awarded,TCBFixedCostsPerUnit=D(others['OtherFixedCostsUSD'])/awarded,TCBFobbingPerUnit=D(650)/container_units)
    values['TCBInterestPerUnit']=sum(values.values())*D(others['InterestPct'])/100*D(others['InterestDays'])/360
    values['TCBMarginPerUnit']=D('.2')*weight if index==1 else sum(values.values())*D(others['MarginPct'])/100
    values['TCBFOBPerUnit']=sum(values.values());values['TCBFOBCustomerPerUnit']=values['TCBFOBPerUnit']*self.customer_fx

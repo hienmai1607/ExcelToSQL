@@ -74,7 +74,7 @@ def read_page(body,ctx):
    try:date.fromisoformat(values[key])
    except ValueError:raise HTTPException(422,"Use YYYY-MM-DD for bid date filters.")
  data=sorted_grid(ctx.username,body.page,body.page_size,json.dumps([s.model_dump() for s in header.sort]) if header else "[]",
-  **{k:values.get(k) or None for k in ("opportunity_number","customer_name","stage","bid_open_from","bid_open_to")})
+  **{k:values.get(k) or None for k in ("opportunity_number","customer_name","stage","bid_open_from","bid_open_to","created_by")})
  # Header pagination guarantees that no document is split across pages.
  if body.views.items and body.views.items.sort:
   from functools import cmp_to_key

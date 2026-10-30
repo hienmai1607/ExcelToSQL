@@ -1,3 +1,4 @@
+import {packingRate} from './tcb-packing';
 import type {Row} from './api';
 import {childOtherKeys} from './shipment-ownership';
 import type {Draft} from './opportunity-losses';
@@ -7,13 +8,14 @@ import {lossTotals,lossError,processOptions} from './loss-processes';
 import {allowedContainerTypes,containerTypes} from './container-loading';
 
 export type AnalysisCell={value:Fraction|null;issues:string[]};
-export type AnalysisColumn={id:number;label:string;cells:AnalysisCell[]};
+export type FinalBoxTotals=Record<'FOB'|'CFR'|'DDP',{usd:AnalysisCell;customer:AnalysisCell}>;
+export type AnalysisColumn={id:number;label:string;cells:AnalysisCell[];cfrCustomer?:AnalysisCell;finalBox?:FinalBoxTotals};
 export type AnalysisScenario={label:string;columns:AnalysisColumn[];currency:string};
 export const analysisRows=[
  {label:'Product ($/unit)',help:'Product USD/lb ÷ 453.59237 × net weight in grams ÷ (1 − Product loss % ÷ 100). A 100% loss has no surviving yield.'},
  {label:'Self Packaging ($/unit)',help:'Sum of each own layer price ÷ (1 − that layer loss % / 100) ÷ its smallest-unit count.'},
  {label:'Parent Packaging ($/unit)',help:'Sum of Mix parent layer prices adjusted for each layer loss, normalized per mix unit, then divided by total smallest child units. Equal allocation per smallest child unit.'},
- {label:'Pallet & Floor cost ($/unit)',help:'Pallet: pallet price / total smallest units on a pallet. Floor: USD/MT x applicable net weight (g) / 1,000,000. Both: sum of these two costs.'},
+ {label:'Pallet & Floor cost ($/unit)',help:'Pallet: pallet price / total smallest units on a pallet. Floor: USD/MT x applicable net weight (g) / 1,000,000. Floor load and Both use floor cost only; pallet cost is excluded.'},
  {label:'Packing ($/unit)',help:'Packing USD/lb ÷ 453.59237 × this product’s net weight in grams.'},
  {label:'Initial Design ($/unit)',help:'Initial Design ÷ estimated awarded units. For Mix, awarded mix units × this child quantity.'},
  {label:'Fixed costs ($/unit)',help:'Other fixed costs ÷ estimated awarded units. For Mix, awarded mix units × this child quantity.'},
@@ -124,7 +126,7 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
    const cartons=result.CalculatedCartonsPerContainer??(root.row.SelectedContainerType===kind?root.row.CalculatedCartonsPerContainer:null);
    const n=quantity(cartons),containerUnits=n&&final&&total?multiply(multiply(n,final),total):null;
    const sharedPalletUnits=palletUnits&&total?multiply(palletUnits,total):null;
-   const pallet=!resolved?missing('Choose a loading request.'):mode==='Floor load'?good(zero):perCount(palletPrice?good(palletPrice):missing('Enter a pallet cost on the parent item (zero is allowed).'),sharedPalletUnits,'Missing units per pallet or Mix unit quantities.');
+   const pallet=!resolved?missing('Choose a loading request.'):['Floor load','Both'].includes(mode)?good(zero):perCount(palletPrice?good(palletPrice):missing('Enter a pallet cost on the parent item (zero is allowed).'),sharedPalletUnits,'Missing units per pallet or Mix unit quantities.');
    const fobbing=!resolved?missing('Choose a loading request.'):perCount(optional(shipping.FobbingUSDPerContainer,'Fobbing/container'),containerUnits,'Missing container capacity, packaging quantities or Mix unit quantities.');
    const columns=products.map(d=>{
     const own=root.mix?Object.fromEntries(Object.entries(objectValue('OwnShipmentCostInfo' in d.row?d.row.OwnShipmentCostInfo:d.row.ShipmentCostInfo)).filter(([key])=>childOtherKeys.has(key))):shipping;
@@ -137,7 +139,7 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
     const factor=weight&&validLoss?divide(divide(weight,gramsPerLb),{n:100n*loss.d-loss.n,d:100n*loss.d}):null;
     const product=d.pricingGradeKey!==JSON.stringify(d.grades)?missing('Reload pricing for current grades.'):
      calc.product&&factor?good(multiply(calc.product,factor)):missing('Product price, weight or current loss calculation is incomplete.');
-    const packing=scale(optional(own.PackingUSDPerLb,'Packing cost'),weight?divide(weight,gramsPerLb):null,'Missing product net weight.');
+    const packing=scale(packingRate(root,children)?good(packingRate(root,children)!):missing('Enter a Packing cost on the parent item.'),weight?divide(weight,gramsPerLb):null,'Missing product net weight.');
     const applicableWeight=quantity('ApplicableNetWeightGrams' in d.row?d.row.ApplicableNetWeightGrams:d.row.WeightGrams);
     const floor=['Floor load','Both'].includes(mode)?scale(optional(shipping.FloorLoadUSDPerMT,'Floor load cost'),applicableWeight?divide(applicableWeight,quantity('1000000')!):null,'Missing applicable net weight.'):good(zero);
     const cells=[product,packaging(d,root.row),parentPM,sum([pallet,floor]),packing,design,fixed,fobbing];
@@ -180,9 +182,15 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
     const allowances=fees.map(fee=>scale(gross,fee.value,'Invalid fee ratio.'));
     const cfr=sum([cells[10],freight]),ddp=sum([base,...allowances]);
     cells.push(...destination,...allowances,cfr,ddp,scale(ddp,currency?rate:null,'Missing Opportunity customer currency or exchange rate.'));
-    return {id:Number(d.row.ItemID),label:String(d.row.ItemNumber??d.row.ItemID)+' · '+d.row.ProductCode+' · '+d.row.ProductName,cells};
+    return {id:Number(d.row.ItemID),label:String(d.row.ItemNumber??d.row.ItemID)+' · '+d.row.ProductCode+' · '+d.row.ProductName,cells,cfrCustomer:scale(cfr,currency?rate:null,'Missing customer currency or exchange rate.')};
    });
-   scenarios.push({label:kind||'Select Sales container',columns,currency});
+   const finalBox={} as FinalBoxTotals;
+   for(const [term,index] of [['FOB',10],['CFR',25],['DDP',26]] as const){
+    const usd=sum(columns.map((column,i)=>scale(column.cells[index],final&&(mix?mix.quantities[children.indexOf(products[i])]:one)?multiply(final,(mix?mix.quantities[children.indexOf(products[i])]:one)!):null,'Missing final-box quantities.')));
+    finalBox[term]={usd,customer:scale(usd,currency?rate:null,'Missing customer currency or exchange rate.')};
+   }
+   const boxed:AnalysisColumn[]=columns.map(column=>({...column,finalBox}));
+   scenarios.push({label:kind||'Select Sales container',columns:boxed,currency});
   }
  }
  return scenarios;

@@ -19,12 +19,38 @@ class Contracts(unittest.TestCase):
    self.assertNotIn("x';drop",query)
    self.assertIn("x';drop%",params)
    self.assertEqual(result["total"],7)
+ def test_creator_assignee_and_personal_count_are_server_scoped(self):
+  with patch("packaging_api.execute",return_value=[[],[{"Total":0}]]) as sql:
+   views.header_read("hien.sales",2,5,"",None,'[{"column":"AssignedToMe","direction":"desc"}]',"Sales';--","PIC")
+   query,params=sql.call_args.args
+   self.assertIn("i.PICUserID=@Actor",query)
+   self.assertIn("AssignedToMe",query)
+   self.assertIn("[AssignedToMe] DESC",query)
+   self.assertIn("oi.ParentItemID IS NULL OR parent_item.ID IS NULL",query)
+   self.assertIn("i.Stage<>'Canceled'",query)
+   self.assertEqual(query.count("assignee.UserName LIKE ?"),2)
+   self.assertEqual(params.count("Sales';--%"),2)
+   self.assertNotIn("Sales';--",query)
+   self.assertEqual(params[0],"hien.sales")
+  s=Settings(requests={"header":{"columns":["RequestNumber","AssignedToMe"],"filters":["search","status","created_by","assigned_to"],"values":{"created_by":"Sales","assigned_to":"PIC"},"field_version":9}})
+  self.assertEqual(s.requests.header.values["assigned_to"],"PIC")
+
+ def test_excel_request_page_uses_creator_and_assignee(self):
+  import packaging_excel_api as excel
+  from auth import AccessContext
+  body=excel.View(views={"header":{"columns":["RequestNumber","AssignedToMe"],"values":{"created_by":"Sales","assigned_to":"PIC"}}})
+  with patch.object(excel,"header_read",return_value={"rows":[],"total":0}) as read:
+   excel.read_page(body,AccessContext(1,"Admin",frozenset({"Admin"})))
+   self.assertEqual(read.call_args.args[-2:],("Sales","PIC"))
+
  def test_item_read_does_not_expose_private_response(self):
   with patch("packaging_api.execute",return_value=[[],[{"Total":1000}]]) as sql:
    result=views.item_read("Sales",5,2,200,None,None,'[{"column":"AnnualUnit","direction":"desc"}]')
    query,params=sql.call_args.args
    self.assertIn("[AnnualUnit] DESC, ItemID ASC",query)
    self.assertIn("i.RowVersion ItemRowVersion",query)
+   self.assertIn("reviewer.ID=i.ReviewedBy",query)
+   self.assertIn("CASE WHEN i.Stage='Approved' THEN reviewer.UserName END ApprovedByName",query)
    self.assertIn("CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.Cost END Cost",query)
    self.assertIn(5,params)
    self.assertEqual(result["total"],1000)

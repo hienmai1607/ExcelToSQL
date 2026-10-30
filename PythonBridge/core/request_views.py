@@ -9,7 +9,7 @@ from packaging_weight import layer_sql
 from packaging_efficiency import response_derived
 from web_item_fields import WEB_ITEM_FIELDS, CALCULATED_FIELDS
 
-HEADERS={"RequestNumber","OpportunityNumber","CustomerName","ResponseDue","RequestStatus","ItemCount","Unassigned","RequestedByName","RequestedAt"}
+HEADERS={"RequestNumber","OpportunityNumber","CustomerName","ResponseDue","RequestStatus","ItemCount","Unassigned","AssignedToMe","RequestedByName","RequestedAt"}
 ITEMS={"CostBasis","ResponseNotes","HeightMM","WidthMM","LengthMM","ProductCode","ItemDescription","AnnualUnit","PackagingRequirement","ItemStage","PIC","ProductName","WeightGrams","Category","Grade","MixRatioPct","ShelfLifeDays",*OPPORTUNITYITEM_FIELDS,*PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS}
 VIEW_ITEMS=ITEMS | WEB_ITEM_FIELDS
 
@@ -19,9 +19,9 @@ class RequestView(BaseModel):
     model_config=ConfigDict(extra="forbid")
     columns:list[str]=Field(min_length=1,max_length=128)
     sort:list[MasterSort]=Field(default_factory=list,max_length=64)
-    filters:list[str]|None=Field(None,max_length=2)
-    values:dict[str,str]=Field(default_factory=dict,max_length=2)
-    field_version: int = Field(1, ge=1, le=8)
+    filters:list[str]|None=Field(None,max_length=4)
+    values:dict[str,str]=Field(default_factory=dict,max_length=4)
+    field_version: int = Field(1, ge=1, le=9)
     prefix_columns:list[str]|None=Field(None,max_length=64)
 
 class RequestViews(BaseModel):
@@ -46,7 +46,7 @@ class RequestViews(BaseModel):
                 raise ValueError("Invalid or duplicate Packaging Request column.")
         if v.prefix_columns is not None and (info.field_name!="items" or len(v.prefix_columns)!=len(set(v.prefix_columns)) or any(c not in VIEW_ITEMS for c in v.prefix_columns)):
             raise ValueError("Invalid request item prefix columns.")
-        filters={"search","status"} if info.field_name=="header" else set()
+        filters={"search","status","created_by","assigned_to"} if info.field_name=="header" else set()
         if len(v.filters or [])!=len(set(v.filters or [])) or any(k not in filters for k in [*(v.filters or []),*v.values]):
             raise ValueError("Invalid Packaging Request filter.")
         if any(len(s)>200 for s in v.values.values()):raise ValueError("Filter too long.")
@@ -63,24 +63,29 @@ def order(raw,allowed,tie):
         raise HTTPException(422,"Invalid Packaging Request sort.")
     return ", ".join(f"[{r.column}] {r.direction.upper()}" for r in rules)+(", " if rules else "")+tie
 
-def header_read(username,page,size,search,status,sort):
+def header_read(username,page,size,search,status,sort,created_by=None,assigned_to=None):
     from packaging_api import execute
     sort_sql=order(sort,HEADERS,"RequestID DESC")
     cte="""WITH Summary AS (
         SELECT h.ID RequestID,h.RowVersion HeaderRowVersion,h.RequestNumber,h.OpportunityNumber,h.CustomerName,
-          h.ResponseDue,h.RequestedAt,h.RequestNotes,u.UserName RequestedByName,t.ItemCount,t.Unassigned,
+          h.ResponseDue,h.RequestedAt,h.RequestNotes,u.UserName RequestedByName,t.ItemCount,t.Unassigned,t.AssignedToMe,
           CASE WHEN t.OpenCount>0 THEN 'Open' WHEN t.ApprovedCount>0 THEN 'Completed' ELSE 'Canceled' END RequestStatus
         FROM dbo.PackagingConfigurationRequest h JOIN dbo.Users u ON u.ID=h.RequestedBy
         CROSS APPLY(SELECT COUNT(CASE WHEN oi.ParentItemID IS NULL OR parent_item.ID IS NULL THEN 1 END) ItemCount,
           COALESCE(SUM(CASE WHEN (oi.ParentItemID IS NULL OR parent_item.ID IS NULL) AND i.PICUserID IS NULL AND i.IsOpen=1 THEN 1 ELSE 0 END),0) Unassigned,
+          COALESCE(SUM(CASE WHEN (oi.ParentItemID IS NULL OR parent_item.ID IS NULL) AND i.PICUserID=@Actor AND i.Stage<>'Canceled' THEN 1 ELSE 0 END),0) AssignedToMe,
           SUM(CONVERT(INT,i.IsOpen)) OpenCount,
           SUM(CASE WHEN i.Stage='Approved' THEN 1 ELSE 0 END) ApprovedCount
           FROM dbo.PackagingConfigurationRequestItem i JOIN dbo.OpportunityItem oi ON oi.ID=i.OpportunityItemID
           LEFT JOIN dbo.PackagingConfigurationRequestItem parent_item ON parent_item.RequestID=i.RequestID AND parent_item.OpportunityItemID=oi.ParentItemID
           WHERE i.RequestID=h.ID) t
-        WHERE h.RequestNumber LIKE ? OR h.OpportunityNumber LIKE ? OR h.CustomerName LIKE ?
+        WHERE (h.RequestNumber LIKE ? OR h.OpportunityNumber LIKE ? OR h.CustomerName LIKE ?)
+          AND (? IS NULL OR u.UserName LIKE ?)
+          AND (? IS NULL OR EXISTS(SELECT 1 FROM dbo.PackagingConfigurationRequestItem assigned
+            JOIN dbo.Users assignee ON assignee.ID=assigned.PICUserID
+            WHERE assigned.RequestID=h.ID AND assigned.Stage<>'Canceled' AND assignee.UserName LIKE ?))
     )"""
-    params=[search+"%"]*3+[status,status]
+    params=[search+"%"]*3+[created_by,created_by+"%" if created_by else None,assigned_to,assigned_to+"%" if assigned_to else None,status,status]
     sets=execute(f"""
       DECLARE @Actor INT; EXEC dbo.usp_Packaging_Authorize ?,'Read',@Actor OUTPUT;
       ;{cte} SELECT * FROM Summary WHERE (? IS NULL OR RequestStatus=?) ORDER BY {sort_sql}
@@ -98,6 +103,7 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
         JOIN dbo.OpportunityItem oi ON oi.ID=i.OpportunityItemID
         LEFT JOIN dbo.PackagingConfigurationRequestItem parent_container ON parent_container.RequestID=i.RequestID AND parent_container.OpportunityItemID=oi.ParentItemID
         LEFT JOIN dbo.Users pic ON pic.ID=i.PICUserID
+        LEFT JOIN dbo.Users reviewer ON reviewer.ID=i.ReviewedBy
         JOIN dbo.Users requester ON requester.ID=h.RequestedBy
         LEFT JOIN dbo.Currency currency ON currency.ID=i.CurrencyID
         LEFT JOIN dbo.PkgPricingMaster primary_pricing ON primary_pricing.RequestItemID=i.ID AND primary_pricing.PackagingOrder='Primary' AND primary_pricing.IsCurrent=1
@@ -120,6 +126,7 @@ def item_read(username,request_id,page,size,stage,opportunity_number,sort,reques
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN i.SameConfig END SameConfig,
           CASE WHEN @CanReadDraft=1 OR parent_container.Stage='Approved' THEN parent_container.SameConfig END MixSameConfig,
           i.PackagingRequirement,i.Stage ItemStage,i.PICUserID,pic.UserName PIC,
+          CASE WHEN i.Stage='Approved' THEN reviewer.UserName END ApprovedByName,
           @CanReadDraft AS NutDensityDefaultsVisible,i.ProductName,i.WeightGrams,i.Category,i.Grade,i.MixRatioPct,oi.ParentItemID,i.ProductMixSnapshot,
           CASE WHEN @CanReadDraft=1 OR i.Stage='Approved' THEN COALESCE(i.ApplicableNetWeightGrams,i.WeightGrams) END ApplicableNetWeightGrams,
           CASE WHEN oi.ParentItemID IS NULL AND (@CanReadDraft=1 OR i.Stage='Approved') THEN

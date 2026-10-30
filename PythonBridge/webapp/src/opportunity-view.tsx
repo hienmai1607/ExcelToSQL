@@ -15,25 +15,26 @@ export function itemTabColumns(view:OpportunityView,tab:ItemTab){const prefix=it
 export type OpportunityViews={header?:OpportunityView|null;items?:OpportunityView|null;editor_page_size?:number};
 export const headerLabels:Record<string,string>={OpportunityNumber:'Opportunity',CustomerName:'Customer',OpportunityDesc:'Description',BidOpen:'Bid open',BidClose:'Bid close',HeaderStage:'Stage',ItemCount:'Items',CustomerCurrencyCode:'Customer currency',ExchangeRateVNDPerUSD:'Exchange rate VND per USD',ExchangeRateCustomerCurrencyPerUSD:'Exchange rate Customer Currency per USD'};
 export const itemLabels=itemFieldLabels('opportunity');
-export const opportunityFilters:Record<string,string>={opportunity_number:'Opportunity number',customer_name:'Customer',stage:'Stage',bid_open_from:'Bid open from',bid_open_to:'Bid open to'};
-export const requestHeaderLabels:Record<string,string>={RequestNumber:'Request',OpportunityNumber:'Opportunity',CustomerName:'Customer',ResponseDue:'Response due',RequestStatus:'Status',ItemCount:'Items',Unassigned:'Unassigned',RequestedByName:'Requested by',RequestedAt:'Requested at'};
+export const opportunityFilters:Record<string,string>={opportunity_number:'Opportunity number',customer_name:'Customer',stage:'Stage',bid_open_from:'Bid open from',bid_open_to:'Bid open to',created_by:'Created by'};
+export const requestHeaderLabels:Record<string,string>={RequestNumber:'Request',OpportunityNumber:'Opportunity',CustomerName:'Customer',ResponseDue:'Response due',RequestStatus:'Status',ItemCount:'Items',Unassigned:'Unassigned',AssignedToMe:'Assigned to me',RequestedByName:'Requested by',RequestedAt:'Requested at'};
 export const requestItemLabels=itemFieldLabels('requests');
-export const requestFilters:Record<string,string>={search:'Request, opportunity or customer',status:'Status'};
+export const requestFilters:Record<string,string>={search:'Request, opportunity or customer',status:'Status',created_by:'Created by',assigned_to:'Assigned to'};
 export const opportunityRequired={header:['OpportunityNumber','CustomerName','OpportunityDesc','BidOpen','BidClose','CustomerCurrencyCode','ExchangeRateVNDPerUSD','ExchangeRateCustomerCurrencyPerUSD','ItemCount'],items:['ProductCode','WeightGrams','AnnualUnit']};
 export const requestRequired={header:['RequestNumber','OpportunityNumber','CustomerName','ItemCount'],items:['ProductCode','WeightGrams','PIC']};
 type Domain='opportunity'|'requests';
 const labelsFor=(kind:'header'|'items',domain:Domain)=>domain==='requests'?(kind==='header'?requestHeaderLabels:requestItemLabels):(kind==='header'?headerLabels:itemLabels);
 export const defaultFilters=['opportunity_number','customer_name','stage'];
 export const activeFilters=(v:OpportunityView)=>Object.fromEntries((v.filters??defaultFilters).filter(k=>v.values?.[k]).map(k=>[k,v.values![k]]));
-export const defaultView=(kind:'header'|'items',domain:Domain='opportunity'):OpportunityView=>({page_size:25,field_version:domain==='opportunity'?14:8,filters:kind==='header'?(domain==='requests'?['search','status']:defaultFilters):[],values:{},columns:Object.keys(labelsFor(kind,domain)),sort:kind==='header'?[{column:domain==='requests'?'RequestedAt':'BidOpen',direction:'desc'}]:[]});
+export const defaultView=(kind:'header'|'items',domain:Domain='opportunity'):OpportunityView=>({page_size:25,field_version:domain==='opportunity'?14:9,filters:kind==='header'?(domain==='requests'?['search','status']:defaultFilters):[],values:{},columns:Object.keys(labelsFor(kind,domain)),sort:kind==='header'?[{column:domain==='requests'?'RequestedAt':'BidOpen',direction:'desc'}]:[]});
 export function restoreView(stored:OpportunityView,kind:'header'|'items',domain:Domain):OpportunityView{
  const labels=labelsFor(kind,domain),required=domain==='opportunity'?opportunityRequired[kind]:requestRequired[kind];
  const renamed:Record<string,string>=kind==='header'&&domain==='opportunity'?{CurrencyCode:'CustomerCurrencyCode',ExchangeRateToVND:'ExchangeRateVNDPerUSD'}:{};
  const oldColumns=stored.columns.map(c=>renamed[c]||c).filter(c=>c in labels);
  const added=kind==='items'?[...(domain==='opportunity'&&(stored.field_version??1)<14?['PortToWHCustomerPerContainer','WHCostCustomerPerPallet','InitialDesignCustomer']:[]),...(domain==='opportunity'&&(stored.field_version??1)<13?['ImportClearanceCustomerPerContainer']:[]),...(domain==='opportunity'&&(stored.field_version??1)<12?['FloorLoadUSDPerMT','ImportClearanceCustomerPerContainer','ImportClearanceCustomerPerPallet','InterestDays','PaymentTermDays','MarginMode','MarginUSDPerLb']:[]),...((stored.field_version??1)<(domain==='opportunity'?11:8)?['ApplicableNetWeightGrams']:[]),...((stored.field_version??1)<7?efficiencyFields:[]),...(domain==='opportunity'&&(stored.field_version??1)<8?Object.keys(linkedRequestFields):[]),...(domain==='opportunity'&&(stored.field_version??1)<9?shipmentFieldGroups.flatMap(g=>Object.keys(g.fields)):[]),...(domain==='opportunity'&&(stored.field_version??1)<10?Object.keys(tcbColumnLabels):[])]:[];
+ if(kind==='header'&&domain==='requests'&&(stored.field_version??1)<9&&!oldColumns.includes('AssignedToMe'))oldColumns.splice(oldColumns.indexOf('Unassigned')+1,0,'AssignedToMe');
  const columns=kind==='items'&&(stored.field_version??1)<6?Object.keys(labels):[...new Set([...oldColumns,...required,...added])];
  const ordered=kind==='items'?itemFieldGroups(domain).flatMap(g=>{const group=columns.filter(c=>c in g.fields);return added.includes('PackagingRequestNumber')&&'PackagingRequestNumber' in g.fields?['PackagingRequestNumber',...group.filter(c=>c!=='PackagingRequestNumber')]:group}):columns;
- return {...stored,field_version:domain==='opportunity'?14:8,columns:ordered,
+ return {...stored,field_version:domain==='opportunity'?14:9,columns:ordered,
   sort:stored.sort.map(r=>({...r,column:renamed[r.column]||r.column})).filter(r=>r.column in labels&&(kind==='header'||!calculatedFields.has(r.column))),
   prefix_columns:kind==='items'?stored.prefix_columns?.filter(c=>c in itemFieldGroups(domain)[0].fields):undefined,
   column_widths:Object.fromEntries(Object.entries(stored.column_widths||{}).filter(([k])=>k in labels||k.startsWith('_'))),

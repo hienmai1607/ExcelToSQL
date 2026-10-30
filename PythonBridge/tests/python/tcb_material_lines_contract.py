@@ -19,7 +19,7 @@ class MaterialCosts(unittest.TestCase):
    MaterialCosts=[dict(Path="0/1",RMRatio=90,SeasoningRatio=10,SeasoningUSDPerLb=1,ProcessingUSDPerLb=".2"),
                   dict(Path="0/2",RMRatio=80,OilPct=20,OilUSDPerLb=2,ProcessingUSDPerLb=".5")])
   result=calculate(inputs,[dict(Path="0/1",Proportion=Decimal(".4")),dict(Path="0/2",Proportion=Decimal(".6"))],{})
-  self.assertEqual(Decimal(result["RMCostUSDPerLb"]),Decimal("3.2"))
+  self.assertEqual(Decimal(result["RMCostUSDPerLb"]),Decimal("2.64"))
   self.assertEqual(Decimal(result["ProductUSDPerLb"]),Decimal("3.30"))
  def test_invalid_duplicate_and_removed_line_rejected(self):
   for rows in ([dict(Path="0/1",RMRatio=90)], [dict(Path="0/1"),dict(Path="0/1")]):

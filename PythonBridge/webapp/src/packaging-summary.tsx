@@ -7,14 +7,14 @@ import {decimalDisplay} from './number-format';
 import {allowedContainerTypes,parseContainerProfiles,containerTypes} from './container-loading';
 import {loadSections} from './packing-way';
 import {containerPlans,savedLoadPlan} from './load-plan-values';
-import {opportunityCurrency,palletCost,containerFee,costDisplay,quantityDisplay,quantity,multiply,divide,scaleCost,objectValue,loadPackagingSummary,type Cost,type ProductSummary,type PackagingSummary as Summary,type SummaryRow,type OpportunityCurrency} from './packaging-summary-model';
+import {opportunityCurrency,palletCost,containerFee,summaryCostDisplay,quantityDisplay,quantity,multiply,divide,scaleCost,objectValue,loadPackagingSummary,type Cost,type ProductSummary,type PackagingSummary as Summary,type SummaryRow,type OpportunityCurrency} from './packaging-summary-model';
 import './packaging-summary.css';
 
 const shown=(value:unknown,places=6)=>decimalDisplay(value,places)??'—';
 const productName=(row:SummaryRow)=>String(row.ProductCode||'Product')+' · '+String(row.ProductName||'');
 function Detail({label,value,help}:{label:string;value:unknown;help?:string}){return <tr><th scope="row"><FieldLabel help={help}>{label}</FieldLabel></th><td>{value==null||value===''?'—':String(value)}</td></tr>}
 function Layers({product,title,exchange,focus=false,allocated,label='Total packaging / smallest unit'}:{product:ProductSummary;title:string;exchange:OpportunityCurrency;focus?:boolean;allocated?:Cost;label?:string}){
- const price=(cost:Cost)=>costDisplay(cost,exchange);
+ const price=(cost:Cost)=>summaryCostDisplay(cost,exchange);
  return <section className={'summary-product'+(focus?' summary-focused':'')} aria-label={title}>
   <h3>{title}</h3>
   {!product.layers.length?<p className="summary-unavailable">No visible packaging response. Cost is incomplete.</p>:<ol className="summary-layer-chain">{product.layers.map((layer,index)=>{
@@ -35,7 +35,7 @@ function Layers({product,title,exchange,focus=false,allocated,label='Total packa
  </section>;
 }
 function Logistics({summary,exchange,commercial}:{summary:Summary;exchange:OpportunityCurrency;commercial:SummaryRow}){
- const price=(cost:Cost)=>costDisplay(cost,exchange);
+ const price=(cost:Cost)=>summaryCostDisplay(cost,exchange);
  const root=summary.root.row,load=loadSections(root.ConfigurationRequest),profiles=parseContainerProfiles(root.ContainerLoadProfiles),results=objectValue(root.ContainerLoadResults);
  const plans=containerPlans(root.ContainerPlansJSON),selected=savedLoadPlan(root.LoadPlanJSON);
  if(selected?.Code&&!plans[selected.Code])plans[selected.Code]=selected;
@@ -78,8 +78,8 @@ function Logistics({summary,exchange,commercial}:{summary:Summary;exchange:Oppor
 }
 export function PackagingSummary({row,rows,opportunity,onClose}:{row:Row;rows:Row[];opportunity:Row;onClose:()=>void}){
  const root=row.ParentItemID?rows.find(item=>Number(item.ItemID)===Number(row.ParentItemID)):row;
- const exchange=opportunityCurrency(opportunity);
- const price=(cost:Cost)=>costDisplay(cost,exchange);
+ const exchange={...opportunityCurrency(opportunity),currency:'USD'};
+ const price=(cost:Cost)=>summaryCostDisplay(cost,exchange);
  const [summary,setSummary]=useState<Summary|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
  useEffect(()=>{let active=true;setLoading(true);setError('');setSummary(null);
   if(!root){setError('The Mix Product parent is unavailable. Refresh Opportunities.');setLoading(false);return}
@@ -90,7 +90,7 @@ export function PackagingSummary({row,rows,opportunity,onClose}:{row:Row;rows:Ro
   <header className="customer-editor-heading"><div><h2>Packaging Summary</h2><p>{productName(root||row)} · {String(root?.PackagingRequestNumber||'No linked PCR')}</p></div><ButtonIcon icon="close" label="Close Packaging Summary" onClick={onClose}/></header>
   <div className="packaging-summary-body">
    {loading?<p role="status">Loading all linked PCR responses…</p>:error?<p role="alert">{error}</p>:summary&&<>
-    <p className="summary-disclaimer">Read-only summary of saved PCR packaging and Opportunity commercial costs. Packaging subtotals exclude pallet cost, Fobbing and Freight; these are shown separately. Prices are shown in {exchange.currency||'the Opportunity customer currency'} using Opportunity exchange rates{exchange.currency&&exchange.currency!=='USD'?' with USD equivalents alongside':''}; monetary values are rounded to 2 decimals for display only.</p>
+    <p className="summary-disclaimer">Read-only summary of saved PCR packaging and Opportunity commercial costs. Packaging subtotals exclude pallet cost, Fobbing and Freight; these are shown separately. Prices are shown in VND / USD when captured VND pricing contributes, otherwise USD only, using Opportunity exchange rates; monetary values are rounded to 2 decimals for display only.</p>
     {summary.issues.length>0&&<div className="summary-warnings" role="status"><strong>Cost summary is incomplete.</strong><ul>{summary.issues.map(issue=><li key={issue}>{issue}</li>)}</ul></div>}
     <section className="summary-tree" aria-label="Packaging response tree">
      {summary.mix&&<><div className="summary-mix-children">{summary.children.map((child,index)=><div className="summary-child-branch" key={String(child.product.row.ProductID??index)}>

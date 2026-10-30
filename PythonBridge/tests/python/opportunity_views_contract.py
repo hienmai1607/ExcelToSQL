@@ -35,6 +35,24 @@ class ViewContracts(unittest.TestCase):
             self.assertEqual(result["total"],10)
             self.assertEqual(result["page"],2)
 
+    def test_creator_filters_the_opportunity_header_before_pagination(self):
+        with patch.object(views,"execute",return_value=[[],[{"Total":0}]]) as sql:
+            views.sorted_grid("Sales",2,5,"[]",created_by="hien';--")
+            query,params=sql.call_args.args
+            self.assertIn("creator.ID=o.CreatedBy",query)
+            self.assertLess(query.index("creator.UserName LIKE ?"),query.index("OFFSET ? ROWS"))
+            self.assertEqual(params.count("hien';--%"),2)
+            self.assertNotIn("hien';--",query)
+        Settings(opportunity={"header":{"columns":["OpportunityNumber"],"filters":["opportunity_number","customer_name","stage","bid_open_from","bid_open_to","created_by"],"values":{"created_by":"Sales"}}})
+
+    def test_excel_opportunity_page_uses_creator(self):
+        import opportunity_excel_api as excel
+        from auth import AccessContext
+        body=excel.View(views={"header":{"columns":["OpportunityNumber"],"values":{"created_by":"Sales"}}})
+        with patch.object(excel,"sorted_grid",return_value={"rows":[],"total":0}) as read,patch.object(excel,"transaction_choices",return_value={}):
+            excel.read_page(body,AccessContext(1,"Admin",frozenset({"Admin"})))
+            self.assertEqual(read.call_args.kwargs["created_by"],"Sales")
+
     def test_empty_page_retains_total(self):
         with patch.object(views,"execute",return_value=[[],[{"Total":9}]]):
             self.assertEqual(views.sorted_grid("Sales",100,25,"[]")["total"],9)

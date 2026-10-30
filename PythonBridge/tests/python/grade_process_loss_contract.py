@@ -22,7 +22,7 @@ class Contracts(unittest.TestCase):
    MaterialCosts=[dict(Path="0/1",ProcessingUSDPerLb=".5")])
   result=calculate(inputs,leaves(tree),{},weight=150)
   self.assertEqual({Decimal(row["LossPct"]) for row in result["ProcessLossSnapshots"]},{Decimal(10)})
-  self.assertEqual(Decimal(result["ProductUSDPerLb"]),Decimal("2.42"))
+  self.assertAlmostEqual(Decimal(result["ProductUSDPerLb"]),Decimal("2.32")+Decimal(".1")/Decimal(".9"),places=24)
   self.assertTrue(all(row["Path"].count("/")==1 for row in result["MaterialCostSnapshots"]))
  def test_conflicting_child_recipes_require_a_level_one_override(self):
   tree=leaves(TREE)
@@ -34,8 +34,8 @@ class Contracts(unittest.TestCase):
    ProcessLosses=[dict(Path="0/1",Ratios=[10],Formula="1-(1-L1)")],
    MaterialCosts=[dict(Path="0/1",RMRatio=80,SeasoningRatio=20,SeasoningUSDPerLb=1,ProcessingUSDPerLb=".1")])
   result=calculate(inputs,leaves(TREE),{},weight=150)
-  self.assertEqual(Decimal(result["RMCostUSDPerLb"]),Decimal("2.32"))
-  self.assertEqual(Decimal(result["ProductUSDPerLb"]),Decimal("2.236"))
+  self.assertEqual(Decimal(result["RMCostUSDPerLb"]),Decimal("2.176"))
+  self.assertAlmostEqual(Decimal(result["ProductUSDPerLb"]),Decimal("2.216")+Decimal(".02")/Decimal(".9"),places=24)
   self.assertEqual(Decimal(result["ProcessLossSnapshots"][0]["LossPct"]),10)
  def test_exact_sequential_loss_and_net_weight_formula(self):
   a=GradeProcessLoss(Path="0/1",Ratios=[5,10])

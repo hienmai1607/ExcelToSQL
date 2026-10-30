@@ -27,8 +27,8 @@ class OpportunityView(BaseModel):
     model_config = ConfigDict(extra="forbid")
     columns: list[str] = Field(min_length=1, max_length=644)
     sort: list[MasterSort] = Field(default_factory=list, max_length=644)
-    filters: list[str] | None = Field(None, max_length=5)
-    values: dict[str, str] = Field(default_factory=dict, max_length=5)
+    filters: list[str] | None = Field(None, max_length=6)
+    values: dict[str, str] = Field(default_factory=dict, max_length=6)
     field_version: int = Field(1, ge=1, le=14)
     prefix_columns: list[str] | None = Field(None, max_length=64)
 
@@ -52,7 +52,7 @@ def validate_view(view, allowed):
     for values in (view.columns, [r.column for r in view.sort]):
         if len(values) != len(set(values)) or any(v not in allowed for v in values):
             raise ValueError("Invalid or duplicate Opportunity view column.")
-    filters = {"opportunity_number", "customer_name", "stage", "bid_open_from", "bid_open_to"} if allowed == HEADER_COLUMNS else set()
+    filters = {"opportunity_number", "customer_name", "stage", "bid_open_from", "bid_open_to", "created_by"} if allowed == HEADER_COLUMNS else set()
     keys = view.filters or []
     if len(keys) != len(set(keys)) or any(k not in filters for k in [*keys, *view.values]):
         raise ValueError("Invalid Opportunity filter.")
@@ -83,7 +83,7 @@ def parse_header_sort(value):
         raise HTTPException(422, "Invalid Opportunity sort columns or directions.")
 
 def sorted_grid(username, page, page_size, sort, opportunity_number=None, customer_name=None,
-                stage=None, bid_open_from=None, bid_open_to=None):
+                stage=None, bid_open_from=None, bid_open_to=None, created_by=None):
     rules = parse_header_sort(sort)
     order = ", ".join(f"[{r.column}] {r.direction.upper()}" for r in rules)
     order = (order + ", " if order else "") + "OpportunityID DESC"
@@ -91,10 +91,11 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         AND (? IS NULL OR c.CustomerName LIKE ?)
         AND (? IS NULL OR o.Stage = ?)
         AND (? IS NULL OR o.BidOpen >= ?)
-        AND (? IS NULL OR o.BidOpen <= ?)"""
+        AND (? IS NULL OR o.BidOpen <= ?)
+        AND (? IS NULL OR EXISTS(SELECT 1 FROM dbo.Users creator WHERE creator.ID=o.CreatedBy AND creator.UserName LIKE ?))"""
     params = [opportunity_number, opportunity_number+"%" if opportunity_number else None,
               customer_name, customer_name+"%" if customer_name else None,
-              stage, stage, bid_open_from, bid_open_from, bid_open_to, bid_open_to]
+              stage, stage, bid_open_from, bid_open_from, bid_open_to, bid_open_to, created_by, created_by+"%" if created_by else None]
     result = execute(f"""
         IF NOT EXISTS (SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID
             WHERE u.UserName=? AND u.IsActive=1 AND a.Scope IN(N'Admin',N'Opportunity'))

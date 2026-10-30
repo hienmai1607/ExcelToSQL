@@ -5,7 +5,7 @@ import {responseOrderFields,globalOrder,packagingStart} from './packaging-orders
 import {capturedDimensions} from './response-dimensions';
 
 export type Fraction={n:bigint;d:bigint};
-export type Cost={amounts:Record<string,Fraction>;complete:boolean;issues:string[]};
+export type Cost={amounts:Record<string,Fraction>;complete:boolean;issues:string[];hasVND?:boolean};
 export type SummaryRow=Record<string,unknown>;
 export type OpportunityCurrency={currency:string;vndPerUSD:unknown;customerPerUSD:unknown};
 export function opportunityCurrency(row:SummaryRow):OpportunityCurrency{return {currency:String(row.CustomerCurrencyCode??'').trim().toUpperCase(),vndPerUSD:row.ExchangeRateVNDPerUSD,customerPerUSD:row.ExchangeRateCustomerCurrencyPerUSD}}
@@ -37,7 +37,7 @@ export const unknownCost=(issue:string):Cost=>({amounts:{},complete:false,issues
 export function sumCosts(...costs:Cost[]):Cost{
  const result=emptyCost();
  for(const cost of costs){
-  result.complete&&=cost.complete;result.issues.push(...cost.issues);
+  result.hasVND||=cost.hasVND;result.complete&&=cost.complete;result.issues.push(...cost.issues);
   for(const [currency,value] of Object.entries(cost.amounts))result.amounts[currency]=add(result.amounts[currency]||zero,value);
  }
  result.issues=[...new Set(result.issues)];return result;
@@ -60,7 +60,7 @@ export function costDisplay(cost:Cost,exchange?:OpportunityCurrency):string{
  const usd=divide(entries[0][1],rate);
  return display+' ('+costDisplay({amounts:{USD:usd},complete:true,issues:[]})+')';
 }
-function layerCost(row:SummaryRow,index:number,exchange?:OpportunityCurrency):Cost{
+function nativeLayerCost(row:SummaryRow,index:number,exchange?:OpportunityCurrency):Cost{
  const field=responseOrderFields[index],amount=quantity(row[field.price],true),currency=String(row[field.currency]??'').trim().toUpperCase();
  if(!row[field.type]||!amount||!currency)return unknownCost(field.order+' packaging type, price or currency is unavailable.');
  if(!exchange)return {amounts:{[currency]:amount},complete:true,issues:[]};
@@ -73,6 +73,17 @@ function layerCost(row:SummaryRow,index:number,exchange?:OpportunityCurrency):Co
  if(!usd||!targetRate)return unknownCost(field.order+' packaging cannot be converted to '+target+': Opportunity exchange rate or saved USD price is unavailable.');
  return {amounts:{[target]:multiply(usd,targetRate)},complete:true,issues:[]};
 }
+function layerCost(row:SummaryRow,index:number,exchange?:OpportunityCurrency):Cost{
+ return {...nativeLayerCost(row,index,exchange),hasVND:String(row[responseOrderFields[index].currency]??'').toUpperCase()==='VND'};
+}
+/** Summary uses USD; show a VND equivalent only where captured VND pricing contributes. */
+export function summaryCostDisplay(cost:Cost,exchange:OpportunityCurrency):string{
+ const usd=costDisplay(cost);
+ if(!cost.complete||!cost.hasVND||!cost.amounts.USD)return usd;
+ const rate=quantity(exchange.vndPerUSD);
+ if(!rate)return usd;
+ return costDisplay({amounts:{VND:multiply(cost.amounts.USD,rate)},complete:true,issues:[]})+' / '+usd;
+}
 export function objectValue(value:unknown):SummaryRow{
  try{const result=typeof value==='string'?JSON.parse(value):value;return result&&typeof result==='object'&&!Array.isArray(result)?result as SummaryRow:{}}catch{return {}}
 }
@@ -82,7 +93,7 @@ function usdCost(usd:Fraction,exchange:OpportunityCurrency,label:string):Cost{
  return target&&rate?{amounts:{[target]:multiply(usd,rate)},complete:true,issues:[]}:unknownCost(label+': Opportunity exchange rate or customer currency is unavailable.');
 }
 /** Captured USD is authoritative; older local-only snapshots use Opportunity FX. */
-export function palletCost(row:SummaryRow,exchange:OpportunityCurrency):Cost{
+function nativePalletCost(row:SummaryRow,exchange:OpportunityCurrency):Cost{
  const snapshot=objectValue(row.PalletPricingJSON),capturedUSD=quantity(snapshot.UnitUSDPrice,true);
  if(capturedUSD)return usdCost(capturedUSD,exchange,'Pallet cost');
  const amount=quantity(snapshot.UnitPrice,true),currency=String(snapshot.CurrencyCode??'').trim().toUpperCase();
@@ -90,6 +101,9 @@ export function palletCost(row:SummaryRow,exchange:OpportunityCurrency):Cost{
  if(currency===exchange.currency)return {amounts:{[currency]:amount},complete:true,issues:[]};
  const vndRate=quantity(exchange.vndPerUSD),usd=currency==='USD'?amount:currency==='VND'&&vndRate?divide(amount,vndRate):null;
  return usd?usdCost(usd,exchange,'Pallet cost'):unknownCost('Pallet cost: Opportunity exchange rate or saved USD price is unavailable.');
+}
+export function palletCost(row:SummaryRow,exchange:OpportunityCurrency):Cost{
+ return {...nativePalletCost(row,exchange),hasVND:String(objectValue(row.PalletPricingJSON).CurrencyCode??'').toUpperCase()==='VND'};
 }
 export function containerFee(row:SummaryRow,field:'FobbingUSDPerContainer'|'FreightUSDPerContainer',exchange:OpportunityCurrency):Cost{
  const shipping={...row,...objectValue(row.ShipmentCostInfo)},amount=quantity(shipping[field],true);

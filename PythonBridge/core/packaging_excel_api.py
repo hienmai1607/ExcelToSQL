@@ -32,7 +32,7 @@ EXTRA={"CostBasis","ResponseNotes","HeightMM","WidthMM","LengthMM"}
 META=["_RequestID","_ItemID","_ItemVersion","_Original"]
 ALL_ITEMS=ITEMS|EXTRA
 LABELS={"ApplicableNetWeightGrams":"Applicable Net weight (g)","RequestNumber":"Request","OpportunityNumber":"Opportunity","CustomerName":"Customer","ResponseDue":"Response due",
-"RequestStatus":"Status","RequestedAt":"Requested at (UTC+7)","RequestedByName":"Requested by","ItemCount":"Items",
+"RequestStatus":"Status","RequestedAt":"Requested at (UTC+7)","RequestedByName":"Requested by","ItemCount":"Items","AssignedToMe":"Assigned to me",
 "ProductCode":"Product code","ItemDescription":"Description","AnnualUnit":"Annual units","PIC":"PIC username",
 "ItemStage":"Stage","FirstPMType":"Primary Type",
 "SecondPMType":"Secondary Type","FirstPMMOQ":"1st PM MOQ","SecondPMMOQ":"2nd PM MOQ","UnitsPerCarton":"Unit / CTN",
@@ -72,7 +72,7 @@ def serialize(row,ctx):
 def read_page(body,ctx):
  require(ctx,"Packaging","PackagingManager","Opportunity")
  view=body.views.header
- summary=header_read(ctx.username,body.page,body.page_size,view.values.get("search",""),view.values.get("status") or None,json.dumps([r.model_dump() for r in view.sort]))
+ summary=header_read(ctx.username,body.page,body.page_size,view.values.get("search",""),view.values.get("status") or None,json.dumps([r.model_dump() for r in view.sort]),view.values.get("created_by") or None,view.values.get("assigned_to") or None)
  if not summary["rows"]:return {**summary,"rows":[]}
  ids=[r["RequestID"] for r in summary["rows"]]
  # One item read for all selected headers, no N+1 queries and no split documents.

@@ -101,14 +101,14 @@ class StandaloneReview(ReviewCase):
  def oracle(self):
   self.step('Independently reconcile raw yield, recipe, four PM losses, pallet and FOB')
   blend=D('.6')*D('3.6')/(D('.995')*D('.988')*D('.997'))+D('.4')*D('3.2')/(D('.9925')*D('.988')*D('.997'))
-  almond=D('2.8')/(D('.992')*D('.997'));product=(blend*D('.95')+D('.116'))*D('.7')+(almond*D('.97')+D('.0845'))*D('.3')
+  almond=D('2.8')/(D('.992')*D('.997'));product=(blend*D('.95')+D('.016')+D('.1')*blend/D('3.44'))*D('.7')+(almond*D('.97')+D('.0045')+D('.08')*almond/D('2.8'))*D('.3')
   self.close(self.saved['ProductUSDPerLb'],product,'Independent product USD/lb')
   row=next(r for r in sorted_grid(self.ctx.username,1,100,'[]',opportunity_number=self.number)['rows'] if r['ItemID']==self.item)
   pm=sum((self.config[order]['usd']/(1-D(i+1)/100)/D(units) for i,(order,units) in enumerate(zip(self.config,[1,4,8,16]))),D(0))
   self.close(row['TCBSelfPackagingPerUnit'],pm,'All four packaging yields applied once');self.close(row['TCBParentPackagingPerUnit'],0,'No Mix parent cost')
   self.close(row['TCBProductPerUnit'],product*400/D('453.59237'),'Product cost per smallest 400g unit')
   self.close(row['GrossWeightPerPalletKG'],'165.4','Published pallet gross');self.close(row['UnitsPerPallet'],320,'320 smallest units per pallet')
-  self.close(row['TCBPalletPerUnit'],(D(300000)/self.fx)/320+D(20)*400/1000000,'FX pallet plus floor fee')
+  self.close(row['TCBPalletPerUnit'],D(20)*400/1000000,'Both uses floor fee only')
   n=D(row['ContainerLoadResults']['40HC']['CalculatedCartonsPerContainer'])*16;lbs=D(400)/D('453.59237')
   base=product*lbs+pm+(D(300000)/self.fx)/320+D('.008')+D('.25')*lbs+D(1800)/19200+D(600)/19200+D(650)/n
   fob=base*(1+D('.08')*60/360)*D('1.12');self.close(row['TCBFOBPerUnit'],fob,'Independent FOB with design, fixed costs, fobbing, interest, margin')

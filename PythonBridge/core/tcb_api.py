@@ -94,7 +94,8 @@ def read(item_id: int = Path(ge=1),ctx: AccessContext=Depends(get_access_context
             grades = grade_leaves(item)
         except HTTPException as exc:
             error = exc.detail
-    saved=json.loads(item["TCBCostInfo"] or "{}")
+    from tcb_snapshot_costs import processing_snapshot_costs
+    saved=processing_snapshot_costs(json.loads(item["TCBCostInfo"] or "{}"))
     saved.setdefault("Inputs",{})["PalletUSDPerEA"]=str(palletization_usd(item)) if palletization_usd(item) is not None else None
     return {"lossDefaults":active_loss_defaults(ctx),"lossMasters":active_loss_masters(ctx),"item":item,"saved":saved,
             "grades":json.loads(json.dumps(grades,default=serial)),
@@ -327,7 +328,9 @@ def commercial_value(body,item,ctx,cursor):
     old=value.get("Inputs",{})
     new={**old}
     if body.CostInputs is not None:
-        fields=["PalletUSDPerEA"] if item["IsMixParent"] else ["ProcessLosses","ProcessLossMode","ProcessLossLayout","ProcessLossFormulas","MaterialCosts","RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb","OilPct","ProcessingUSDPerLb","PalletUSDPerEA"]
+        if item.get("ParentItemID") and body.CostInputs.PackingUSDPerLb is not None:
+            raise ValueError("Packing cost is maintained on the Mix parent, not its children.")
+        fields=["PalletUSDPerEA","PackingUSDPerLb"] if item["IsMixParent"] else ["PackingUSDPerLb","ProcessLosses","ProcessLossMode","ProcessLossLayout","ProcessLossFormulas","MaterialCosts","RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb","OilPct","ProcessingUSDPerLb","PalletUSDPerEA"]
         new.update({field:body.CostInputs.model_dump(mode="json")[field] for field in fields})
     if body.Inputs is not None:
         new.update(ProductLossFormula=body.Inputs.ProductLossFormula,

@@ -45,7 +45,7 @@ export function ShipmentSections({values,requirements,customer,currency='',excha
   {select('Incoterm','Incoterm',options(incoterms),values.Incoterm||'')}
   {select('PortOfEntryID','Port of Entry',available.map(p=>({id:String(p.ID),label:String(p.PortName)})),values.PortOfEntryID||'','Filtered by this Customer and its Market. Use the master button to add or modify Ports of Entry.')}
  </div></section>}
- {costSections.filter(section=>(scope!=='child-others'||section.title==='Others')&&(view==='all'||(view==='financials'?section.title==='Others':section.title!=='Others'))).map(section=><section key={section.title} aria-label={section.title}><h4>{section.title}</h4><div className="shipment-entry-grid">{section.fields.filter(field=>field.key!=='MarginUSDPerLb'&&(scope==='all'||(scope==='child-others'?childOtherKeys.has(field.key):!childOtherKeys.has(field.key)))).map(field=>field.key==='MarginPct'?<Fragment key={field.key}>{margin()}</Fragment>:cost(field))}</div></section>)}
+ {costSections.filter(section=>(scope!=='child-others'||section.title==='Others')&&(view==='all'||(view==='financials'?section.title==='Others':section.title!=='Others'))).map(section=><section key={section.title} aria-label={section.title}><h4>{section.title}</h4><div className="shipment-entry-grid">{section.fields.filter(field=>field.key!=='PackingUSDPerLb'&&field.key!=='MarginUSDPerLb'&&(scope==='all'||(scope==='child-others'?childOtherKeys.has(field.key):!childOtherKeys.has(field.key)))).map(field=>field.key==='MarginPct'?<Fragment key={field.key}>{margin()}</Fragment>:cost(field))}</div></section>)}
 
  </div>;
 }

@@ -75,7 +75,7 @@ test('captured VND pallet cost uses Opportunity USD exchange rate without requir
  const {open,writes}=await setup(page,{...normal,CartonsPerLayer:null,LayersPerPallet:null,PalletPricingJSON:JSON.stringify({ID:77,UnitPrice:'400000',CurrencyCode:'VND',UnitUSDPrice:null})});
  const dialog=await open();
  const pallet=dialog.getByRole('table',{name:'Palletization details',exact:true});
- await expect(pallet.getByRole('row').filter({hasText:/^Pallet cost/})).toContainText('400,000.00 VND (16.00 USD)');
+ await expect(pallet.getByRole('row').filter({hasText:/^Pallet cost/})).toContainText('400,000.00 VND / 16.00 USD');
  expect(writes).toEqual([]);
 });
 test('each container shows separate Fobbing and Freight fees with USD equivalents even before loading is configured',async({page},info)=>{
@@ -83,8 +83,8 @@ test('each container shows separate Fobbing and Freight fees with USD equivalent
   {CustomerCurrencyCode:'EUR',ExchangeRateCustomerCurrencyPerUSD:'.8',ShipmentCostInfo:JSON.stringify({FobbingUSDPerContainer:'35',FreightUSDPerContainer:'1200'})});
  const dialog=await open(),container=dialog.getByRole('article',{name:'Container Load 40DC',exact:true});
  await expect(container).toContainText('Not configured');
- await expect(container.getByRole('row').filter({hasText:/^Fobbing fee \/ Container/})).toContainText('28.00 EUR (35.00 USD)');
- await expect(container.getByRole('row').filter({hasText:/^Freight \/ Container/})).toContainText('960.00 EUR (1,200.00 USD)');
+ await expect(container.getByRole('row').filter({hasText:/^Fobbing fee \/ Container/})).toContainText('35.00 USD');
+ await expect(container.getByRole('row').filter({hasText:/^Freight \/ Container/})).toContainText('1,200.00 USD');
  await container.scrollIntoViewIfNeeded();
  expect(await container.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
  await container.screenshot({path:info.outputPath('container-commercial-costs.png')});
@@ -158,10 +158,10 @@ test('all tree and logistics currency fields use Opportunity master FX and two d
  const {open,writes}=await setup(page,{...normal,PrimaryPricePerUnit:'25000.125',PrimaryPriceUSDPerUnit:'99',SecondaryPricePerUnit:'2',SecondaryPriceCurrencyCode:'USD',TertiaryPricePerUnit:'100'},[],false,{CustomerCurrencyCode:'EUR',ExchangeRateVNDPerUSD:'25000',ExchangeRateCustomerCurrencyPerUSD:'.8'});
  const dialog=await open();
  const primary=dialog.getByRole('table',{name:'Primary packaging details',exact:true});
- await expect(primary.getByRole('row').filter({hasText:/^Packaging cost \/ unit/})).toContainText('0.80 EUR');
+ await expect(primary.getByRole('row').filter({hasText:/^Packaging cost \/ unit/})).toContainText('25,000.13 VND / 1.00 USD');
  const unit=dialog.getByRole('region',{name:'Smallest unit packaging costs',exact:true});
- await expect(unit).toContainText('0.93 EUR');
- await expect(dialog.getByRole('article',{name:'Container Load 20DC',exact:true})).toContainText('5,600.34 EUR');
+ await expect(unit).toContainText('1.17 USD');
+ await expect(dialog.getByRole('article',{name:'Container Load 20DC',exact:true})).toContainText('175,010,750.00 VND / 7,000.43 USD');
  await expect(dialog).not.toContainText('99.00 EUR');
  expect(writes).toEqual([]);
 });
@@ -183,15 +183,16 @@ test('child summary uses the parent Opportunity currency for the entire mix',asy
  expect(writes).toEqual([]);
 });
 
-test('non-USD prices include USD next to all layer, allocated, pallet and container costs',async({page})=>{
+test('captured VND prices show VND / USD for layer, allocated, pallet and container costs',async({page})=>{
  const {open,writes}=await setup(page,mix,children,false,{CustomerCurrencyCode:'AUD',ExchangeRateVNDPerUSD:'100',ExchangeRateCustomerCurrencyPerUSD:'1.5'});
  const dialog=await open();
- await expect(dialog.locator('.summary-mix-children .summary-node').first()).toContainText('0.15 AUD (0.10 USD)');
+ await expect(dialog.locator('.summary-mix-children .summary-node').first()).toContainText('10.00 VND / 0.10 USD');
  const costs=dialog.getByRole('region',{name:'Smallest unit packaging costs',exact:true});
- await expect(costs.getByRole('row').nth(1)).toContainText('0.59 AUD (0.39 USD)');
- await expect(costs).toContainText('1.38 AUD (0.92 USD)');
- await expect(dialog.getByRole('table',{name:'Palletization details',exact:true})).toContainText('496.80 AUD (331.20 USD)');
- await expect(dialog.getByRole('article',{name:'Container Load 20DC',exact:true})).toContainText('828.00 AUD (552.00 USD)');
+ await expect(costs.getByRole('row').nth(1)).toContainText('39.00 VND / 0.39 USD');
+ await expect(costs).toContainText('92.00 VND / 0.92 USD');
+ await dialog.screenshot({path:'../artifacts/layout-testing/packaging-summary-vnd-usd.png'});
+ await expect(dialog.getByRole('table',{name:'Palletization details',exact:true})).toContainText('33,120.00 VND / 331.20 USD');
+ await expect(dialog.getByRole('article',{name:'Container Load 20DC',exact:true})).toContainText('55,200.00 VND / 552.00 USD');
  expect(writes).toEqual([]);
 });
 test('USD customer prices appear once without a duplicate USD equivalent',async({page})=>{
@@ -217,4 +218,13 @@ test('saved container plan is configured even without legacy profiles',async({pa
  await expect(container.getByText('Not configured',{exact:true})).toHaveCount(0);
  await expect(container.getByRole('row').filter({hasText:'Pallet / Container'})).toContainText('40');
  await expect(container).toContainText('4,000');
+});
+
+test('USD sourced pricing stays USD only even for an AUD customer',async({page})=>{
+ const root={...normal,ResponseLayerCount:1,PrimaryPricePerUnit:'2',PrimaryPriceCurrencyCode:'USD'};
+ const {open}=await setup(page,root,[],false,{CustomerCurrencyCode:'AUD',ExchangeRateCustomerCurrencyPerUSD:'1.5'});
+ const dialog=await open();
+ const primary=dialog.getByRole('table',{name:'Primary packaging details',exact:true});
+ await expect(primary).toContainText('2.00 USD');
+ await expect(primary).not.toContainText('VND');await expect(primary).not.toContainText('AUD');
 });

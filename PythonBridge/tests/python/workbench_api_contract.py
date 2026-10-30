@@ -19,10 +19,10 @@ class Contract(unittest.TestCase):
             self.assertEqual(api.pics(AccessContext(1,"Manager",frozenset({"PackagingManager"})))["rows"][0]["ID"],2)
             self.assertIn("fn_PackagingPICMember(u.ID)=1",sql.call_args.args[0])
     def test_summary_parameterized_paging(self):
-        with patch.object(api,"execute",return_value=[[],[{"Total":17}]]) as sql:
+        with patch.object(packaging_api,"execute",return_value=[[],[{"Total":17}]]) as sql:
             result=api.requests(3,10,"Acme","Open",AccessContext(1,"Admin",frozenset({"Admin"})))
             self.assertEqual(result["total"],17)
-            self.assertEqual(sql.call_args.args[1],["Admin","Acme%","Acme%","Acme%","Open","Open",20,10,"Open","Open"])
+            self.assertEqual(sql.call_args.args[1],["Admin",*(["Acme%"]*3+[None,None,None,None,"Open","Open"]),20,10,*(["Acme%"]*3+[None,None,None,None,"Open","Open"])])
     def test_summary_denies_unrelated_scope(self):
         with patch.object(api,"execute") as sql:
             with self.assertRaises(HTTPException):

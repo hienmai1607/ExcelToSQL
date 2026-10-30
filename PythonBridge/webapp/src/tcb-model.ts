@@ -18,7 +18,7 @@ export const productFields=[
  ['SeasoningRatio','Seasoning/salt Ratio (%)'],['OilUSDPerLb','Oil ($/lbs)'],
  ['OilPct','Oil %'],['ProcessingUSDPerLb','Processing ($/lbs)']
 ] as const;
-export const defaultInputs=():TCBInputs=>({Prices:[],RMRatio:'100',SeasoningUSDPerLb:null,SeasoningRatio:'0',OilUSDPerLb:null,OilPct:'0',ProcessingUSDPerLb:'0',LossProductPct:'0',PrimaryLossPct:'0',SecondaryLossPct:'0',TertiaryLossPct:'0',QuaternaryLossPct:'0',MixPrimaryLossPct:'0',MixSecondaryLossPct:'0',MixTertiaryLossPct:'0',PalletUSDPerEA:null});
+export const defaultInputs=():TCBInputs=>({Prices:[],RMRatio:'100',SeasoningUSDPerLb:null,SeasoningRatio:'0',OilUSDPerLb:null,OilPct:'0',ProcessingUSDPerLb:'0',LossProductPct:'0',PrimaryLossPct:'0',SecondaryLossPct:'0',TertiaryLossPct:'0',QuaternaryLossPct:'0',MixPrimaryLossPct:'0',MixSecondaryLossPct:'0',MixTertiaryLossPct:'0',PackingUSDPerLb:null,PalletUSDPerEA:null});
 const zero=()=>quantity('0',true)!;
 const hundred=quantity('100')!;
 export function materialRecipe(inputs:TCBInputs,path:string):Record<string,unknown>{
@@ -37,17 +37,19 @@ export function changeRecipe(values:Record<string,unknown>,field:string,value:un
  return {...next,RMRatio:remaining.n>=0n?quantityDisplay(remaining,6):null};
 }
 export const recipePath=(path:string)=>path.split('/').slice(0,2).join('/');
-export function recipeCost(inputs:Record<string,unknown>,rm:Fraction|null){
+export function recipeCost(inputs:Record<string,unknown>,rm:Fraction|null,lossPct:Fraction|null=zero()){
  const ratios=['RMRatio','SeasoningRatio','OilPct'].map(k=>quantity(inputs[k],true));
  const total=ratios.reduce<Fraction>((a,b)=>add(a,b??zero()),zero());
  const balanced=ratios.every(Boolean)&&total.n===hundred.n&&total.d===hundred.d;
- let product=balanced?quantity(inputs.ProcessingUSDPerLb,true):null;
+ const processing=quantity(inputs.ProcessingUSDPerLb,true);
+ const processingWithLoss=processing?.n===0n?processing:processing&&lossPct&&lossPct.n<100n*lossPct.d?divide(processing,{n:100n*lossPct.d-lossPct.n,d:100n*lossPct.d}):null;
+ let product=balanced?processingWithLoss:null;
  const values=[rm,quantity(inputs.SeasoningUSDPerLb,true),quantity(inputs.OilUSDPerLb,true)];
  for(let i=0;i<3;i++){
   const ratio=ratios[i];if(ratio?.n===0n)continue;
   product=product&&ratio&&values[i]?add(product,divide(multiply(values[i]!,ratio),hundred)):null;
  }
- return {product,balanced};
+ return {product,balanced,processingWithLoss};
 }
 export function matchesRawQuote(price:Row,selected:TCBSelection|undefined){
  if(selected?.PriceID==null||price.PriceID!==selected.PriceID||typeof price.PriceVersion!=='string'||!selected.PriceVersion||price.PriceVersion.toLowerCase()!==selected.PriceVersion.toLowerCase())return false;
@@ -60,7 +62,7 @@ export function rawPrice(inputs:TCBInputs,leaf:TCBGrade,prices:Row[]){
  const price=prices.find(p=>matchesRawQuote(p,selected)&&p.RawGradeID===leaf.RawGradeID&&(!leaf.RawMaterialID||p.MaterialID===leaf.RawMaterialID));
  return selected&&!selected.PriceID&&'DirectUSDPerLb' in selected?quantity(selected.DirectUSDPerLb,true):quantity(price?.USDPerLb,true);
 }
-export type CostGroup={Path:string;Grade:string;process:boolean;leaves:TCBGrade[];proportion:Fraction;rm:Fraction|null;product:Fraction|null;balanced:boolean};
+export type CostGroup={Path:string;Grade:string;process:boolean;leaves:TCBGrade[];proportion:Fraction;rmWithoutLoss:Fraction|null;rm:Fraction|null;product:Fraction|null;balanced:boolean};
 const leafProcessPaths=(leaf:TCBGrade):string[]=>typeof leaf.ProcessPaths==='string'?JSON.parse(leaf.ProcessPaths):Array.isArray(leaf.ProcessPaths)?leaf.ProcessPaths.map(String):leaf.ProcessPath===undefined?[leaf.Path]:leaf.ProcessPath?[String(leaf.ProcessPath)]:[];
 function activeLossInputs(inputs:TCBInputs,grades:TCBGrade[]){
  if(inputs.ProcessLossLayout!=='Aligned')return inputs;
@@ -91,28 +93,35 @@ export function costGroups(inputs:TCBInputs,grades:TCBGrade[],prices:Row[]):Cost
  for(const leaf of [...grades].sort(compareGradePaths)){
   const key=recipePath(leaf.Path),owner=key;
   let group=groups.get(key);
-  if(!group){group={Path:key,Grade:String(leaf.ProcessGrade??leaf.Grade),process:!!owner,leaves:[],proportion:zero(),rm:zero(),product:null,balanced:true};groups.set(key,group)}
+  if(!group){group={Path:key,Grade:String(leaf.ProcessGrade??leaf.Grade),process:!!owner,leaves:[],proportion:zero(),rmWithoutLoss:zero(),rm:zero(),product:null,balanced:true};groups.set(key,group)}
   group.leaves.push(leaf);
   const share=quantity(leaf.Proportion)??zero(),price=yieldAdjustedPrice(inputs,leaf,prices);
   group.proportion=add(group.proportion,share);
+  const before=rawPrice(inputs,leaf,prices);group.rmWithoutLoss=group.rmWithoutLoss&&before?add(group.rmWithoutLoss,multiply(before,share)):null;
   group.rm=group.rm&&price?add(group.rm,multiply(price,share)):null;
  }
  return [...groups.values()].map(group=>{
   const rm=group.rm&&group.proportion.n>0n?divide(group.rm,group.proportion):null;
-  const line=group.process?recipeCost(materialRecipe(inputs,group.Path),rm):{product:rm,balanced:true};
+  const raw=group.rmWithoutLoss&&group.proportion.n>0n?divide(group.rmWithoutLoss,group.proportion):null;
+  const common=effectiveGradeLoss(inputs,group.leaves[0]);
+  const implied=raw&&rm&&rm.n>0n?{n:100n*(rm.n*raw.d-raw.n*rm.d),d:rm.n*raw.d}:null;
+  const lossPct=implied??(common&&group.leaves.every(leaf=>{const loss=effectiveGradeLoss(inputs,leaf);return loss&&loss.n*common.d===common.n*loss.d})?common:null);
+  const line=group.process?recipeCost(materialRecipe(inputs,group.Path),rm,lossPct):{product:rm,balanced:true};
   return {...group,rm,...line};
  }).sort(compareGradePaths);
 }
 export function costs(inputs:TCBInputs,grades:TCBGrade[],prices:Row[]){
  const groups=costGroups(inputs,grades,prices);
  let rm:Fraction|null=groups.length?zero():null,product:Fraction|null=groups.length?zero():null;
- let rmWithoutLoss:Fraction|null=grades.length?zero():null;
- for(const leaf of grades){
-  const raw=rawPrice(inputs,leaf,prices),share=quantity(leaf.Proportion);
-  rmWithoutLoss=rmWithoutLoss&&raw&&share?add(rmWithoutLoss,multiply(raw,share)):null;
- }
+ let rmWithoutLoss:Fraction|null=groups.length?zero():null;
  for(const group of groups){
-  rm=rm&&group.rm?add(rm,multiply(group.rm,group.proportion)):null;
+  const ratio=quantity(materialRecipe(inputs,group.Path).RMRatio,true);
+  if(!ratio){rm=null;rmWithoutLoss=null}
+  else if(ratio.n!==0n){
+   const factor=divide(ratio,hundred);
+   rm=rm&&group.rm?add(rm,multiply(multiply(group.rm,group.proportion),factor)):null;
+   rmWithoutLoss=rmWithoutLoss&&group.rmWithoutLoss?add(rmWithoutLoss,multiply(group.rmWithoutLoss,factor)):null;
+  }
   product=product&&group.product?add(product,multiply(group.product,group.proportion)):null;
  }
  return {rmWithoutLoss,rm,product,balanced:groups.every(g=>g.balanced)};
@@ -129,9 +138,9 @@ export function packagingUSD(row:Row,index:number,opportunity:Row){
  return quantity(snapshot.UnitUSDPrice??row[field.order+'PriceUSDPerUnit'],true);
 }
 
-export const manualCostInputs=(inputs:TCBInputs)=>({...Object.fromEntries(productFields.map(([key])=>key).map(key=>[key,inputs[key]])),MaterialCosts:inputs.MaterialCosts??[],...(Array.isArray(inputs.ProcessLosses)?{ProcessLosses:inputs.ProcessLosses,...(inputs.ProcessLossMode==='GradePath'?{ProcessLossMode:inputs.ProcessLossMode,...(inputs.ProcessLossLayout==='Aligned'?{ProcessLossLayout:inputs.ProcessLossLayout}:{}),ProcessLossFormulas:inputs.ProcessLossFormulas??{}}:{})}:{})});
+export const manualCostInputs=(inputs:TCBInputs)=>({PackingUSDPerLb:inputs.PackingUSDPerLb===''?'0':inputs.PackingUSDPerLb??null,...Object.fromEntries(productFields.map(([key])=>key).map(key=>[key,inputs[key]])),MaterialCosts:inputs.MaterialCosts??[],...(Array.isArray(inputs.ProcessLosses)?{ProcessLosses:inputs.ProcessLosses,...(inputs.ProcessLossMode==='GradePath'?{ProcessLossMode:inputs.ProcessLossMode,...(inputs.ProcessLossLayout==='Aligned'?{ProcessLossLayout:inputs.ProcessLossLayout}:{}),ProcessLossFormulas:inputs.ProcessLossFormulas??{}}:{})}:{})});
 
-export type RecipeRow={Path:string;Grade:string;RatioPct:string;depth:number;process:boolean;lossPct:Fraction|null;rmWithoutLoss:Fraction|null;rm:Fraction|null;product:Fraction|null;balanced:boolean};
+export type RecipeRow={Path:string;Grade:string;RatioPct:string;depth:number;process:boolean;lossPct:Fraction|null;rmWithoutLoss:Fraction|null;rm:Fraction|null;product:Fraction|null;processingWithLoss:Fraction|null;balanced:boolean};
 export function recipeRows(inputs:TCBInputs,items:GradeItem[],grades:TCBGrade[],prices:Row[]):RecipeRow[]{
  inputs=activeLossInputs(inputs,grades);
  const result:RecipeRow[]=[];
@@ -141,13 +150,13 @@ export function recipeRows(inputs:TCBInputs,items:GradeItem[],grades:TCBGrade[],
   let rmWithoutLoss:Fraction|null=zero(),rm:Fraction|null=zero(),product:Fraction|null=zero();
   if(rows.length){for(const row of rows){const ratio=quantity(row.RatioPct);rmWithoutLoss=rmWithoutLoss&&row.rmWithoutLoss&&ratio?add(rmWithoutLoss,divide(multiply(row.rmWithoutLoss,ratio),hundred)):null;rm=rm&&row.rm&&ratio?add(rm,divide(multiply(row.rm,ratio),hundred)):null;product=product&&row.product&&ratio?add(product,divide(multiply(row.product,ratio),hundred)):null}}
   else{const leaf=grades.find(g=>g.Path===path);rmWithoutLoss=leaf?rawPrice(inputs,leaf,prices):null;rm=leaf?yieldAdjustedPrice(inputs,leaf,prices):null;product=rm}
-  const line=process?recipeCost(materialRecipe(inputs,path),rm):{product,balanced:true};
   const leaf=grades.find(g=>g.Path===path);
   const common=rows[0]?.lossPct;
   // A blend's effective loss must reconcile with its weighted RM prices, not an
   // arithmetic average of child percentages. Leaves retain their formula result.
   const implied=rows.length&&rmWithoutLoss&&rm&&rm.n>0n?{n:100n*(rm.n*rmWithoutLoss.d-rmWithoutLoss.n*rm.d),d:rm.n*rmWithoutLoss.d}:null;
   const lossPct=rows.length?(implied??(common&&rows.every(r=>r.lossPct&&r.lossPct.n*common.d===common.n*r.lossPct.d)?common:null)):leaf?effectiveGradeLoss(inputs,leaf):null;
+  const line=process?recipeCost(materialRecipe(inputs,path),rm,lossPct):{product,balanced:true,processingWithLoss:null};
   const row={Path:path,Grade:item.Grade,RatioPct:String(item.RatioPct),depth:path.split('/').length-2,process,lossPct,rmWithoutLoss,rm,...line};result.push(row);return row;
  }
  items.filter(g=>g.ParentID==='0').forEach(g=>visit(g));

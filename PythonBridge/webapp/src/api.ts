@@ -34,7 +34,7 @@ export const api={
  saveCustomer:(row:Row)=>call<{results:Row[]}>('/api/customer/batch',{rows:[row]}),
  session:()=>call<Session>('/api/workbench/session'),
  opportunities:(page:number,size:number,filters:Record<string,string>)=>call<Page>('/api/opportunity/grid?'+query({page,page_size:size,...filters})),
- requests:(page:number,size:number,search:string,status:string,sort?:string)=>call<Page>('/api/workbench/requests?'+query({page,page_size:size,search,status,sort})),
+ requests:(page:number,size:number,search:string,status:string,sort?:string,created_by?:string,assigned_to?:string)=>call<Page>('/api/workbench/requests?'+query({page,page_size:size,search,status,sort,created_by,assigned_to})),
  // Explicit empty sorting selects the snapshot-aware read for editor callers too.
  requestItems:(id:number,page:number,size=200,sort='[]')=>call<Page>('/api/packaging/requests?'+query({request_id:id,page,page_size:size,sort})),
  pics:()=>call<{rows:Row[]}>('/api/workbench/pics'),

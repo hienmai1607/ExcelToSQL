@@ -36,7 +36,7 @@ export function ProcessLossEditor({d,busy,review,update,onTest}:Pick<CommercialP
  const effective={...gradePathDraft(d).costingInputs,ProcessLossWeight:d.row.WeightGrams};
  return <section className="tcb-process-loss" data-tcb-field="Losses" aria-label={'Process Loss item '+id}>
   <h3 className="product-loss-heading">Process Loss <LossFormulaVariables weight={d.row.WeightGrams} losses={count}/></h3>
-  <small>Each grade formula includes its own processes, shared parent processes and Packing. Loss adjusts RM once, before the recipe.</small>
+  <small>Each grade formula includes its own processes, shared parent processes and Packing. Loss adjusts RM and Processing before the Line product.</small>
   {d.grades.length>0&&<>
    <div className="process-loss-toolbar">
     {sources.filter(source=>!rows.some(r=>r.Path===source.Path)).map(source=><span className="process-loss-source" data-loss-group={source.Path} data-loss-tone={tone(source.Path)} key={source.Path}>{label(source.Path)}{addButton(source.Path)}</span>)}

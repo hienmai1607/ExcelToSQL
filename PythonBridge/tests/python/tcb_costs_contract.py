@@ -31,7 +31,7 @@ class Math(unittest.TestCase):
   self.assertEqual({g["Path"]:g["Proportion"] for g in grades},
                    {"0/2":Decimal(".4"),"0/1/1":Decimal(".15"),"0/1/2":Decimal(".45")})
   result=calculate(Inputs(Prices=SELECTIONS,RMRatio="90",SeasoningRatio="5",SeasoningUSDPerLb="1",OilPct="5",OilUSDPerLb="2",ProcessingUSDPerLb=".2"),grades,PRICES)
-  self.assertEqual(Decimal(result["RMCostUSDPerLb"]),Decimal("3.3"))
+  self.assertEqual(Decimal(result["RMCostUSDPerLb"]),Decimal("2.97"))
   self.assertEqual(Decimal(result["ProductUSDPerLb"]),Decimal("3.32"))
   self.assertEqual(len(result["PriceSnapshots"]),3)
  def test_mixed_master_and_direct_prices_compound_by_leaf_ratio(self):

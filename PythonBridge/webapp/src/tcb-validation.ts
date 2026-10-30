@@ -7,6 +7,7 @@ import {lossCodeIdentity} from './loss-processes';
 export type TCBIssue={field:string;message:string};
 export function tcbInputIssues(d:Draft):TCBIssue[]{
  const issues:TCBIssue[]=[];
+ if(!d.row.ParentItemID&&d.costingInputs.PackingUSDPerLb!=null&&d.costingInputs.PackingUSDPerLb!==''&&!/^(?:\d{1,13}(?:\.\d{1,6})?|\.\d{1,6})$/.test(String(d.costingInputs.PackingUSDPerLb)))issues.push({field:'PackingUSDPerLb',message:'Enter a non-negative Packing cost in USD/lbs, with up to 6 decimals.'});
  if(Array.isArray(d.costingInputs.ProcessLosses)){
   const codes=d.steps.filter(step=>step.ProcessType==='Processing'||step.ProcessType==='Sorting');
   if(new Set(codes.map(lossCodeIdentity)).size!==codes.length)issues.push({field:'Losses',message:'Select each Process Loss type only once. Remove or change duplicate loss codes.'});

@@ -99,6 +99,7 @@ class Inputs(BaseModel):
     MixPrimaryLossPct: DerivedPct = Decimal(0)
     MixSecondaryLossPct: DerivedPct = Decimal(0)
     MixTertiaryLossPct: DerivedPct = Decimal(0)
+    PackingUSDPerLb: Money | None = None
     PalletUSDPerEA: Money | None = None
 
     @model_validator(mode="after")
@@ -246,20 +247,24 @@ def calculate(inputs, grade_leaves, prices,allow_unpriced=False,weight=None):
         raise ValueError("Material costing refers to a removed, non-leaf or non-Process grade. Refresh grades.")
     rm = Decimal(0)
     product = Decimal(0)
+    rm_without_loss = Decimal(0)
     captures = []
     recipe_captures = []
     groups={}
     def include(leaf,cost):
-        nonlocal rm
+        original=cost
+        factor=Decimal(1)
         chain=leaf_process_paths(leaf)
         for path in ([loss_target(leaf)] if inputs.ProcessLossMode=="GradePath" else [*chain,"0"]):
-            cost=cost/(1-losses.get(path,Decimal(0))/100)
+            factor=factor/(1-losses.get(path,Decimal(0))/100)
+        cost=cost*factor
         key=recipe_path(leaf["Path"])
-        group=groups.setdefault(key,{"Process":True,"WeightedRM":Decimal(0),"Proportion":Decimal(0)})
+        group=groups.setdefault(key,{"Process":True,"WeightedRM":Decimal(0),"WeightedRMWithoutLoss":Decimal(0),"YieldFactors":set(),"Proportion":Decimal(0)})
         weighted=leaf["Proportion"]*cost
         group["WeightedRM"]+=weighted
+        group["WeightedRMWithoutLoss"]+=leaf["Proportion"]*original
+        group["YieldFactors"].add(factor)
         group["Proportion"]+=leaf["Proportion"]
-        rm+=weighted
 
     for leaf in grade_leaves:
         selection = selected.get(leaf["Path"])
@@ -295,13 +300,22 @@ def calculate(inputs, grade_leaves, prices,allow_unpriced=False,weight=None):
         blended=group["WeightedRM"]/share
         if group["Process"]:
             recipe=recipes.get(path,inputs)
+            rm+=group["WeightedRM"]*recipe.RMRatio/100
+            rm_without_loss+=group["WeightedRMWithoutLoss"]*recipe.RMRatio/100
+            raw=group["WeightedRMWithoutLoss"]/share
+            processing_factor=blended/raw if raw>0 else next(iter(group["YieldFactors"])) if len(group["YieldFactors"])==1 else None
+            if recipe.ProcessingUSDPerLb and processing_factor is None:
+                raise ValueError("Processing with Loss requires a calculable Process Loss for "+path+".")
+            processing=recipe.ProcessingUSDPerLb*(processing_factor or Decimal(1))
             line=(blended*recipe.RMRatio+(recipe.SeasoningUSDPerLb or 0)*recipe.SeasoningRatio
-                  +(recipe.OilUSDPerLb or 0)*recipe.OilPct)/100+recipe.ProcessingUSDPerLb
-            recipe_captures.append({"Path":path,"RMUSDPerLb":str(blended),"Proportion":str(share),"ProductUSDPerLb":str(line),
+                  +(recipe.OilUSDPerLb or 0)*recipe.OilPct)/100+processing
+            recipe_captures.append({"Path":path,"RMUSDPerLb":str(blended),"RMWithoutLossUSDPerLb":str(raw),"ProcessingWithLossUSDPerLb":str(processing),"Proportion":str(share),"ProductUSDPerLb":str(line),
                                    "Inputs":{k:str(getattr(recipe,k)) if getattr(recipe,k) is not None else None for k in Recipe.model_fields}})
         else:
             line=blended
+            rm+=group["WeightedRM"]
+            rm_without_loss+=group["WeightedRMWithoutLoss"]
         product+=share*line
-    return {"RMCostUSDPerLb": str(rm) if len(captures) == len(grade_leaves) else None,
+    return {"RMRecipeRatioApplied":True,"RMWithoutLossUSDPerLb":str(rm_without_loss) if len(captures)==len(grade_leaves) else None,"RMCostUSDPerLb": str(rm) if len(captures) == len(grade_leaves) else None,
             "ProductUSDPerLb": str(product), "PriceSnapshots": captures,"MaterialCostSnapshots":recipe_captures,
             "ProcessLossSnapshots":loss_results}

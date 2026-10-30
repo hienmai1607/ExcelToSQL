@@ -417,3 +417,6 @@ button.primary:hover:not(:disabled),[data-theme=dark] button.primary:hover:not(:
  .response-sections>section[aria-label="Product Info response"] .response-product-summary{grid-column:1/-1}
 }
 .floating-notification.warning{background:#fff8e6;color:#775600;border:1px solid #e5c575}
+
+.item-review-people{display:flex;flex-direction:column;gap:3px;min-width:0}
+.item-review-people>.item-review-pic{max-width:none;white-space:nowrap}

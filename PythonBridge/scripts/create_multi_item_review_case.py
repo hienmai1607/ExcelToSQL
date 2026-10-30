@@ -75,12 +75,12 @@ class StandaloneVariant(StandaloneReview):
   # This Product uses the same nested raw blend as Mix child A (60/40,
   # with 70/30 W210/W320 under Cashew), at 400g instead of 200g.
   blend=D('.7')*D('3.6')/(D('.995')*D('.988')*D('.997'))+D('.3')*D('3.2')/(D('.9925')*D('.988')*D('.997'))
-  almond=D('2.8')/(D('.992')*D('.997'));product=(blend*D('.95')+D('.116'))*D('.6')+(almond*D('.97')+D('.0845'))*D('.4')
+  almond=D('2.8')/(D('.992')*D('.997'));product=(blend*D('.95')+D('.016')+D('.1')*blend/D('3.48'))*D('.6')+(almond*D('.97')+D('.0045')+D('.08')*almond/D('2.8'))*D('.4')
   self.close(self.saved['ProductUSDPerLb'],product,'Independent Product cost USD/lb')
   row=next(r for r in sorted_grid(self.ctx.username,1,100,'[]',opportunity_number=self.number)['rows'] if r['ItemID']==self.item)
   pm=sum((c['usd']/(1-D(i+1)/100)/D(units) for i,((order,c),units) in enumerate(zip(self.config.items(),[1,4,8,16]))),D(0))
   pallet_units=D(self.cartons_per_pallet*self.contained);lbs=D(400)/D('453.59237')
-  pallet_unit=(D(300000)/self.fx)/pallet_units+D('.008')
+  pallet_unit=D('.008')
   n=D(row['ContainerLoadResults']['40HC']['CalculatedCartonsPerContainer'])*self.contained
   base=product*lbs+pm+pallet_unit+D('.25')*lbs+D(1800)/19200+D(600)/19200+D(650)/n
   fob=base*(1+D('.08')*60/360)*D('1.12');freight=D(1800)/n
