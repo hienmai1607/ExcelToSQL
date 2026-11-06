@@ -1,5 +1,6 @@
 import type {ButtonHTMLAttributes} from 'react';
 const paths={
+ notes:'M4 3h16v14l-5 4H4z M15 21v-4h5 M8 7h8 M8 11h8 M8 15h3',
  list:'M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01',
  settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM10 2h4l1 3 3-1 2 3-2 3 2 3-2 3-3-1-1 3h-4l-1-3-3 1-2-3 2-3-2-3 2-3 3 1 1-3Z',
  chat:'M21 11a8 8 0 0 1-8 8H7l-5 3 2-6a8 8 0 1 1 17-5 M8 10h.01 M12 10h.01 M16 10h.01',

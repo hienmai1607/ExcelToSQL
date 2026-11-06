@@ -9,7 +9,7 @@ import './administrator.css';
 type Entity='roles'|'users'|'markets'|'currencies';
 type AdminRow={ID:number;RowVersion:string;RoleName?:string;UserName?:string;IsActive?:boolean;Permissions?:Record<string,string>;DirectScopes?:string[];RoleIDs?:number[];MarketCode?:string;MarketName?:string;CurrencyCode?:string;CurrencyName?:string};
 const titles={roles:'User role',users:'User master',markets:'Market Master',currencies:'Currency Master'};
-const scopes=['Admin','Customer','Product','Opportunity','Packaging','PackagingManager','RawMaterial'];
+const scopes=['Admin','Customer','Product','Opportunity','Packaging','PackagingManager','RawMaterial','NPD','NPDManager'];
 const adminEditOnly=new Set<string>();
 export function Administrator({entity}:{entity:Entity}){
  const session=useSession(),[rows,setRows]=useState<AdminRow[]>([]),[roles,setRoles]=useState<AdminRow[]>([]),[revision,setRevision]=useState(0),[busy,setBusy]=useState(true),[error,setError]=useState(''),[notice,setNotice]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(1),[size,setSize]=useState(25),[editing,setEditing]=useState<{row:AdminRow|null}|null>(null);

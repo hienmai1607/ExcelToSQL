@@ -83,7 +83,7 @@ def parse_header_sort(value):
         raise HTTPException(422, "Invalid Opportunity sort columns or directions.")
 
 def sorted_grid(username, page, page_size, sort, opportunity_number=None, customer_name=None,
-                stage=None, bid_open_from=None, bid_open_to=None, created_by=None):
+                stage=None, bid_open_from=None, bid_open_to=None, created_by=None, can_read_recipe_drafts=False):
     rules = parse_header_sort(sort)
     order = ", ".join(f"[{r.column}] {r.direction.upper()}" for r in rules)
     order = (order + ", " if order else "") + "OpportunityID DESC"
@@ -102,6 +102,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             THROW 52744, 'Opportunity access is required for this action.', 1;
         DECLARE @CanReadDraft BIT=0;
         IF EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID WHERE u.UserName=? AND u.IsActive=1 AND a.Scope IN('Admin','Packaging','PackagingManager')) SET @CanReadDraft=1;
+        DECLARE @CanReadRecipeDraft BIT=?;
         ;WITH Headers AS (
             SELECT o.ID OpportunityID,o.OpportunityNumber,o.CustomerID,c.CustomerName,
                 o.OpportunityDesc,o.BidOpen,o.BidClose,o.Stage HeaderStage,o.RowVersion HeaderRowVersion,
@@ -124,6 +125,12 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
               AND root.ID<=COALESCE(i.ParentItemID,i.ID)))+
               CASE WHEN i.ParentItemID IS NULL THEN '' ELSE '.'+CONVERT(VARCHAR(20),i.MixChildNumber) END AS ItemNumber,
             i.EstPctAwarded,i.ShelfPrice,i.Stage ItemStage,i.RowVersion ItemRowVersion,
+            CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.NPDRecipeRequestItem recipe WHERE recipe.OpportunityItemID=i.ID AND recipe.IsLinked=1) THEN 1 ELSE 0 END AS BIT) HasLinkedRecipeRequest,
+            (SELECT TOP(1) h.RequestNumber FROM dbo.NPDRecipeRequestItem recipe JOIN dbo.NPDRecipeRequest h ON h.ID=recipe.RequestID WHERE recipe.OpportunityItemID=i.ID AND recipe.IsLinked=1 ORDER BY recipe.ID DESC) RecipeRequestNumber,
+            (SELECT TOP(1) recipe.RequestID FROM dbo.NPDRecipeRequestItem recipe WHERE recipe.OpportunityItemID=i.ID AND recipe.IsLinked=1 ORDER BY recipe.ID DESC) RecipeRequestID,
+            (SELECT TOP(1) recipe.ID FROM dbo.NPDRecipeRequestItem recipe WHERE recipe.OpportunityItemID=i.ID AND recipe.IsLinked=1 ORDER BY recipe.ID DESC) RecipeRequestItemID,
+            (SELECT TOP(1) sheet.ID FROM dbo.NPDRecipeRequestItem recipe JOIN dbo.NPDRecipeSheet sheet ON sheet.RequestItemID=recipe.ID WHERE recipe.OpportunityItemID=i.ID AND recipe.IsLinked=1 AND sheet.ID=recipe.ActiveSheetID AND sheet.ApprovalStatus='Approved' ORDER BY recipe.ID DESC,sheet.Revision DESC) RecipeSheetID,
+            (SELECT TOP(1) sheet.SheetNumber FROM dbo.NPDRecipeRequestItem recipe JOIN dbo.NPDRecipeSheet sheet ON sheet.RequestItemID=recipe.ID WHERE recipe.OpportunityItemID=i.ID AND recipe.IsLinked=1 AND sheet.ID=recipe.ActiveSheetID AND sheet.ApprovalStatus='Approved' ORDER BY recipe.ID DESC,sheet.Revision DESC) RecipeSheetNumber,
             CAST(CASE WHEN active_request.ID IS NULL THEN 0 ELSE 1 END AS BIT) HasOpenPackagingRequest,
             request_header.RequestNumber AS OpenPackagingRequestNumber,
             active_request.Stage AS OpenPackagingRequestStage,
@@ -131,6 +138,19 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             stage_request.PIC AS _StagePIC,stage_request.CreatedAt AS _StageRequestedAt,
             stage_request.SubmittedAt AS _StageSubmittedAt,stage_request.ReviewedAt AS _StageReviewedAt,
             CASE WHEN @CanReadDraft=1 OR stage_request.Stage IN('Approved','Canceled') THEN stage_request.ManagerComment END AS _StageReason,
+            (SELECT TOP(1) recipe_header.RequestNumber,recipe_header.RequestedAt,recipe_item.IsOpen,recipe_item.IsLinked,
+              recipe_pic.UserName PIC,recipe_item.AssignedAt,recipe_sheet.SheetNumber,recipe_sheet.ApprovalStatus,
+              recipe_sheet.SubmittedAt,COALESCE(recipe_sheet.ApprovedAt,recipe_review.CreatedAt) ReviewedAt,
+              recipe_review.ActorName ReviewedBy,
+              CASE WHEN @CanReadRecipeDraft=1 OR recipe_sheet.ApprovalStatus='Approved' THEN recipe_sheet.ReviewComment END Reason
+             FROM dbo.NPDRecipeRequestItem recipe_item JOIN dbo.NPDRecipeRequest recipe_header ON recipe_header.ID=recipe_item.RequestID
+             LEFT JOIN dbo.Users recipe_pic ON recipe_pic.ID=recipe_item.PICUserID
+             OUTER APPLY(SELECT TOP(1) s.ID,s.SheetNumber,s.ApprovalStatus,s.SubmittedAt,s.ApprovedAt,s.ReviewComment
+               FROM dbo.NPDRecipeSheet s WHERE s.RequestItemID=recipe_item.ID ORDER BY s.Revision DESC) recipe_sheet
+             OUTER APPLY(SELECT TOP(1) a.CreatedAt,u.UserName ActorName FROM dbo.NPDAudit a JOIN dbo.Users u ON u.ID=a.ActorID
+               WHERE a.Entity='Sheet' AND a.RecordID=recipe_sheet.ID AND a.Action IN('Approve','Return') ORDER BY a.ID DESC) recipe_review
+             WHERE recipe_item.OpportunityItemID=i.ID ORDER BY recipe_item.IsLinked DESC,recipe_item.ID DESC
+             FOR JSON PATH,WITHOUT_ARRAY_WRAPPER) _StageRecipe,
             x.Category,x.Grade,x.MixRatioPct,logistics.PalletSize,logistics.PalletStacking,logistics.MaxPalletHeightM,logistics.ContainerRequest,logistics.ConfigurationRequest,x.PackagingType,x.RecyclableRequirement,x.RecycledContent,x.Transparency,x.MetalizedAluminum,p.ShelfLifeDays,x.SpecialComments,
             dbo.fn_OpportunityPackagingLayerStart(i.ID) PackagingLayerStart,dbo.fn_OpportunityPackagingLayerStart(i.ID) RequestedPackagingLayerStart,i.QuaternaryTypeID,i.QuaternaryTransparency,i.NumberOfTertiary,i.PrimaryTypeID,i.SecondaryTypeID,i.SecondaryTransparency,i.NumberOfPrimary,i.PackagingLayerCount,i.PackagingLayerCount RequestedLayerCount,i.TertiaryTypeID,i.TertiaryTransparency,i.NumberOfSecondary,
             port_entry.PortName AS PortOfEntryName,logistics.ShipmentCostInfo,i.ShipmentCostInfo AS OwnShipmentCostInfo,i.PalletSpecialComments,logistics.MaxPalletHeightMM,i.ProductGradeSnapshot,i.SecondaryRecyclableRequirement,i.SecondaryRecycledContent,i.SecondaryMetalizedAluminum,i.SecondarySpecialComments,i.TertiaryRecyclableRequirement,i.TertiaryRecycledContent,i.TertiaryMetalizedAluminum,i.TertiarySpecialComments,i.QuaternaryRecyclableRequirement,i.QuaternaryRecycledContent,i.QuaternaryMetalizedAluminum,i.QuaternarySpecialComments,
@@ -239,7 +259,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         LEFT JOIN dbo.PackagingConfigurationRequest request_header ON request_header.ID=active_request.RequestID
         ORDER BY h.SortPosition,COALESCE(i.ParentItemID,i.ID),COALESCE(i.MixChildNumber,0);
         SELECT COUNT(*) Total FROM dbo.Opportunity o JOIN dbo.Customer c ON c.ID=o.CustomerID WHERE {where};
-    """, [username, username, *params, (page-1)*page_size, page_size, *params])
+    """, [username, username, bool(can_read_recipe_drafts), *params, (page-1)*page_size, page_size, *params])
     for row in result[0]:
         row["ShipmentCostInfo"] = json.dumps(effective_shipment(row))
         row["StageSummaryJSON"] = stage_summary(row)

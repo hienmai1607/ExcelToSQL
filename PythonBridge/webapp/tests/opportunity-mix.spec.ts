@@ -1,5 +1,57 @@
 import {test,expect,type Page} from '@playwright/test';
 
+test('Recipe pending result has no warning highlight and TCB branches from Recipe',async({page},info)=>{
+ const recipe={Required:true,Requested:true,Assigned:true,Submitted:false,Reviewed:false,Approved:false,State:'Assigned'};
+ await setup(page,[{...parent,StageSummaryJSON:JSON.stringify({PackagingStage:'Approved',TCBSaved:true,TCBEntriesComplete:true,Recipe:recipe})}]);
+ await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'Stage Summary',exact:true}).click();
+ const root=page.getByRole('article',{name:'Stage for Item 1',exact:true});
+ const result=root.locator('.stage-recipe-node').last();
+ await expect(result).toHaveClass('stage-recipe-node pending');
+ await expect(result).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
+ await expect(root.locator('.stage-recipe-label')).toHaveCount(0);
+ await expect(root.locator('[data-from="Product Review"][data-to="TCB Entries"]')).toHaveCount(0);
+ await expect(root.locator('[data-from="Recipe branch"][data-to="TCB Entries"]')).toHaveCount(1);
+ await root.screenshot({path:info.outputPath('recipe-tcb-pending.png')});
+});
+
+test('Recipe milestones match Packaging colors and branches join without crossing labels or each other',async({page},info)=>{
+ const recipe={Required:true,Requested:true,Assigned:true,Submitted:true,Reviewed:true,Approved:true,State:'Approved'};
+ await setup(page,[{...parent,StageSummaryJSON:JSON.stringify({PackagingStage:'Approved',TCBSaved:true,TCBEntriesComplete:true,TCBReviewComplete:true,Recipe:recipe})}]);
+ await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'Stage Summary',exact:true}).click();
+ const root=page.getByRole('article',{name:'Stage for Item 1',exact:true});
+ for(const width of [1920,1280]){
+  await page.setViewportSize({width,height:1080});
+  const geometry=await root.evaluate(el=>{
+   const main=Array.from(el.querySelectorAll('.stage-flow .stage-dot')),recipe=Array.from(el.querySelectorAll('.stage-recipe-node .stage-dot'));
+   const colors=recipe.map((dot,i)=>({recipe:getComputedStyle(dot).borderTopColor,packaging:getComputedStyle(main[i+2]).borderTopColor}));
+   const points=(selector:string)=>{const path=el.querySelector(selector) as SVGPathElement;const transform=path.getScreenCTM()!;return Array.from({length:301},(_,n)=>{const point=path.getPointAtLength(path.getTotalLength()*n/300);const screen=new DOMPoint(point.x,point.y).matrixTransform(transform);return {x:screen.x,y:screen.y}})};
+   const tcbOut=points('[data-from="TCB Entries"][data-to="TCB Review"]'),recipeOut=points('[data-from="Recipe Review Result"]'),tcbIn=points('[data-from="Recipe branch"][data-to="TCB Entries"]'),recipeIn=points('[data-to="Recipe Requested"]'),merge=points('[data-from="Recipe / TCB merge"]');
+   const distance=(a:{x:number;y:number},b:{x:number;y:number})=>Math.hypot(a.x-b.x,a.y-b.y);
+   const awayFromJunction=(a:typeof tcbOut,b:typeof tcbOut,join:typeof tcbOut[number])=>Math.min(...a.filter(p=>distance(p,join)>36).flatMap(p=>b.filter(q=>distance(q,join)>36).map(q=>distance(p,q))));
+   const boxes=Array.from(el.querySelectorAll('.stage-flow strong,.stage-recipe-track strong,.stage-tcb-heading')).map(label=>({box:label.getBoundingClientRect(),label:label.textContent}));
+   const overlaps=boxes.filter(({box:b})=>[...tcbOut,...recipeOut,...tcbIn,...recipeIn,...merge].some(p=>p.x>b.left-2&&p.x<b.right+2&&p.y>b.top-2&&p.y<b.bottom+2)).map(b=>({label:b.label,paths:[tcbOut,recipeOut,tcbIn,recipeIn,merge].map((points,index)=>({index,point:points.find(p=>p.x>b.box.left-2&&p.x<b.box.right+2&&p.y>b.box.top-2&&p.y<b.box.bottom+2)})).filter(v=>v.point)}));
+   const trunk=points('[data-from="Branch junction"]');
+   const mainCircle=main[6].getBoundingClientRect(),baseline=mainCircle.y+mainCircle.height/2;
+   return {colors,overlaps,aboveBaseline:[...tcbOut,...recipeOut,...tcbIn,...recipeIn,...merge].some(p=>p.y<baseline-1),inSeparation:awayFromJunction(tcbIn,recipeIn,tcbIn[0]),outSeparation:awayFromJunction(tcbOut,recipeOut,tcbOut.at(-1)!),joinGap:distance(tcbOut.at(-1)!,recipeOut.at(-1)!),trunkGap:distance(trunk[0],merge.at(-1)!)};
+  });
+  for(const colors of geometry.colors)expect(colors.recipe).toBe(colors.packaging);
+  await root.screenshot({path:info.outputPath('recipe-junction-'+width+'.png')});expect(geometry.overlaps).toEqual([]);expect(geometry.aboveBaseline).toBe(false);expect(geometry.inSeparation).toBeGreaterThan(4);expect(geometry.outSeparation).toBeGreaterThan(4);expect(geometry.joinGap).toBeLessThan(1);expect(geometry.trunkGap).toBeLessThan(1);
+ }
+ await page.setViewportSize({width:1920,height:1080});await root.screenshot({path:info.outputPath('matching-recipe-branches.png')});
+});
+
+test('Recipe branch shows returned reviews separately and waits before customer proposal',async({page},info)=>{
+ const recipe={Required:true,Requested:true,Assigned:true,Submitted:true,Reviewed:true,Approved:false,State:'Returned',RequestNumber:'RRQ-1',PIC:'npd.member',SheetNumber:'RCP-1',Reason:'Revise seasoning ratio',ReviewedAt:'2026-11-05T03:00:00'};
+ await setup(page,[{...parent,StageSummaryJSON:JSON.stringify({PackagingStage:'Approved',TCBEntriesComplete:true,TCBReviewComplete:true,Recipe:recipe})},{...child,StageSummaryJSON:JSON.stringify({Recipe:{Required:false}})}]);
+ await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'Stage Summary',exact:true}).click();
+ const root=page.getByRole('article',{name:'Stage for Item 1',exact:true}),branch=root.getByRole('region',{name:'Recipe branch from Product Review to TCB Review',exact:true});
+ await expect(branch.locator('strong')).toHaveText(['Recipe Requested','PIC Assigned','Review Submitted','Review Result']);await expect(branch.locator('li').last()).toHaveClass('stage-recipe-node blocked');await expect(root.locator('.stage-flow>li').nth(6)).toHaveClass('stage-node current');await expect(root.locator('.stage-flow>li').nth(7)).toHaveClass('stage-node pending');
+ await branch.getByRole('button',{name:'View details for Recipe Review Result item 1',exact:true}).click();await expect(branch.getByText('Revise seasoning ratio',{exact:true})).toBeVisible();
+ const optional=page.getByRole('article',{name:'Stage for Item 1.1',exact:true}).getByRole('region',{name:'Recipe branch',exact:true});await expect(optional).toContainText('Not required');
+ const geometry=await root.evaluate(el=>{const recipe=el.querySelector('.stage-recipe-track')!.getBoundingClientRect(),tcb=el.querySelector('.stage-tcb-track')!.getBoundingClientRect(),main=el.querySelector('.stage-flow')!.getBoundingClientRect();return {recipeTop:recipe.y,tcbTop:tcb.y,mainBottom:main.bottom,recipeBottom:recipe.bottom}});expect(geometry.recipeTop).toBeGreaterThanOrEqual(geometry.mainBottom);expect(geometry.tcbTop).toBeGreaterThanOrEqual(geometry.recipeBottom);
+ await root.screenshot({path:info.outputPath('recipe-stage-branch.png')});
+});
+
 test('Opportunity responses show each item current linked PCR, including mix children and unlinked items',async({page})=>{
  await setup(page,[{...parent,PackagingRequestNumber:'PCR-30293'},
   {...child,PackagingRequestNumber:'PCR-30294'},
@@ -192,8 +244,8 @@ test('Stage Summary cancellation loops to Product Review and shows customer resu
  const scroll=root.locator('.stage-flow-scroll');expect(await scroll.evaluate(el=>el.scrollWidth>el.clientWidth)).toBeTruthy();
 });
 
-test('mix parent slots offer only Secondary/Tertiary master orders and save cross-order choices',async({page})=>{
- await setup(page,[{...parent,PackagingLayerCount:3}, {...child,PackagingLayerCount:2}]);let payload:any;
+test('mix parent uses cumulative Tertiary and Quaternary types after a two-layer child',async({page})=>{
+ await setup(page,[{...parent,PackagingLayerCount:2}, {...child,PackagingLayerCount:2}]);let payload:any;
  const types=[
   {ID:11,PackagingOrder:'Primary',PackagingType:'Primary bag',Shipping:false},
   {ID:12,PackagingOrder:'Secondary',PackagingType:'Tray',Shipping:false},
@@ -202,7 +254,7 @@ test('mix parent slots offer only Secondary/Tertiary master orders and save cros
   {ID:15,PackagingOrders:['Primary','Secondary'],PackagingType:'PET jar',Shipping:false},
   {ID:16,PackagingOrder:'Secondary',PackagingType:'Child component',ParentTypeID:13,Shipping:false},
   {ID:17,PackagingOrder:'Tertiary',PackagingType:'Storage case',Shipping:false}
- ].map(t=>({Status:'Active',ParentTypeID:null,...t,PackagingOrders:[...(t.PackagingOrders??[t.PackagingOrder]),...(t.ID===11||t.ID===16?[]:['Primary Mix','Secondary Mix']),...(t.Shipping?['Tertiary Mix']:[])]}));
+ ].map(t=>({Status:'Active',ParentTypeID:null,...t,PackagingOrders:[...(t.PackagingOrders??[t.PackagingOrder]),...(t.ID===13?['Tertiary','Quaternary']:[]),...(t.ID===14?['Quaternary']:[])]}));
  await page.route('**/api/opportunity/lookups',route=>route.fulfill({json:{
   customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],
   products:[{ID:20,ProductCode:'PRD-MIX',ProductName:'Mixed nuts',CustomerID:1,IsMix:true}],
@@ -217,17 +269,17 @@ test('mix parent slots offer only Secondary/Tertiary master orders and save cros
  await root.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const component=form.getByRole('region',{name:'Item 1.1',exact:true});
  await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();await component.getByText('Packaging requirements',{exact:true}).click();await component.getByText('Others Info',{exact:true}).click();
- for(const layer of ['Primary','Secondary'])await expect(root.getByLabel(layer+' Type',{exact:true}).locator('option')).toHaveText(['Choose '+layer.toLowerCase()+' type','Tray','Shipping case','Shipping carton','PET jar','Storage case']);
- await expect(root.getByLabel('Tertiary Type',{exact:true}).locator('option')).toHaveText(['Choose tertiary type','Shipping case','Shipping carton']);
+ await expect(root.getByLabel('Primary Type',{exact:true})).toHaveCount(0);
+ await expect(root.getByLabel('Tertiary Type',{exact:true}).locator('option')).toHaveText(['Choose tertiary type','Shipping case','Shipping carton','Storage case']);
+ await expect(root.getByLabel('Quaternary Type',{exact:true}).locator('option')).toHaveText(['Choose quaternary type','Shipping case','Shipping carton']);
  await expect(component.getByLabel('Primary Type',{exact:true}).locator('option')).toHaveText(['Choose primary type','Primary bag','PET jar']);
  await expect(component.getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','Tray','Shipping case','PET jar']);
- await root.getByLabel('Primary Type',{exact:true}).selectOption('12');
- await root.getByLabel('Secondary Type',{exact:true}).selectOption('14');
- await root.getByLabel('Tertiary Type',{exact:true}).selectOption('13');
+ await root.getByLabel('Tertiary Type',{exact:true}).selectOption('14');
+ await root.getByLabel('Quaternary Type',{exact:true}).selectOption('13');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('OPP-MIX updated');
  expect(payload.item_rows).toHaveLength(1);
- expect(payload.item_rows[0]).toMatchObject({ID:10,PrimaryTypeID:'12',SecondaryTypeID:'14',TertiaryTypeID:'13'});
+ expect(payload.item_rows[0]).toMatchObject({ID:10,PrimaryTypeID:'14',SecondaryTypeID:'13',PackagingLayerCount:'2'});
 });
 
 test('mix counts explain composition and Grades opens the saved Product structure',async({page})=>{
@@ -235,8 +287,8 @@ test('mix counts explain composition and Grades opens the saved Product structur
  await page.getByRole('button',{name:'Edit Opportunity OPP-MIX',exact:true}).click();
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),root=form.getByRole('region',{name:'Item 1',exact:true});
  await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
- await expect(root.getByLabel('No of Primary Mix Unit',{exact:true})).toBeVisible();
- await expect(root.getByText('No of Secondary Mix Unit',{exact:true})).toBeVisible();
+ await expect(root.getByLabel('No of Tertiary Unit',{exact:true})).toBeVisible();
+ await expect(root.getByText('No of Quaternary Unit',{exact:true})).toBeVisible();
  await expect(root.getByRole('note',{name:'Mix Product = 1.25 × Almonds',exact:true})).toHaveCount(2);
  await root.getByRole('button',{name:'View grade snapshot',exact:true}).click();
  const structure=page.getByRole('dialog',{name:'Product structure',exact:true});
@@ -257,7 +309,7 @@ test('child final layer offers non-shipping types while the mix parent requires 
   mix_children:[],pallets:[],packagingTypes:[
    {ID:11,PackagingOrder:'Primary',PackagingType:'Pouch',ParentTypeID:null,Status:'Active',Shipping:false},
    {ID:12,PackagingOrder:'Secondary',PackagingType:'Jar',ParentTypeID:null,Status:'Active',Shipping:false},
-   {ID:13,PackagingOrder:'Secondary',PackagingOrders:['Secondary','Secondary Mix'],PackagingType:'Carton',ParentTypeID:null,Status:'Active',Shipping:true}
+   {ID:13,PackagingOrder:'Secondary',PackagingOrders:['Secondary','Quaternary'],PackagingType:'Carton',ParentTypeID:null,Status:'Active',Shipping:true}
   ]}}));
  await page.getByRole('button',{name:'Edit Opportunity OPP-MIX',exact:true}).click();
  const form=page.getByRole('dialog',{name:'Edit Opportunity',exact:true}),root=form.getByRole('region',{name:'Item 1',exact:true});
@@ -265,7 +317,7 @@ test('child final layer offers non-shipping types while the mix parent requires 
  const component=form.getByRole('region',{name:'Item 1.1',exact:true});
  await root.getByText('Packaging requirements',{exact:true}).click();await root.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();
  await component.getByText('Packaging requirements',{exact:true}).click();await component.getByText('Others Info',{exact:true}).click();
- await expect(root.getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','Carton']);
+ await expect(root.getByLabel('Quaternary Type',{exact:true}).locator('option')).toHaveText(['Choose quaternary type','Carton']);
  await expect(component.getByLabel('Secondary Type',{exact:true}).locator('option')).toHaveText(['Choose secondary type','Jar','Carton']);
  await component.getByLabel('Secondary Type',{exact:true}).selectOption('12');
  for(const name of ['Pallet size','Max pallet height (mm)'])await expect(component.getByLabel(name,{exact:true})).toHaveCount(0);
@@ -280,7 +332,7 @@ async function setup(page:Page,rows:unknown[]=[]){
   if(path.endsWith('/session'))return route.fulfill({json:{username:'Sales',scopes:['Opportunity'],is_admin:false,user_id:10}});
   if(path==='/api/workbench/preferences')return route.fulfill({json:{settings:{},version:0}});
   if(path==='/api/opportunity/grid')return route.fulfill({json:{rows,total:rows.length?1:0,page:1}});
-  if(path==='/api/opportunity/lookups')return route.fulfill({json:{packagingTypes:[{ID:11,PackagingOrder:'Primary',PackagingOrders:['Primary','Secondary','Primary Mix','Secondary Mix'],PackagingType:'Pouch',ParentTypeID:null,Status:'Active'},{ID:12,PackagingOrder:'Primary',PackagingOrders:['Primary','Primary Mix'],PackagingType:'Bag',ParentTypeID:null,Status:'Active'}],pallets:[{ID:1,PalletSize:"1.1x1.1M"},{ID:2,PalletSize:"1200x1000MM"}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:20,ProductCode:'PRD-MIX',ProductName:'Mixed nuts',CustomerID:1,ShelfLifeDays:365}],mix_children:[
+  if(path==='/api/opportunity/lookups')return route.fulfill({json:{packagingTypes:[{ID:11,PackagingOrder:'Primary',PackagingOrders:['Primary','Secondary','Tertiary'],PackagingType:'Pouch',ParentTypeID:null,Status:'Active'},{ID:12,PackagingOrder:'Primary',PackagingOrders:['Primary','Tertiary'],PackagingType:'Bag',ParentTypeID:null,Status:'Active'}],pallets:[{ID:1,PalletSize:"1.1x1.1M"},{ID:2,PalletSize:"1200x1000MM"}],customers:[{ID:1,CustomerName:'Northstar',CustomerCurrencyCode:'USD'}],products:[{ID:20,ProductCode:'PRD-MIX',ProductName:'Mixed nuts',CustomerID:1,ShelfLifeDays:365}],mix_children:[
    {ParentProductID:20,MixVersionID:7,ProductID:2,ProductCode:'PRD-ALM',ProductName:'Almonds',UnitQuantity:'1.2500',ShelfLifeDays:180},
    {ParentProductID:20,MixVersionID:7,ProductID:3,ProductCode:'PRD-CAS',ProductName:'Cashews',UnitQuantity:'0.1250',ShelfLifeDays:null}
   ]}});
@@ -380,7 +432,7 @@ test('copy between mix parent and child respects parent-only logistics and Produ
  await root.getByLabel('Loading request',{exact:true}).selectOption('Both');
  await root.getByLabel('Pallet size',{exact:true}).selectOption('1.1x1.1M');
  await root.getByLabel('Pallet stacking',{exact:true}).selectOption('Single');
- await root.getByLabel('Primary Type',{exact:true}).selectOption('11');
+ await root.getByLabel('Tertiary Type',{exact:true}).selectOption('11');
  await entry.locator('.packaging-copy > button').click();await page.getByRole('dialog',{name:'Choose packaging source'}).getByLabel('Copy packaging from item').selectOption({label:'Item 1 - PRD-MIX - Mixed nuts'});
  await page.getByRole('dialog',{name:'Choose packaging source'}).getByRole('button',{name:'Copy packaging',exact:true}).click();
  await expect(entry.getByLabel('Primary Type',{exact:true})).toHaveValue('11');
@@ -392,7 +444,7 @@ test('copy between mix parent and child respects parent-only logistics and Produ
  await entry.getByLabel('Primary Type',{exact:true}).selectOption('12');
  await root.locator('.packaging-copy > button').click();await page.getByRole('dialog',{name:'Choose packaging source'}).getByLabel('Copy packaging from item').selectOption({label:'Item 1.1 - PRD-ALM - Almonds'});
  await page.getByRole('dialog',{name:'Choose packaging source'}).getByRole('button',{name:'Copy packaging',exact:true}).click();
- await expect(root.getByLabel('Primary Type',{exact:true})).toHaveValue('12');
+ await expect(root.getByLabel('Tertiary Type',{exact:true})).toHaveValue('12');
  await expect(root.getByLabel('Container Type',{exact:true})).toHaveValue('20DC');
  await expect(root.getByLabel('Pallet size',{exact:true})).toHaveValue('1.1x1.1M');
  await expect(root.getByLabel('Pallet stacking',{exact:true})).toHaveValue('Single');

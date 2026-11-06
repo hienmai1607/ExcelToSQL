@@ -17,6 +17,7 @@ def stage_summary(row):
     shipping = document(row.get("ShipmentCostInfo"))
     return json.dumps({
         **review,
+        "Recipe": recipe_evidence(row),
         "PackagingStage": row.pop("_StagePackagingStage", None),
         "RequestNumber": row.pop("_StageRequestNumber", None),
         "PIC": row.pop("_StagePIC", None),
@@ -32,6 +33,22 @@ def stage_summary(row):
         "GradesSaved": bool(document(row.get("ProductGradeSnapshot"))),
         "ShipmentInherited": bool(row.get("ParentItemID")),
     }, ensure_ascii=False)
+
+
+def recipe_evidence(row):
+    recipe = document(row.pop('_StageRecipe', None))
+    required = bool(document(row.get('ProductGradeSnapshot')).get('RequiresRecipeConfirmation') or recipe.get('IsLinked'))
+    approval = recipe.get('ApprovalStatus')
+    requested = bool(recipe.get('RequestNumber'))
+    assigned = bool(recipe.get('PIC'))
+    submitted = bool(recipe.get('SubmittedAt') or approval in ('Pending', 'Approved', 'Returned'))
+    reviewed = approval in ('Approved', 'Returned') or requested and not recipe.get('IsOpen', True)
+    approved = approval == 'Approved'
+    state = ('Not required' if not required else 'Approved' if approved else 'Returned' if approval == 'Returned'
+             else 'Closed' if requested and not recipe.get('IsOpen', True) else 'Submitted' if approval == 'Pending'
+             else 'Assigned' if assigned else 'Requested' if requested else 'Not requested')
+    return {**recipe, 'Required': required, 'State': state, 'Requested': requested, 'Assigned': assigned,
+            'Submitted': submitted, 'Reviewed': bool(reviewed), 'Approved': approved}
 
 
 def complete_stage_summaries(rows):
@@ -66,6 +83,21 @@ def complete_stage_summaries(rows):
         info["TCBEntriesComplete"] = (entries(info) and all(c.get("TCBEntriesComplete") for c in child_info) or info["TCBReviewComplete"]) and not info["TCBBlockedByChildren"]
     for row in rows:
         if row.get("ItemID") in summaries:
+            info = summaries[row['ItemID']]
+            if row.get('IsMixParent'):
+                children = [r for r in rows if r.get('ParentItemID') == row['ItemID']]
+                recipes = [{**summaries[c['ItemID']].get('Recipe', {}), 'ItemNumber': c.get('ItemNumber'),
+                            'ProductCode': c.get('ProductCode')} for c in children
+                           if summaries[c['ItemID']].get('Recipe', {}).get('Required')]
+                if recipes:
+                    recipe = {'Required': True, 'Children': recipes, 'RequiredCount': len(recipes)}
+                    for key in ('Requested', 'Assigned', 'Submitted', 'Reviewed', 'Approved'):
+                        recipe[key+'Count'] = sum(bool(r.get(key)) for r in recipes)
+                        recipe[key] = recipe[key+'Count'] == len(recipes)
+                    recipe['State'] = ('Approved' if recipe['Approved'] else 'Returned' if any(r.get('State')=='Returned' for r in recipes)
+                                       else 'Closed' if any(r.get('State')=='Closed' for r in recipes)
+                                       else next((label for key,label in (('Submitted','Submitted'),('Assigned','Assigned'),('Requested','Requested')) if recipe[key]), 'Not requested'))
+                    info['Recipe'] = recipe
             row["StageSummaryJSON"] = json.dumps(summaries[row["ItemID"]], ensure_ascii=False)
     return rows
 

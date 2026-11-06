@@ -1,3 +1,5 @@
+import {seasoningAllowed,seasoningProcess} from './recipe-scope';
+import {componentConfig} from './recipe-components';
 import type {Draft} from './opportunity-losses';
 import type {CommercialProps} from './opportunity-commercial-tabs';
 import {IconButton} from './icons';
@@ -11,7 +13,7 @@ export function ProcessLossEditor({d,busy,review,update,onTest}:Pick<CommercialP
  const issues=disabled?[]:tcbInputIssues(d);
 
  const label=(path:string)=>path==='0'?'Packing · All grades':path+' · '+(d.grades.find(g=>gradePath(g)===path)?.Grade??'');
- const choices=(path:string)=>(d.masters??[]).filter(m=>(path==='0')===packingType(m.ProcessName||m.ProcessType));
+ const choices=(path:string)=>(d.masters??[]).filter(m=>(path==='0')===packingType(m.ProcessName||m.ProcessType)&&(!seasoningProcess(m,componentConfig(d))||seasoningAllowed(d.row,path)));
  const sharedPaths=sources.filter(source=>source.Path==='0'||rows.some(row=>row.Path!==source.Path&&row.Sources.some(s=>s?.Path===source.Path))).map(source=>source.Path);
  const tone=(path:string)=>path==='0'?'packing':sharedPaths.includes(path)?String(sharedPaths.filter(p=>p!=='0').indexOf(path)%5):undefined;
 
@@ -55,6 +57,8 @@ export function ProcessLossEditor({d,busy,review,update,onTest}:Pick<CommercialP
        const repeated=rows.slice(0,rowIndex).some(r=>r.Sources.some(s=>s?.Path===source.Path&&s.Index===source.Index));
        const sharedOwner=code.Shared?sources.find(r=>r.Codes?.some(c=>c.Shared&&(c.MasterID??c.ProcessName)===(code.MasterID??code.ProcessName)))?.Path:source.Path;
        const copied=repeated||sharedOwner!==source.Path,options=choices(source.Path),sourceIssue=issues.find(i=>i.field==='ProcessLoss:'+source.Path);
+       const master=options.find(m=>m.MasterID===code.MasterID),sheetDefault=master?defaultProcessCode(d,source.Path,master):null;
+       const fromSheet=!code.ManualLoss&&!!sheetDefault?.code.SourceSheetID&&Number(row.Ratios[index])===Number(sheetDefault.ratio);
        return <td key={index} className="process-loss-cell" data-process-column={'L'+(index+1)} title={label(source.Path)} data-tcb-field={'ProcessLoss:'+source.Path}>
 
         <div className="process-loss-type" data-loss-group={tone(source.Path)!=null?source.Path:undefined} data-loss-tone={tone(source.Path)}>
@@ -62,7 +66,7 @@ export function ProcessLossEditor({d,busy,review,update,onTest}:Pick<CommercialP
           const master=options.find(m=>String(m.MasterID)===e.target.value);if(!master)return;
           const value=defaultProcessCode(d,source.Path,master);change(source.Path,r=>({...r,Codes:r.Codes!.map((c,i)=>i===source.Index?value.code:c),Ratios:r.Ratios.map((v,i)=>i===source.Index?value.ratio:v)}));
          }}>{!options.some(m=>m.MasterID===code.MasterID)&&<option value={String(code.MasterID??'legacy')}>{code.ProcessName} (saved)</option>}{options.map(m=><option key={m.MasterID} value={String(m.MasterID)} disabled={saved.Codes?.some((c,i)=>i!==source.Index&&c.MasterID===m.MasterID)}>{m.ProcessName||m.ProcessType}</option>)}</select>
-         <input aria-label={'Process loss '+row.Path+' L'+(index+1)+' item '+id} aria-invalid={!!sourceIssue} inputMode="decimal" disabled={disabled||copied} title={copied?'Shared value; edit its first occurrence':undefined} value={row.Ratios[index]??'0'} onChange={e=>change(source.Path,r=>({...r,Ratios:r.Ratios.map((v,i)=>i===source.Index?e.target.value:v)}))}/>
+         <input aria-label={'Process loss '+row.Path+' L'+(index+1)+' item '+id} aria-invalid={!!sourceIssue} className={fromSheet?'recipe-sheet-default':undefined} inputMode="decimal" disabled={disabled||copied} title={copied?'Shared value; edit its first occurrence':undefined} value={row.Ratios[index]??'0'} onChange={e=>change(source.Path,r=>({...r,Codes:r.Codes?.map((c,i)=>i===source.Index?{...c,SourceSheetID:null,ManualLoss:true}:c),Ratios:r.Ratios.map((v,i)=>i===source.Index?e.target.value:v)}))}/>
          {!repeated&&<IconButton icon="close" label={'Remove process type '+row.Path+' L'+(index+1)+' item '+id} disabled={disabled} onClick={()=>change(source.Path,r=>({...r,Codes:r.Codes!.filter((_,i)=>i!==source.Index),Ratios:r.Ratios.filter((_,i)=>i!==source.Index)}))}/>}
         </div>
        </td>;

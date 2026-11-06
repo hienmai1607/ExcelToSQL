@@ -26,7 +26,8 @@ def product_snapshot(product_id:int=Path(ge=1),ctx:AccessContext=Depends(get_acc
       WHERE v.ProductID=? AND v.Status='Active' ORDER BY g.ParentID,g.ID;
     """,[ctx.username,product_id,product_id])
     if not sets[0]:raise HTTPException(404,"Active product not found.")
-    return {"items":[{**r,"RatioPct":str(r["RatioPct"])} for r in sets[1]]}
+    flags=execute('SELECT RequiresRecipeConfirmation FROM dbo.ProductGradeVersion WHERE ProductID=? AND Status=\'Active\'',[product_id])[0]
+    return {"RequiresRecipeConfirmation":bool(flags and flags[0]['RequiresRecipeConfirmation']),"RecipeRequirements":{},"items":[{**r,"RatioPct":str(r["RatioPct"])} for r in sets[1]]}
 
 def validate_snapshot(cursor,snapshot):
     """Validate changed copies under document transaction; names come from Master."""

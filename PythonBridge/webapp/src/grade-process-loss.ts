@@ -1,3 +1,4 @@
+import {seasoningAllowed,seasoningProcess} from './recipe-scope';
 import type {TCBInputs} from './tcb-model';
 
 import {savedProcessTree,gradePath} from './grade-process';
@@ -6,7 +7,7 @@ import type {GradeItem} from './product-grades';
 import type {LossStep} from './loss-processes';
 import type {Row} from './api';
 
-export type ProcessCode={MasterID?:number|null;MasterVersion?:string|null;ProcessName:string;Shared?:boolean;DefaultID?:number;DefaultVersion?:string};
+export type ProcessCode={SourceSheetID?:number|null;ManualLoss?:boolean;MasterID?:number|null;MasterVersion?:string|null;ProcessName:string;Shared?:boolean;DefaultID?:number;DefaultVersion?:string};
 export type GradeLoss={Path:string;Codes?:ProcessCode[]|null;Ratios:string[];Formula?:string|null};
 export type GradeLossResult=Omit<GradeLoss,'Codes'>&{Codes?:(ProcessCode|null)[]|null;LossPct:string;WeightGrams?:unknown};
 const zero=()=>quantity('0',true)!;
@@ -23,7 +24,7 @@ export function processLossValue(inputs:TCBInputs,path:string,sourcePaths?:strin
  for(const ratio of row.Ratios){const v=quantity(ratio,true)!;surviving=multiply(surviving,{n:100n*v.d-v.n,d:100n*v.d})}
  return surviving.n>0n?{n:100n*(surviving.d-surviving.n),d:surviving.d}:null;
 }
-type ProcessDraft={grades:GradeItem[];costingInputs:TCBInputs;steps?:LossStep[];formula?:string;masters?:LossStep[];lossDefaults?:Row[]};
+type ProcessDraft={row?:Row;grades:GradeItem[];costingInputs:TCBInputs;steps?:LossStep[];formula?:string;masters?:LossStep[];lossDefaults?:Row[]};
 export type PathLossRow=Omit<GradeLoss,'Codes'>&{Codes:(ProcessCode|null)[];Sources:({Path:string;Index:number}|undefined)[]};
 export function processLossSlots(rows:GradeLoss[]){
  const offsets=new Map<string,number>();
@@ -99,7 +100,11 @@ export function defaultProcessCode(d:ProcessDraft,path:string,master:LossStep){
  const grade=d.grades.find(g=>gradePath(g)===path);
  const candidates=(d.lossDefaults??[]).filter(r=>Number(r.ProcessTypeID)===master.MasterID);
  const selected=(path!=='0'?candidates.find(r=>r.RawGradeID!=null&&Number(r.RawGradeID)===grade?.RawGradeID):undefined)??candidates.find(r=>r.RawGradeID==null);
- return {code:{...processCode(master),...(selected?{DefaultID:Number(selected.ID),DefaultVersion:String(selected.DefaultVersion)}:{})},ratio:String(selected?.LossPct??'0')};
+ const approved=d.row?.NPDRecipeSnapshot?JSON.parse(String(d.row.NPDRecipeSnapshot)):null;
+ const config=d.row?.RecipeComponentsSnapshot?JSON.parse(String(d.row.RecipeComponentsSnapshot)):null;
+ const seasoning=JSON.parse(String(master.RecipeComponents??'[]')).some((c:{SystemKey:string})=>c.SystemKey==='Seasoning')||config?.mappings?.some((m:{ProcessID:number;ComponentID:number})=>m.ProcessID===master.MasterID&&config.components?.some((c:{ID:number;SystemKey:string})=>c.ID===m.ComponentID&&c.SystemKey==='Seasoning'));
+ const recipeLoss=seasoning&&seasoningAllowed(d.row,path)&&!approved?.Inactive&&!approved?.Stale?approved?.SeasoningLossPct:undefined;
+ return {code:{...processCode(master),...(seasoning?{Shared:false}:{}),...(recipeLoss!=null&&approved?.SheetID?{SourceSheetID:Number(approved.SheetID)}:{}),...(selected?{DefaultID:Number(selected.ID),DefaultVersion:String(selected.DefaultVersion)}:{})},ratio:String(recipeLoss??selected?.LossPct??'0')};
 }
 export function processLossRows(d:ProcessDraft):GradeLoss[]{
  const steps=(d.steps??[]).filter(s=>s.ProcessType==='Processing'||s.ProcessType==='Sorting');
@@ -108,7 +113,7 @@ export function processLossRows(d:ProcessDraft):GradeLoss[]{
   const path=gradePath(g),saved=d.costingInputs.ProcessLosses?.find(r=>r.Path===path);
   if(saved)return {...saved,Codes:saved.Codes??legacy,Ratios:[...saved.Ratios]};
   if(!Array.isArray(d.costingInputs.ProcessLosses)&&steps.length)return {Path:path,Codes:legacy,Ratios:steps.map(s=>String(s.LossPct)),Formula:d.formula??''};
-  const defaults=(d.masters??[]).filter(m=>!packingType(m.ProcessName||m.ProcessType)&&(d.lossDefaults??[]).some(r=>Number(r.ProcessTypeID)===m.MasterID&&r.RawGradeID!=null&&Number(r.RawGradeID)===g.RawGradeID)).map(m=>defaultProcessCode(d,path,m));
+  const defaults=(d.masters??[]).filter(m=>!packingType(m.ProcessName||m.ProcessType)&&(!d.row?.RecipeComponentsSnapshot||!seasoningProcess(m,JSON.parse(String(d.row.RecipeComponentsSnapshot)))||seasoningAllowed(d.row,path))&&(d.lossDefaults??[]).some(r=>Number(r.ProcessTypeID)===m.MasterID&&r.RawGradeID!=null&&Number(r.RawGradeID)===g.RawGradeID)).map(m=>defaultProcessCode(d,path,m));
   if(defaults.length)return {Path:path,Codes:defaults.map(v=>v.code),Ratios:defaults.map(v=>v.ratio),Formula:''};
   return {Path:path,Codes:legacy,Ratios:steps.map(s=>String(Array.isArray(d.costingInputs.ProcessLosses)?'0':s.LossPct)),Formula:Array.isArray(d.costingInputs.ProcessLosses)?'':d.formula};
  }).sort((a,b)=>a.Path.localeCompare(b.Path,undefined,{numeric:true}));
@@ -118,8 +123,10 @@ export function processLossRows(d:ProcessDraft):GradeLoss[]{
   rows.push(saved?{...saved,Codes:saved.Codes??[],Ratios:[...saved.Ratios]}:{Path:'0',Codes:value?[value.code]:[],Ratios:value?[value.ratio]:[],Formula:''});
  }
  const shared=new Map<number|string,string>();
- return rows.map(row=>({...row,Ratios:row.Ratios.map((value,index)=>{
+ const config=d.row?.RecipeComponentsSnapshot?JSON.parse(String(d.row.RecipeComponentsSnapshot)):null;
+ return rows.map(row=>({...row,Codes:row.Codes?.map(code=>seasoningProcess(code,config)?{...code,Shared:false}:code),Ratios:row.Ratios.map((value,index)=>{
   const code=row.Codes?.[index];if(!code?.Shared)return value;
+  if(seasoningProcess(code,config))return value;
   const key=code.MasterID??code.ProcessName;if(!shared.has(key))shared.set(key,value);
   return shared.get(key)!;
  })}));

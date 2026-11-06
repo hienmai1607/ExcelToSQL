@@ -37,6 +37,27 @@ Reasons come from the matching stage-change audit, with ManagerComment as a
 legacy fallback; draft response reasons retain existing access restrictions.
 No SQL migration is needed. Deploy matching core and rebuilt webapp/dist.
 
+Recipe confirmation has its own parallel branch: Recipe Requested, PIC Assigned,
+Review Submitted, and Review Result. It uses the linked request, latest sheet
+revision and review audit, with the PIC kept separate from the reviewer. Returned
+reviews show a red result and an incomplete outgoing connection. Milestone
+details include available timestamps; private review notes retain NPD access
+restrictions. Items without recipe confirmation show Not required.
+
+Recipe milestones share the colors of the corresponding Packaging milestones.
+When a Recipe branch is present, TCB Entries splits from its incoming connector,
+runs straight across below the Recipe row and rejoins its outgoing connector.
+Both use one connection below the TCB Review circle, without an outer loop or
+crossing milestone labels. The standalone Recipe label is omitted. Pending Recipe
+milestones have a transparent background, matching the Packaging track rather
+than the shared warning style. These are visual connections only; saved TCB
+progress remains independent of Recipe submission or approval.
+
+Mix parents summarize required child recipes, with counts and individual child
+details. The TCB Review readiness indicator waits for approval of every required
+recipe; saved TCB inputs remain tracked independently. This affects the progress
+display only and does not record or perform any stage transition.
+
 Stage colors follow the numbered reference strip from right to left, starting
 with the red-orange bar marked 1 for Initial (not the unnumbered pink bar).
 Product Review uses the next orange bar. TCB Entries inherits Product Review

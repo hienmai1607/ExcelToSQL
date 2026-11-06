@@ -96,8 +96,22 @@ def read(item_id: int = Path(ge=1),ctx: AccessContext=Depends(get_access_context
             error = exc.detail
     from tcb_snapshot_costs import processing_snapshot_costs
     saved=processing_snapshot_costs(json.loads(item["TCBCostInfo"] or "{}"))
+    from npd_recipes import recipe_source_state
+    if saved.get('NPDRecipe'):saved['NPDRecipe']=recipe_source_state(saved['NPDRecipe'],json.loads(item.get('ProductGradeSnapshot') or '{}'))
     saved.setdefault("Inputs",{})["PalletUSDPerEA"]=str(palletization_usd(item)) if palletization_usd(item) is not None else None
-    return {"lossDefaults":active_loss_defaults(ctx),"lossMasters":active_loss_masters(ctx),"item":item,"saved":saved,
+    from recipe_components import catalog
+    with get_raw_cursor() as cur:component_config=catalog(cur)
+    if not item.get('InactiveTCBVersion'):
+        from recipe_scope import normalize_seasoning_scope
+        roots=['0/'+str(g['ID']) for g in json.loads(item.get('ProductGradeSnapshot') or '{}').get('items',[]) if str(g.get('ParentID'))=='0']
+        normalized=normalize_seasoning_scope(saved['Inputs'],component_config,saved.get('NPDRecipe'),roots)
+        if normalized!=saved['Inputs'] and grades:
+            from tcb_costs import grade_loss_results
+            try:saved['ProcessLossSnapshots']=grade_loss_results(Inputs(**normalized),grades,item.get('WeightGrams'))
+            except ValueError:saved['ProcessLossSnapshots']=[]
+        saved['Inputs']=normalized
+    with get_raw_cursor() as cur:item['HasLinkedRecipeRequest']=bool(cur.execute('SELECT ID FROM dbo.NPDRecipeRequestItem WHERE OpportunityItemID=? AND IsLinked=1',item_id).fetchone())
+    return {"recipeComponents":component_config,"lossDefaults":active_loss_defaults(ctx),"lossMasters":active_loss_masters(ctx),"item":item,"saved":saved,
             "grades":json.loads(json.dumps(grades,default=serial)),
             "prices":current_prices(grades,ctx) if grades else [],"gradeError":error}
 
@@ -129,6 +143,19 @@ def apply_formula_variables(item,inputs):
 
 def resolve_loss_assignments(item, inputs, ctx):
     """Preserve existing immutable steps; new/replaced steps must come from Master."""
+    from npd_recipes import seasoning_inputs,recipe_source_state
+    approved=recipe_source_state(json.loads(item.get('TCBCostInfo') or '{}').get('NPDRecipe'),json.loads(item.get('ProductGradeSnapshot') or '{}'))
+    if not item.get('IsMixParent'):
+        from recipe_components import catalog
+        from tcb_costs import process_paths
+        if inputs.ProcessLosses is not None:
+            active={'0',*process_paths(grade_leaves(item))}
+            inputs.ProcessLosses=[stage for stage in inputs.ProcessLosses if stage.Path in active]
+        with get_raw_cursor() as cur:config=catalog(cur)
+        from recipe_scope import validate_seasoning_scope
+        validate_seasoning_scope(inputs.model_dump(mode='json'),config,approved,json.loads(item.get('ProductGradeSnapshot') or '{}').get('RequiresRecipeConfirmation',False))
+        paths=['0/'+str(g['ID']) for g in json.loads(item.get('ProductGradeSnapshot') or '{}').get('items',[]) if g['ParentID']=='0']
+        inputs=Inputs(**seasoning_inputs(inputs.model_dump(mode='json'),approved,config,paths))
     if inputs.ProcessLosses:
         resolve_stage_codes(item,inputs,ctx)
         inputs=Inputs(**inputs.model_dump(mode="json"))
@@ -178,19 +205,22 @@ def resolve_stage_codes(item,inputs,ctx):
     previous.extend({"MasterID":step.get("MasterID"),"MasterVersion":step.get("MasterVersion"),"ProcessName":step.get("ProcessName") or step.get("ProcessType"),"Shared":step.get("Shared",False)}
                     for step in saved.get("LossProcesses") or [] if step.get("ProcessType") in ("Processing","Sorting"))
     identity=lambda code:(code.get("MasterID"),str(code.get("MasterVersion") or "").lower(),code.get("ProcessName"))
+    from recipe_components import catalog
+    from recipe_scope import seasoning_ids
+    with get_raw_cursor() as cur:seasoning=seasoning_ids(catalog(cur))
     masters=None
     for row in inputs.ProcessLosses:
         for code in row.Codes or []:
             old=next((p for p in previous if identity(p)==identity(code.model_dump())),None)
             if old:
-                code.Shared=bool(old.get("Shared"))
+                code.Shared=False if code.MasterID in seasoning else bool(old.get("Shared"))
                 continue
             if masters is None:masters={m["MasterID"]:m for m in active_loss_masters(ctx)}
             master=masters.get(code.MasterID)
             if not master or str(master["MasterVersion"]).lower()!=str(code.MasterVersion).lower():
                 raise HTTPException(409,"Process Type changed or is blocked. Refresh and reselect the type.")
             code.ProcessName=master["ProcessName"]
-            code.Shared=bool(master.get("Shared"))
+            code.Shared=False if code.MasterID in seasoning else bool(master.get("Shared"))
 
 def palletization_usd(item):
     value=item.get("DefaultPalletUSDPerEA")
@@ -216,7 +246,7 @@ def compute(item, inputs, ctx):
             raise HTTPException(422,"Loss process is not applicable to this product or packaging layer count.")
     if item["IsMixParent"]:
         default = Inputs()
-        product_keys = ("RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb",
+        product_keys = ("RMRatio","SeasoningCostBasis","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb",
                         "OilPct","ProcessingUSDPerLb","LossProductPct","ProductLossFormula")
         if inputs.Prices or inputs.MaterialCosts or inputs.ProcessLosses or any(getattr(inputs,k)!=getattr(default,k) for k in product_keys):
             raise HTTPException(422,"Product costing applies to regular products and Mix children, not Mix parents.")
@@ -248,7 +278,7 @@ def save(body: Save,item_id: int = Path(ge=1),ctx: AccessContext=Depends(get_acc
         raise HTTPException(409,"Only Draft Opportunity items can edit TCB.")
     body.Inputs = resolve_loss_assignments(item,body.Inputs,ctx)
     results = compute(item,body.Inputs,ctx)
-    value = {"Inputs":body.Inputs.model_dump(mode="json"),**results,
+    value = {**json.loads(item.get('TCBCostInfo') or '{}'),"Inputs":body.Inputs.model_dump(mode="json"),**results,
              "GradeSnapshot":json.loads(item["ProductGradeSnapshot"] or "{}")}
     row = execute("EXEC dbo.usp_OpportunityTCB_Save ?,?,?,?",
                   [ctx.username,item_id,version,json.dumps(value,default=serial)])[0][0]
@@ -323,14 +353,16 @@ def commercial_value(body,item,ctx,cursor):
     if body.Grades is not None:
         if item["IsMixParent"]: raise HTTPException(422,"Mix parent grades belong to its children.")
         if item.get("HasOpenPackagingRequest"): raise HTTPException(409,"Grades are captured by an active Packaging Request.")
-        snapshot=body.Grades.model_dump(mode="json")
+        snapshot={**snapshot,'items':body.Grades.model_dump(mode='json')['items']}
         validate_snapshot(cursor,snapshot)
+    from npd_recipes import recipe_source_state
+    if value.get('NPDRecipe'):value['NPDRecipe']=recipe_source_state(value['NPDRecipe'],snapshot)
     old=value.get("Inputs",{})
     new={**old}
     if body.CostInputs is not None:
         if item.get("ParentItemID") and body.CostInputs.PackingUSDPerLb is not None:
             raise ValueError("Packing cost is maintained on the Mix parent, not its children.")
-        fields=["PalletUSDPerEA","PackingUSDPerLb"] if item["IsMixParent"] else ["PackingUSDPerLb","ProcessLosses","ProcessLossMode","ProcessLossLayout","ProcessLossFormulas","MaterialCosts","RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb","OilPct","ProcessingUSDPerLb","PalletUSDPerEA"]
+        fields=["PalletUSDPerEA","PackingUSDPerLb"] if item["IsMixParent"] else ["SeasoningCostBasis","Components","PackingUSDPerLb","ProcessLosses","ProcessLossMode","ProcessLossLayout","ProcessLossFormulas","MaterialCosts","RMRatio","SeasoningUSDPerLb","SeasoningRatio","OilUSDPerLb","OilPct","ProcessingUSDPerLb","PalletUSDPerEA"]
         new.update({field:body.CostInputs.model_dump(mode="json")[field] for field in fields})
     if body.Inputs is not None:
         new.update(ProductLossFormula=body.Inputs.ProductLossFormula,
@@ -345,7 +377,16 @@ def commercial_value(body,item,ctx,cursor):
     elif body.Grades is not None:
         new["Prices"]=[]
     new["PalletUSDPerEA"]=palletization_usd(item)
-    inputs=resolve_loss_assignments(item,Inputs(**new),ctx)
+    from npd_recipes import seasoning_inputs
+    from recipe_components import catalog,validate_assignments
+    config=catalog(cursor)
+    from recipe_scope import validate_seasoning_scope
+    supplied=body.CostInputs if body.CostInputs is not None else body.Inputs
+    if supplied is not None:validate_seasoning_scope(supplied.model_dump(mode='json'),config,value.get('NPDRecipe'),snapshot.get('RequiresRecipeConfirmation',False))
+    if not item['IsMixParent']:new=seasoning_inputs(new,value.get('NPDRecipe'),config,['0/'+str(g['ID']) for g in snapshot.get('items',[]) if g['ParentID']=='0'])
+    inputs=resolve_loss_assignments({**item,'ProductGradeSnapshot':json.dumps(snapshot)},Inputs(**new),ctx)
+    if inputs.Components is not None or any(r.Components is not None for r in inputs.MaterialCosts):
+        validate_assignments(inputs,value,config,snapshot.get('RequiresRecipeConfirmation',False))
     allowed={"Mix"+p if item["IsMixParent"] else p for p in ["PrimaryPackaging","SecondaryPackaging","TertiaryPackaging","QuaternaryPackaging"][:int(item.get("LossLayerCount") or 1)]}
     if not item["IsMixParent"]: allowed.update(("Sorting","Processing"))
     if any(s.ProcessType not in allowed for s in inputs.LossProcesses or []):
@@ -363,13 +404,15 @@ def commercial_value(body,item,ctx,cursor):
             raise ValueError("Material costing refers to a removed or non-leaf grade. Refresh grades.")
         # Validate every selected quote, even when some leaves remain unpriced.
         partial=Inputs(**{**inputs.model_dump(mode="json"),"RMRatio":0,"SeasoningRatio":100,
-                         "SeasoningUSDPerLb":0,"OilPct":0,"MaterialCosts":[]})
+                         "SeasoningUSDPerLb":0,"OilPct":0,"Components":None,"MaterialCosts":[]})
         results=calculate(partial,grade_list,{p["PriceID"]:p for p in prices},allow_unpriced=True,weight=item.get("WeightGrams"))
         if grade_list and len(inputs.Prices)==len(grade_list):
             results=calculate(inputs,grade_list,{p["PriceID"]:p for p in prices},weight=item.get("WeightGrams"))
         else:
             results.update(RMCostUSDPerLb=None,ProductUSDPerLb=None,MaterialCostSnapshots=[])
     value={**value,**results,"Inputs":inputs.model_dump(mode="json"),"GradeSnapshot":snapshot}
+    if snapshot.get('RequiresRecipeConfirmation') and (not value.get('NPDRecipe') or value['NPDRecipe'].get('Stale')):
+        value['ProductUSDPerLb']=None
     return value,snapshot,grade_list,prices
 
 @router.post("/{item_id}/commercial/preview")

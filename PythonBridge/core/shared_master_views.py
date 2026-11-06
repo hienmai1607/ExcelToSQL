@@ -7,8 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from master_models import MasterSort
 
 LABELS = {
+ "recipe-components":{"ComponentName":"Component name","Status":"Status"},
+ "ingredients":{"IngredientCode":"Ingredient code","Description":"Description","GradeNature":"Grade/ type/ nature","Origin":"Origin","BaseUoM":"Base UoM","Status":"Status"},
+ "ingredient-prices":{"IngredientCode":"Ingredient code","Description":"Description","VendorName":"Vendor","UnitPrice":"Price","CurrencyCode":"Currency","PriceUnit":"Price unit","QuantityFrom":"Quantity from","QuantityTo":"Quantity to (exclusive)","EffectiveFrom":"Effective from","EffectiveTo":"Effective to","Status":"Status"},
  "grade-densities":{"Combination":"Nuts / grades / ratio","NutDensity":"Nut density (g/ml)","UpdatedAt":"Updated / Created","UpdatedByName":"User"},
- "categories": {"CategoryName":"Category name","Status":"Status"}, "loss-defaults":{"GradeName":"Grade","ProcessType":"Process Type","LossPct":"Loss (%)","Status":"Status"}, "loss-processes": {"ProcessType":"Process Type","Shared":"Shared","Status":"Status"},
+ "categories": {"CategoryName":"Category name","Status":"Status"}, "loss-defaults":{"GradeName":"Grade","ProcessType":"Process Type","LossPct":"Loss (%)","Status":"Status"}, "loss-processes": {"ProcessType":"Process Type","ComponentNames":"Recipe Components","Shared":"Shared","Status":"Status"},
  "ports": {"PortName":"Port name","CustomerName":"Customer","MarketCode":"Market code","MarketName":"Market","Status":"Status"}
 }
 def check_shared_layout(entity,layout):
@@ -43,12 +46,12 @@ def listing(entity,ctx,execute,auth,source,selection,search_columns,search,statu
          "total":sets[1][0]["TotalRows"],"page":page}
 class SharedExport(BaseModel):
  model_config=ConfigDict(extra="forbid")
- columns:list[str]=Field(min_length=1,max_length=8)
+ columns:list[str]=Field(min_length=1,max_length=30)
  rows:list[list[str|None]]=Field(max_length=500)
 def export_view(entity,body):
  from preferences_api import snapshot_xlsx
  if len(body.columns)!=len(set(body.columns)) or any(c not in LABELS[entity] for c in body.columns):
   raise HTTPException(422,"Invalid export columns.")
- return Response(snapshot_xlsx(body,LABELS[entity],{"grade-densities":"Grade Density Master","loss-defaults":"Loss Process Master","loss-processes":"Process Types","ports":"Ports of Entry","categories":"Category Master"}[entity]),
+ return Response(snapshot_xlsx(body,LABELS[entity],{"recipe-components":"Recipe Components","ingredients":"Ingredients Master","ingredient-prices":"Ingredient Pricing","grade-densities":"Grade Density Master","loss-defaults":"Loss Process Master","loss-processes":"Process Types","ports":"Ports of Entry","categories":"Category Master"}[entity]),
   media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   headers={"Content-Disposition":f'attachment; filename="{entity}.xlsx"',"Cache-Control":"no-store"})

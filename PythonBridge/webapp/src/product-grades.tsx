@@ -15,8 +15,8 @@ import './product-grades.css';
 export type RawGradeOption={ID:number;ParentGradeID?:number|null;GradeName:string;FinalGrade?:boolean};
 export type RawMaterialOption={ID:number;GradeID:number;MaterialCode:string;MaterialName:string;Status:string};
 export type GradeItem={Process?:boolean|null;RawGradeID?:number|null;RawMaterialID?:number|null;ParentID:string;ID:number;Grade:string;RatioPct:string};
-export type GradeDraft={Status:'Draft'|'Active';items:GradeItem[]};
-type Version={ID:number;Version:number;Status:'Draft'|'Active'|'Inactive';RowVersion:string};
+export type GradeDraft={RequiresRecipeConfirmation?:boolean;Status:'Draft'|'Active';items:GradeItem[]};
+type Version={RequiresRecipeConfirmation?:boolean;ID:number;Version:number;Status:'Draft'|'Active'|'Inactive';RowVersion:string};
 type GradeData={product:Row;versions:Version[];items:(GradeItem&{VersionID:number})[]};
 const path=(i:GradeItem)=>i.ParentID+'/'+i.ID;
 const depth=(s:string)=>s.split('/').length-1;
@@ -50,14 +50,15 @@ export function ProductGrades({product,initial,onApply,onClose,onSaved,tabs,snap
  .then(r=>{if(active){setRawGrades(r.rows);setRawMaterials(r.materials||[]);setGradeLookupError('')}}).catch(e=>{if(active)setGradeLookupError('Unable to load Raw Grade Master: '+e.message)}).finally(()=>{if(active)setLookupBusy(false)});
  return()=>{active=false}},[snapshotMode]);
  const [data,setData]=useState<GradeData|null>(null),[version,setVersion]=useState<Version|null>(null);
+ const [recipeConfirmation,setRecipeConfirmation]=useState(!!initial?.RequiresRecipeConfirmation);
  const [items,setItems]=useState<GradeItem[]>(()=>copy(initial?.items||[])),[status,setStatus]=useState<'Draft'|'Active'>(initial?.Status||'Draft');
  const [busy,setBusy]=useState(!!product),[error,setError]=useState(''),[confirm,setConfirm]=useState(false),[uncertain,setUncertain]=useState(false);
  const baseline=useRef(JSON.stringify({items:copy(initial?.items||[]),status:initial?.Status||'Draft'})),lock=useRef(false);
- const dirty=JSON.stringify({items,status})!==baseline.current;
+ const dirty=JSON.stringify({items,status})!==baseline.current||recipeConfirmation!==!!(version?.RequiresRecipeConfirmation??initial?.RequiresRecipeConfirmation);
  const readonly=!!version&&version.Status!=='Draft';
  function select(v:Version|null,all:GradeData){
   const next=v?copy(all.items.filter(i=>i.VersionID===v.ID)):[];
-  setVersion(v);setItems(next);setStatus(v?.Status==='Active'?'Active':'Draft');setError('');setUncertain(false);
+  setVersion(v);setRecipeConfirmation(!!v?.RequiresRecipeConfirmation);setItems(next);setStatus(v?.Status==='Active'?'Active':'Draft');setError('');setUncertain(false);
   baseline.current=JSON.stringify({items:next,status:v?.Status==='Active'?'Active':'Draft'});
  }
  async function load(preferred?:number){
@@ -89,16 +90,16 @@ export function ProductGrades({product,initial,onApply,onClose,onSaved,tabs,snap
   }catch(exc){setGradeLookupError('Master saved, but choices could not be refreshed. Do not create it again. '+(exc as Error).message)}
   finally{setMasterRefresh(false)}
  }
- function review(){if(lookupBusy||gradeLookupError||masterRefresh||retryMaster)return;const message=gradeError(items)||(items.some(i=>i.ParentID==='0'&&rawGrades.some(g=>g.ID===i.RawGradeID&&g.ParentGradeID!=null))?'Level 1 grades must have no parent in Raw Grade Master. Reselect incompatible grades.':'')||(items.some(i=>rawGrades.some(g=>g.ID===i.RawGradeID&&g.FinalGrade===true)&&items.some(child=>child.ParentID===path(i)))?'A final grade cannot have child grades.':'')|| (items.some(i=>i.ParentID!=='0'&&!rawGrades.some(g=>g.ID===i.RawGradeID&&g.ParentGradeID===items.find(p=>path(p)===i.ParentID)?.RawGradeID))?'Each child grade must belong to its selected parent in Raw Grade Master. Reselect incompatible children.':'')|| (items.some(i=>!rawGrades.some(g=>g.ID===i.RawGradeID))?'Choose an active Raw Grade for every item. Legacy or blocked grades must be reselected.':'')|| (items.some(i=>i.RawMaterialID&&(!rawGrades.some(g=>g.ID===i.RawGradeID&&g.FinalGrade===true)||!rawMaterials.some(m=>m.ID===i.RawMaterialID&&m.GradeID===i.RawGradeID&&m.Status==='Active')))?'Choose an active Raw Material assigned to the selected final grade.':'');setError(message);if(message)return;if(!product){onApply?.({Status:status,items:savedProcessTree(copy(items))});onClose()}else setConfirm(true)}
+ function review(){if(lookupBusy||gradeLookupError||masterRefresh||retryMaster)return;const message=gradeError(items)||(items.some(i=>i.ParentID==='0'&&rawGrades.some(g=>g.ID===i.RawGradeID&&g.ParentGradeID!=null))?'Level 1 grades must have no parent in Raw Grade Master. Reselect incompatible grades.':'')||(items.some(i=>rawGrades.some(g=>g.ID===i.RawGradeID&&g.FinalGrade===true)&&items.some(child=>child.ParentID===path(i)))?'A final grade cannot have child grades.':'')|| (items.some(i=>i.ParentID!=='0'&&!rawGrades.some(g=>g.ID===i.RawGradeID&&g.ParentGradeID===items.find(p=>path(p)===i.ParentID)?.RawGradeID))?'Each child grade must belong to its selected parent in Raw Grade Master. Reselect incompatible children.':'')|| (items.some(i=>!rawGrades.some(g=>g.ID===i.RawGradeID))?'Choose an active Raw Grade for every item. Legacy or blocked grades must be reselected.':'')|| (items.some(i=>i.RawMaterialID&&(!rawGrades.some(g=>g.ID===i.RawGradeID&&g.FinalGrade===true)||!rawMaterials.some(m=>m.ID===i.RawMaterialID&&m.GradeID===i.RawGradeID&&m.Status==='Active')))?'Choose an active Raw Material assigned to the selected final grade.':'');setError(message);if(message)return;if(!product){onApply?.({RequiresRecipeConfirmation:recipeConfirmation,Status:status,items:savedProcessTree(copy(items))});onClose()}else setConfirm(true)}
  async function save(){
   if(lock.current||!data||uncertain)return;lock.current=true;setBusy(true);setError('');
   try{
-   const result=await call<{ID:number}>('/api/workbench/products/'+product!.ID+'/grades',{VersionID:version?.ID??null,RowVersion:version?.RowVersion??null,ProductRowVersion:data.product.RowVersion,Status:status,items:savedProcessTree(items)});
+   const result=await call<{ID:number}>('/api/workbench/products/'+product!.ID+'/grades',{VersionID:version?.ID??null,RowVersion:version?.RowVersion??null,ProductRowVersion:data.product.RowVersion,Status:status,RequiresRecipeConfirmation:recipeConfirmation,items:savedProcessTree(items)});
    onSaved?.();await load(result.ID);
   }catch(e){if(e instanceof ApiError&&(e.status===0||e.status>=500)){setUncertain(true);setError('Save outcome unknown. Reload versions before trying again.')}else setError(e instanceof Error?e.message:'Unable to save grades.')}
   finally{lock.current=false;setBusy(false);setConfirm(false)}
  }
- const headerControls=<div className="grade-header-controls"><IconButton icon="copy" label="Copy grades" disabled={readonly||busy||uncertain||lookupBusy||masterRefresh||!!retryMaster||!!gradeLookupError||!!product&&!data} onClick={()=>setCopyOpen(true)}/>{(product||!snapshotMode)&&<div className="grade-controls"><div className="grade-version-bar">
+ const headerControls=<div className="grade-header-controls"><label className="recipe-confirmation-toggle"><input type="checkbox" aria-label="Requires Recipe confirmation" checked={recipeConfirmation} disabled={readonly||busy||uncertain} onChange={e=>setRecipeConfirmation(e.target.checked)}/>Requires Recipe confirmation</label><IconButton icon="copy" label="Copy grades" disabled={readonly||busy||uncertain||lookupBusy||masterRefresh||!!retryMaster||!!gradeLookupError||!!product&&!data} onClick={()=>setCopyOpen(true)}/>{(product||!snapshotMode)&&<div className="grade-controls"><div className="grade-version-bar">
    {product&&<><label>Version<select aria-label="Grade version" disabled={busy||!data} value={version?.ID||''} onChange={e=>{if(dirty&&!window.confirm('Discard unsaved grade changes?'))return;select(data!.versions.find(v=>String(v.ID)===e.target.value)||null,data!)}}><option value="">New version</option>{data?.versions.map(v=><option key={v.ID} value={v.ID}>{'Version '+v.Version+' · '+v.Status}</option>)}</select></label>
    <IconButton icon="plus" label="New version" disabled={view==='pricing'||busy||!data||uncertain} onClick={()=>{if(dirty&&!window.confirm('Create a new version from these unsaved grades?'))return;setVersion(null);setStatus('Draft');baseline.current=JSON.stringify({items:[],status:'Draft'});setError('')}}/>
    <IconButton icon="refresh" label="Reload grade versions" disabled={busy} onClick={()=>{if(!dirty||window.confirm('Discard unsaved grade changes and reload?'))void load(version?.ID)}}/></>}

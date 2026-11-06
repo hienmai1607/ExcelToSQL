@@ -5,6 +5,7 @@ import {withTCBGrades,activeCostInputs} from './tcb-grade-pricing';
 import {TCBVersionControls} from './tcb-versions';
 import {TCBComparison} from './tcb-comparison';
 import {ProcessLossEditor} from './process-loss-editor';
+import {syncRecipeComponents} from './recipe-components';
 import type {GradeLossResult} from './grade-process-loss';
 import {call,type Row} from './api';
 import {Modal,Notification} from './ui';
@@ -65,7 +66,7 @@ export function TCBReview({rows,onClose,onSaved}:{rows:Row[];onClose:()=>void;on
  }
  function close(){if(!busy&&(!changed.length||window.confirm('Discard unsaved Opportunity item changes?')))onClose()}
  useEffect(()=>{const unload=(e:BeforeUnloadEvent)=>{if(changed.length||busy){e.preventDefault();e.returnValue=''}},nav=(e:Event)=>{if(busy||(changed.length&&!window.confirm('Discard unsaved Opportunity item changes?')))e.preventDefault()};window.addEventListener('beforeunload',unload);window.addEventListener('bridge:navigate',nav);return()=>{window.removeEventListener('beforeunload',unload);window.removeEventListener('bridge:navigate',nav)}},[changed.length,busy]);
- function update(id:number,fn:(d:Draft)=>Draft){setFormulaResults(results=>{const next={...results};delete next[id];return next});setDrafts(ds=>ds.map(d=>Number(d.row.ItemID)===id?fn(d):d));setReview(null);setMessage('');setError('')}
+ function update(id:number,fn:(d:Draft)=>Draft){setFormulaResults(results=>{const next={...results};delete next[id];return next});setDrafts(ds=>ds.map(d=>Number(d.row.ItemID)===id?syncRecipeComponents(fn(d)):d));setReview(null);setMessage('');setError('')}
  function changeGrades(id:number,fn:(items:GradeItem[])=>GradeItem[]){update(id,d=>withTCBGrades(d,fn(d.grades)))}
  function versionPayload(d:Draft){return {...commercialPayload(d),CostInputs:activeCostInputs(d),VersionRowVersion:d.tcbVersion!.RowVersion}}
  function previewPath(d:Draft){return '/api/opportunity/items/'+d.row.ItemID+(d.tcbVersion?'/tcb-versions/'+d.tcbVersion.ID+'/preview':'/commercial/preview')}

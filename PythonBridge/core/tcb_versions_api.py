@@ -114,6 +114,8 @@ def version_read(item_id:ID,version_id:ID,ctx:AccessContext=Depends(get_access_c
     if not version["IsActive"]:
         data["item"]={**frozen_item(data["item"],version),"InactiveTCBVersion":True}
         captured=next((r for r in rows if r.get("ItemID")==item_id),{})
+        if (captured.get('TCBContext') or {}).get('recipeComponents') is not None:
+            data['recipeComponents']=captured['TCBContext']['recipeComponents']
         if "WeightGrams" in captured: data["item"]["WeightGrams"]=captured["WeightGrams"]
         data["saved"]=json.loads(version["SavedJSON"])
         snapshot=json.loads(version["GradeJSON"]);data["grades"]=leaves(snapshot.get("items",[])) if snapshot.get("items") and not data["item"]["IsMixParent"] else []

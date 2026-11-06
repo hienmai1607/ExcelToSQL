@@ -48,6 +48,8 @@ from db import (
 )
 from cache import cached, invalidate
 from packaging_api import router as packaging_router
+from npd_api import router as npd_router
+from recipe_component_api import router as recipe_component_router
 from schemas import (
     ProductBatchRequest,
     OpportunityBatchRequest,
@@ -83,6 +85,8 @@ app.include_router(opportunity_excel_router)
 app.include_router(packaging_excel_router)
 app.include_router(packaging_master_excel_router)
 app.include_router(packaging_router)
+app.include_router(npd_router)
+app.include_router(recipe_component_router)
 app.include_router(workbench_router)
 app.include_router(unit_conversion_router)
 app.include_router(pallet_router)
@@ -658,7 +662,7 @@ def opportunity_grid_read(
 ):
     _require_scope(is_admin, scopes, "Opportunity")
     return sorted_grid(username, page, page_size, sort or "[]", opportunity_number,
-                       customer_name, stage, bid_open_from, bid_open_to, created_by if isinstance(created_by,str) else None)
+                       customer_name, stage, bid_open_from, bid_open_to, created_by if isinstance(created_by,str) else None, can_read_recipe_drafts=is_admin or bool(scopes & {'NPD','NPDManager'}))
 
 
 @app.get("/api/opportunity/{opportunity_number}/items")

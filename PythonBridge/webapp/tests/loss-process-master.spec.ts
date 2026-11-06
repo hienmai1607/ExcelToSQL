@@ -7,6 +7,7 @@ async function open(page:Page,admin=true){
   const path=new URL(route.request().url()).pathname;
   if(path.endsWith('/session'))return route.fulfill({json:{username:admin?'Admin':'Sales',user_id:1,is_admin:admin,scopes:admin?['Admin','Opportunity']:['Opportunity']}});
   if(path.endsWith('/preferences'))return route.fulfill({json:{settings:{},version:0}});
+  if(path==='/api/recipe-components')return route.fulfill({json:{rows:[{ID:1,ComponentName:'Salt',SystemKey:'Salt',Status:'Active'},{ID:2,ComponentName:'Oil',SystemKey:'Oil',Status:'Active'},{ID:3,ComponentName:'Seasoning',SystemKey:'Seasoning',Status:'Active'}],total:3,page:1}});
   if(path==='/api/loss-processes'){
    if(route.request().method()==='POST'){writes.push(route.request().postDataJSON());return route.fulfill({json:{ID:1,RowVersion:rv}})}
    return route.fulfill({json:{rows:[{ID:1,ProcessType:'Sorting',Sequence:1,LossPct:'5',Status:'Active',RowVersion:rv}],total:1,page:1}});
@@ -46,6 +47,14 @@ test('Opportunity users can inspect the master without editing',async({page})=>{
  await expect(dialog.getByRole('button',{name:'Review & save',exact:true})).toHaveCount(0);
  await dialog.getByRole('button',{name:'Close Process Type',exact:true}).click();
  await expect(dialog).not.toBeVisible();expect(writes).toEqual([]);
+});
+
+test('Process Types maintains multiple Recipe Components and exposes the mapping column',async({page},info)=>{
+ const writes=await open(page);await expect(page.getByRole('columnheader',{name:/Recipe Components/})).toBeVisible();
+ await page.getByRole('button',{name:'View Process Type 1',exact:true}).click();const dialog=page.getByRole('dialog',{name:'Edit Process Type',exact:true});
+ await dialog.getByLabel('Process Type',{exact:true}).fill('Oil Salted Roasting');await dialog.getByLabel('Component Oil',{exact:true}).check();await dialog.getByLabel('Component Salt',{exact:true}).check();
+ await dialog.screenshot({path:info.outputPath('process-recipe-component-mapping.png')});
+ await dialog.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();expect(writes[0]).toMatchObject({ProcessType:'Oil Salted Roasting',ComponentIDs:[2,1]});
 });
 
 test('Add shared master record smoothly reveals the new section',async({page})=>{

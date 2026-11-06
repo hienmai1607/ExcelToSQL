@@ -63,6 +63,8 @@ def grade_copy(product_id: int = Path(ge=1), ctx: AccessContext = Depends(get_ac
 def read(product_id: int = Path(ge=1), ctx: AccessContext = Depends(get_access_context)):
     require(ctx, "Product")
     sets = execute("EXEC dbo.usp_ProductGrade_Read ?,?", [product_id, ctx.username])
+    flags=execute('SELECT ID,RequiresRecipeConfirmation FROM dbo.ProductGradeVersion WHERE ProductID=?',[product_id])[0]
+    for version in sets[1]:version['RequiresRecipeConfirmation']=next((r['RequiresRecipeConfirmation'] for r in flags if r['ID']==version['ID']),False)
     return {"product": sets[0][0], "versions": sets[1], "items": sets[2]}
 
 
@@ -70,13 +72,22 @@ def read(product_id: int = Path(ge=1), ctx: AccessContext = Depends(get_access_c
 def save(body: GradeSave, product_id: int = Path(ge=1), ctx: AccessContext = Depends(get_access_context)):
     require(ctx, "Product")
     import json
-    sets = execute("EXEC dbo.usp_ProductGrade_Save ?,?,?,?,?,?,?", [
-        product_id, ctx.username, body.VersionID, rv(body.RowVersion, False),
-        rv(body.ProductRowVersion), body.Status,
-        json.dumps([item.model_dump(mode="json") for item in body.items]),
-    ])
+    from db import get_raw_cursor,bytes_to_b64
+    from packaging_fields import consume
+    with get_raw_cursor() as cur:
+        cur.execute('BEGIN TRANSACTION')
+        try:
+            cur.execute('EXEC dbo.usp_ProductGrade_Save ?,?,?,?,?,?,?',product_id,ctx.username,body.VersionID,rv(body.RowVersion,False),rv(body.ProductRowVersion),body.Status,json.dumps([item.model_dump(mode='json') for item in body.items]))
+            sets=consume(cur);result=sets[0][0]
+            if body.RequiresRecipeConfirmation is not None:
+                cur.execute('UPDATE dbo.ProductGradeVersion SET RequiresRecipeConfirmation=? WHERE ID=?',body.RequiresRecipeConfirmation,result['ID'])
+                result['RowVersion']=cur.execute('SELECT RowVersion FROM dbo.ProductGradeVersion WHERE ID=?',result['ID']).fetchval()
+            cur.execute('COMMIT')
+            result={k:bytes_to_b64(v) if isinstance(v,bytes) else v for k,v in result.items()}
+        except Exception:
+            cur.execute('IF @@TRANCOUNT>0 ROLLBACK');raise
     invalidate("opportunity_master_lookups")
-    return sets[0][0]
+    return result
 
 
 # Read-only POST: supports selected grades in unsaved Product drafts as well as saved versions.

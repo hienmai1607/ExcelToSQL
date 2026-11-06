@@ -31,9 +31,17 @@ export function tcbInputIssues(d:Draft):TCBIssue[]{
    if(value!==null&&value!==''&&!quantity(value,true))issues.push({field:prefix+key,message:'Enter a non-negative numeric value.'});
    else if((key.endsWith('Ratio')||key==='OilPct')&&Number(value)>100)issues.push({field:prefix+key,message:'Ratios must be between 0 and 100%.'});
    else if(value!==null&&value!==''&&!/^(?:\d{1,13}(?:\.\d{1,6})?|\.\d{1,6})$/.test(String(value)))issues.push({field:prefix+key,message:'Use up to 6 decimal places.'});
-   else if((key.endsWith('Ratio')||key==='OilPct')&&value!=null&&!/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(String(value)))issues.push({field:prefix+key,message:'Ratios support up to 2 decimal places.'});
+   else if((key.endsWith('Ratio')||key==='OilPct')&&value!=null&&!/^(?:\d+(?:\.\d{1,6})?|\.\d{1,6})$/.test(String(value)))issues.push({field:prefix+key,message:'Ratios support up to 6 decimal places.'});
   }
-  if(!recipeCost(i,quantity('0',true)).balanced&&!issues.some(x=>x.field.startsWith(prefix)&&['RMRatio','SeasoningRatio','OilPct'].some(k=>x.field===prefix+k)))issues.push({field:prefix+'RMRatio',message:'RM + Seasoning/salt + Oil ratios must total 100%.'});
+  if(Array.isArray(i.Components))for(const component of i.Components){
+   for(const field of ['USDPerLb','RatioPct'] as const){
+    const value=component[field],key=prefix+'Component:'+component.ComponentID+':'+field;
+    if(value!=null&&value!==''&&!/^(?:\d{1,13}(?:\.\d{1,6})?|\.\d{1,6})$/.test(String(value)))issues.push({field:key,message:component.ComponentName+': enter a non-negative number with up to 6 decimals.'});
+    else if(field==='RatioPct'&&Number(value)>100)issues.push({field:key,message:component.ComponentName+': ratio must be between 0 and 100%.'});
+   }
+   if(Number(component.RatioPct)>0&&quantity(component.USDPerLb,true)===null)issues.push({field:prefix+'Component:'+component.ComponentID+':USDPerLb',message:'Enter '+component.ComponentName+' cost when its ratio is above zero.'});
+  }
+  if(!recipeCost(i,quantity('0',true)).balanced&&!issues.some(x=>x.field.startsWith(prefix)&&['RMRatio','SeasoningRatio','OilPct'].some(k=>x.field===prefix+k)))issues.push({field:prefix+'RMRatio',message:'RM plus all Recipe Component ratios must total 100%.'});
   if(Number(i.SeasoningRatio)>0&&quantity(i.SeasoningUSDPerLb,true)===null)issues.push({field:prefix+'SeasoningUSDPerLb',message:'Enter Seasoning/salt cost when its ratio is above zero.'});
   if(Number(i.OilPct)>0&&quantity(i.OilUSDPerLb,true)===null)issues.push({field:prefix+'OilUSDPerLb',message:'Enter Oil cost when its percentage is above zero.'});
   if(quantity(i.ProcessingUSDPerLb,true)===null&&!issues.some(x=>x.field===prefix+'ProcessingUSDPerLb'))issues.push({field:prefix+'ProcessingUSDPerLb',message:'Enter Processing cost (zero is allowed).'});

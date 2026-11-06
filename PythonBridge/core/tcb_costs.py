@@ -3,10 +3,13 @@ from decimal import Decimal
 import json
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from recipe_components import ComponentCost,component_contribution,validate_recipe
 from grade_process_loss import GradeProcessLoss,process_loss_results
 
 Money = Annotated[Decimal, Field(ge=0, max_digits=19, decimal_places=6, allow_inf_nan=False)]
 Pct = Annotated[Decimal, Field(ge=0, le=100, max_digits=5, decimal_places=2, allow_inf_nan=False)]
+
+RecipePct = Annotated[Decimal, Field(ge=0,le=100,max_digits=9,decimal_places=6,allow_inf_nan=False)]
 
 LOSS_FIELDS = ("LossProductPct","PrimaryLossPct","SecondaryLossPct","TertiaryLossPct","QuaternaryLossPct",
                "MixPrimaryLossPct","MixSecondaryLossPct","MixTertiaryLossPct")
@@ -54,28 +57,26 @@ class Selection(BaseModel):
         return self
 
 class Recipe(BaseModel):
+    Components:list[ComponentCost]|None=Field(None,max_length=100)
     model_config = ConfigDict(extra="forbid")
-    RMRatio: Pct = Decimal(100)
+    RMRatio: RecipePct = Decimal(100)
     SeasoningUSDPerLb: Money | None = None
-    SeasoningRatio: Pct = Decimal(0)
+    SeasoningRatio: RecipePct = Decimal(0)
+    SeasoningCostBasis: Literal["Ingredient","FinishedProduct"] = "Ingredient"
     OilUSDPerLb: Money | None = None
-    OilPct: Pct = Decimal(0)
+    OilPct: RecipePct = Decimal(0)
     ProcessingUSDPerLb: Money = Decimal(0)
 
     @model_validator(mode="after")
     def recipe_valid(self):
-        if self.RMRatio + self.SeasoningRatio + self.OilPct != 100:
-            raise ValueError("RM + Seasoning/salt + Oil ratios must total 100%.")
-        if self.SeasoningRatio and self.SeasoningUSDPerLb is None:
-            raise ValueError("Enter Seasoning/salt cost when its ratio is above zero.")
-        if self.OilPct and self.OilUSDPerLb is None:
-            raise ValueError("Enter Oil cost when its percentage is above zero.")
+        validate_recipe(self)
         return self
 
 class MaterialCost(Recipe):
     Path: str = Field(pattern=r"^0(?:/[1-9][0-9]{0,3}){1,12}$")
 
 class Inputs(BaseModel):
+    Components:list[ComponentCost]|None=Field(None,max_length=100)
     model_config = ConfigDict(extra="forbid")
     Prices: list[Selection] = Field(default_factory=list, max_length=1000)
     MaterialCosts: list[MaterialCost] = Field(default_factory=list,max_length=1000)
@@ -85,11 +86,12 @@ class Inputs(BaseModel):
     ProcessLossFormulas: dict[Annotated[str,Field(pattern=r"^0(?:/[1-9][0-9]{0,3}){1,12}$")],Annotated[str,Field(max_length=200)]] = Field(default_factory=dict,max_length=1000)
     LossProcesses: list[LossProcess] | None = Field(None, max_length=100)
     ProductLossFormula: str | None = Field(None,max_length=200)
-    RMRatio: Pct = Decimal(100)
+    RMRatio: RecipePct = Decimal(100)
     SeasoningUSDPerLb: Money | None = None
-    SeasoningRatio: Pct = Decimal(0)
+    SeasoningRatio: RecipePct = Decimal(0)
+    SeasoningCostBasis: Literal["Ingredient","FinishedProduct"] = "Ingredient"
     OilUSDPerLb: Money | None = None
-    OilPct: Pct = Decimal(0)
+    OilPct: RecipePct = Decimal(0)
     ProcessingUSDPerLb: Money = Decimal(0)
     LossProductPct: DerivedPct = Decimal(0)
     PrimaryLossPct: DerivedPct = Decimal(0)
@@ -106,12 +108,7 @@ class Inputs(BaseModel):
     def balanced(self):
         if self.ProcessLosses is not None and len({p.Path for p in self.ProcessLosses})!=len(self.ProcessLosses):
             raise ValueError("Use only one Process Loss row per grade.")
-        if self.RMRatio + self.SeasoningRatio + self.OilPct != 100:
-            raise ValueError("RM + Seasoning/salt + Oil ratios must total 100%.")
-        if self.SeasoningRatio and self.SeasoningUSDPerLb is None:
-            raise ValueError("Enter Seasoning/salt cost when its ratio is above zero.")
-        if self.OilPct and self.OilUSDPerLb is None:
-            raise ValueError("Enter Oil cost when its percentage is above zero.")
+        validate_recipe(self)
         if len({p.Path for p in self.MaterialCosts}) != len(self.MaterialCosts):
             raise ValueError("Use only one costing recipe per Process grade.")
         if len({p.Path for p in self.Prices}) != len(self.Prices):
@@ -307,10 +304,9 @@ def calculate(inputs, grade_leaves, prices,allow_unpriced=False,weight=None):
             if recipe.ProcessingUSDPerLb and processing_factor is None:
                 raise ValueError("Processing with Loss requires a calculable Process Loss for "+path+".")
             processing=recipe.ProcessingUSDPerLb*(processing_factor or Decimal(1))
-            line=(blended*recipe.RMRatio+(recipe.SeasoningUSDPerLb or 0)*recipe.SeasoningRatio
-                  +(recipe.OilUSDPerLb or 0)*recipe.OilPct)/100+processing
+            line=blended*recipe.RMRatio/100+component_contribution(recipe)+processing
             recipe_captures.append({"Path":path,"RMUSDPerLb":str(blended),"RMWithoutLossUSDPerLb":str(raw),"ProcessingWithLossUSDPerLb":str(processing),"Proportion":str(share),"ProductUSDPerLb":str(line),
-                                   "Inputs":{k:str(getattr(recipe,k)) if getattr(recipe,k) is not None else None for k in Recipe.model_fields}})
+                                   "Inputs":{k:recipe.model_dump(mode="json")[k] for k in Recipe.model_fields}})
         else:
             line=blended
             rm+=group["WeightedRM"]

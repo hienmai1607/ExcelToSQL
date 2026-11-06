@@ -175,3 +175,18 @@ dialog .add-section{scroll-margin-block-end:80px}
  .requirement-sections .packaging-request-layers .packaging-entry-grid>.requirement-comments{grid-column:1/-1}
 }
 @media(max-width:450px){.requirement-sections .packaging-request-layers .packaging-entry-grid,.requirement-sections .pallet-requirement-grid{grid-template-columns:minmax(0,1fr)}}
+
+/* Review actions wrap inside their cells instead of becoming nested scroll areas. */
+.request-items .review-document-row{flex-wrap:wrap;overflow:visible;width:100%;max-width:100%;box-sizing:border-box}
+.request-items .review-document-row>.item-review{flex:1 1 0;flex-wrap:wrap;min-width:0;width:100%;max-width:100%;white-space:normal}
+.request-items .item-review-top,.request-items .item-review-buttons{flex-wrap:wrap;min-width:0;max-width:100%}
+.request-items .item-review-assignment{flex:1 1 180px;flex-wrap:wrap;min-width:0;max-width:100%}
+.request-items .item-review-assignment select{flex:1 1 90px;min-width:0;width:120px;max-width:100%}
+.request-items .item-review .badge{white-space:normal;overflow-wrap:anywhere;max-width:100%;box-sizing:border-box}
+.request-items .item-review-pic,.request-items .item-review-people>.item-review-pic{white-space:normal;overflow-wrap:anywhere;overflow:visible;max-width:100%}
+.request-items .npd-item-review{width:100%;min-width:0;max-width:100%;flex-wrap:wrap;white-space:normal;overflow:visible}
+.request-items .npd-item-review>span{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.request-items .npd-pic-assignment{flex:1 1 180px;flex-wrap:wrap;min-width:0;max-width:100%}
+.request-items .npd-pic-assignment select{flex:1 1 100px;min-width:0;max-width:100%}
+
+.npd-request-items table th:first-child,.npd-request-items table td:first-child{width:300px;min-width:220px}

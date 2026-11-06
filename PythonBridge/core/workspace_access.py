@@ -7,13 +7,16 @@ PAGES = {
  "packaging-types":"Packaging Types","packaging-dimensions":"Packaging Dimensions","pallets":"Pallet Master","containers":"Container Type Master",
  "raw-materials":"Raw Material","raw-prices":"Raw Pricing","raw-grades":"Raw Grade Master",
  "categories":"Category Master","loss-processes":"Process Types","loss-defaults":"Loss Process Master","ports":"Ports of Entry",
- "vendors":"Vendors","conversions":"Unit Conversions","uoms":"Units of Measure"}
+ "vendors":"Vendors","conversions":"Unit Conversions","uoms":"Units of Measure",
+ "recipe-components":"Recipe Components","ingredients":"Ingredients Master","ingredient-prices":"Ingredient Pricing","recipe-requests":"Recipe Requests","recipe-sheets":"Recipe Sheets"}
 ADMIN_EDIT_ONLY = {"containers"}
-SCOPES = {"Admin","Customer","Product","Opportunity","Packaging","PackagingManager","RawMaterial"}
+SCOPES = {"Admin","Customer","Product","Opportunity","Packaging","PackagingManager","RawMaterial","NPD","NPDManager"}
 DEFAULTS = {
  "Customer":{"customers":"edit","ports":"display"},
- "Product":{"products":"edit","categories":"display","loss-processes":"display","loss-defaults":"display"},
- "Opportunity":{"opportunities":"edit","requests":"display","ports":"display","loss-processes":"display","loss-defaults":"display"},
+ "Product":{"products":"edit","categories":"display","loss-processes":"display","loss-defaults":"display","recipe-components":"display"},
+ "Opportunity":{"opportunities":"edit","requests":"display","recipe-requests":"display","recipe-sheets":"display","ports":"display","loss-processes":"display","loss-defaults":"display","recipe-components":"display"},
+ "NPD":{**{k:"edit" for k in ("ingredients","ingredient-prices","recipe-sheets")},"recipe-requests":"display","vendors":"display","uoms":"display"},
+ "NPDManager":{**{k:"edit" for k in ("ingredients","ingredient-prices","recipe-sheets","recipe-requests")},"vendors":"display","uoms":"display"},
  "Packaging":{k:"edit" for k in ("grade-densities","requests","materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},
  "PackagingManager":{**{k:"display" for k in ("grade-densities","materials","prices","packaging-types","packaging-dimensions","pallets","containers","vendors","conversions")},"requests":"edit"},
  "RawMaterial":{k:"edit" for k in ("raw-materials","raw-prices","raw-grades","conversions")}}
@@ -32,7 +35,10 @@ def permission_scopes(permissions):
   elif page in ("customers","ports"):result.add("Customer")
   elif page in ("products","categories"):result.add("Product")
   elif page in ("loss-processes","loss-defaults"):result.add("Opportunity")
+  elif page=='recipe-components':result.add('Opportunity')
   elif page.startswith("raw-"):result.add("RawMaterial")
+  elif page in ('ingredients','ingredient-prices','recipe-sheets','recipe-requests'):
+   if level=='edit':result.add('NPDManager' if page=='recipe-requests' else 'NPD')
   else:result.add("Packaging" if level=="edit" else "PackagingManager")
   if page=="requests" and level=="edit":result.add("PackagingManager")
   if page=="conversions" and level=="edit":result.add("RawMaterial")
@@ -41,6 +47,13 @@ def can_edit(ctx,page):
  return ctx.is_admin or page not in ADMIN_EDIT_ONLY and (ctx.permissions is None or ctx.permissions.get(page)=="edit")
 
 def route_pages(path):
+ if path.startswith('/api/npd/'):
+  part=path.strip('/').split('/')[2]
+  if part=='lookups':return ('ingredients','ingredient-prices','recipe-requests','recipe-sheets')
+  if part=='opportunity-items':return ('opportunities',)
+  if part=='requests':return ('recipe-requests','opportunities')
+  if part=='request-items':return ('recipe-requests',) if path.endswith(('/assign','/close')) else ('recipe-sheets',)
+  return ({'ingredients':'ingredients','ingredient-prices':'ingredient-prices','sheets':'recipe-sheets'}.get(part,''),)
  if path.startswith('/api/inline-masters/'):
   parts=path.strip('/').split('/')
   return (parts[2],) if len(parts)>2 and parts[2] in {'prices','customers','products','categories','materials','raw-materials','raw-prices','raw-grades','vendors','packaging-types','packaging-dimensions','pallets','ports'} else ()
@@ -73,6 +86,7 @@ def route_pages(path):
  resource=parts[1]
  if resource=="raw-material" and len(parts)>2:return ({"material":"raw-materials","price":"raw-prices","grade":"raw-grades"}.get(parts[2],"raw-materials"),)
  simple={"grade-densities":"grade-densities","customer":"customers","product":"products","opportunity":"opportunities","raw-material":"raw-materials",
+ "recipe-components":"recipe-components",
  "raw-materials":"raw-materials","raw-prices":"raw-prices","raw-grades":"raw-grades","unit-conversions":"conversions",
  "pallets":"pallets","packaging-types":"packaging-types","packaging-dimensions":"packaging-dimensions",
  "categories":"categories","loss-defaults":"loss-defaults","loss-processes":"loss-processes","ports":"ports"}

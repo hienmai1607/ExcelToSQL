@@ -38,16 +38,18 @@ export function changeRecipe(values:Record<string,unknown>,field:string,value:un
 }
 export const recipePath=(path:string)=>path.split('/').slice(0,2).join('/');
 export function recipeCost(inputs:Record<string,unknown>,rm:Fraction|null,lossPct:Fraction|null=zero()){
- const ratios=['RMRatio','SeasoningRatio','OilPct'].map(k=>quantity(inputs[k],true));
+ const components=Array.isArray(inputs.Components)?inputs.Components as {USDPerLb:unknown;RatioPct:unknown;CostBasis?:string}[]:null;
+ const ratios=[quantity(inputs.RMRatio,true),...(components?components.map(c=>quantity(c.RatioPct,true)):['SeasoningRatio','OilPct'].map(k=>quantity(inputs[k],true)))];
  const total=ratios.reduce<Fraction>((a,b)=>add(a,b??zero()),zero());
  const balanced=ratios.every(Boolean)&&total.n===hundred.n&&total.d===hundred.d;
  const processing=quantity(inputs.ProcessingUSDPerLb,true);
  const processingWithLoss=processing?.n===0n?processing:processing&&lossPct&&lossPct.n<100n*lossPct.d?divide(processing,{n:100n*lossPct.d-lossPct.n,d:100n*lossPct.d}):null;
  let product=balanced?processingWithLoss:null;
- const values=[rm,quantity(inputs.SeasoningUSDPerLb,true),quantity(inputs.OilUSDPerLb,true)];
- for(let i=0;i<3;i++){
+ const values=[rm,...(components?components.map(c=>quantity(c.USDPerLb,true)):[quantity(inputs.SeasoningUSDPerLb,true),quantity(inputs.OilUSDPerLb,true)])];
+ for(let i=0;i<values.length;i++){
   const ratio=ratios[i];if(ratio?.n===0n)continue;
-  product=product&&ratio&&values[i]?add(product,divide(multiply(values[i]!,ratio),hundred)):null;
+  const direct=i>0&&(components?components[i-1].CostBasis==='FinishedProduct':i===1&&inputs.SeasoningCostBasis==='FinishedProduct');
+  product=product&&ratio&&values[i]?add(product,direct?values[i]!:divide(multiply(values[i]!,ratio),hundred)):null;
  }
  return {product,balanced,processingWithLoss};
 }
@@ -138,7 +140,7 @@ export function packagingUSD(row:Row,index:number,opportunity:Row){
  return quantity(snapshot.UnitUSDPrice??row[field.order+'PriceUSDPerUnit'],true);
 }
 
-export const manualCostInputs=(inputs:TCBInputs)=>({PackingUSDPerLb:inputs.PackingUSDPerLb===''?'0':inputs.PackingUSDPerLb??null,...Object.fromEntries(productFields.map(([key])=>key).map(key=>[key,inputs[key]])),MaterialCosts:inputs.MaterialCosts??[],...(Array.isArray(inputs.ProcessLosses)?{ProcessLosses:inputs.ProcessLosses,...(inputs.ProcessLossMode==='GradePath'?{ProcessLossMode:inputs.ProcessLossMode,...(inputs.ProcessLossLayout==='Aligned'?{ProcessLossLayout:inputs.ProcessLossLayout}:{}),ProcessLossFormulas:inputs.ProcessLossFormulas??{}}:{})}:{})});
+export const manualCostInputs=(inputs:TCBInputs)=>({SeasoningCostBasis:inputs.SeasoningCostBasis??'Ingredient',Components:inputs.Components??null,PackingUSDPerLb:inputs.PackingUSDPerLb===''?'0':inputs.PackingUSDPerLb??null,...Object.fromEntries(productFields.map(([key])=>key).map(key=>[key,inputs[key]])),MaterialCosts:inputs.MaterialCosts??[],...(Array.isArray(inputs.ProcessLosses)?{ProcessLosses:inputs.ProcessLosses,...(inputs.ProcessLossMode==='GradePath'?{ProcessLossMode:inputs.ProcessLossMode,...(inputs.ProcessLossLayout==='Aligned'?{ProcessLossLayout:inputs.ProcessLossLayout}:{}),ProcessLossFormulas:inputs.ProcessLossFormulas??{}}:{})}:{})});
 
 export type RecipeRow={Path:string;Grade:string;RatioPct:string;depth:number;process:boolean;lossPct:Fraction|null;rmWithoutLoss:Fraction|null;rm:Fraction|null;product:Fraction|null;processingWithLoss:Fraction|null;balanced:boolean};
 export function recipeRows(inputs:TCBInputs,items:GradeItem[],grades:TCBGrade[],prices:Row[]):RecipeRow[]{

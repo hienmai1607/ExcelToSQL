@@ -2,7 +2,7 @@ import {useContext,Children,useEffect,useRef,useState,useId,type ReactNode,type 
 import {ViewTrailContext,ViewTrail,viewLabel} from './view-trail';
 import {createPortal} from 'react-dom';
 import {text} from './api';
-import {Icon,IconButton} from './icons';
+import {Icon,IconButton,type IconName} from './icons';
 export function Badge({value}:{value:unknown}){return <span className={'badge '+String(value).toLowerCase().replaceAll(' ','-')}>{text(value)}</span>}
 export function Notification({value,error=false,severity,onDismiss}:{value:string;error?:boolean;severity?:'success'|'error'|'warning';onDismiss?:()=>void}){
  const tone=severity??(error?'error':'success');
@@ -14,7 +14,7 @@ export function Notification({value,error=false,severity,onDismiss}:{value:strin
  return value&&!dismissed?<div ref={ref} popover="manual" className={'floating-notification notice '+tone} role={tone==='success'?'status':'alert'}><span>{value}</span><IconButton icon="close" label="Dismiss notification" onClick={dismiss}/></div>:null;
 }
 export function ErrorNote({value}:{value:string}){return <Notification value={value} error/>}
-export function InfoTip({text}:{text:string}){
+export function InfoTip({text,icon='info'}:{text:string;icon?:IconName}){
  const trigger=useRef<HTMLSpanElement>(null),tip=useRef<HTMLSpanElement>(null),id=useId();
  const [open,setOpen]=useState(false);
  function position(){
@@ -39,7 +39,7 @@ export function InfoTip({text}:{text:string}){
  return <span ref={trigger} className="info-tip" tabIndex={0} role="note" aria-label={text} aria-describedby={open?id:undefined}
   onMouseEnter={show} onMouseLeave={()=>{if(document.activeElement!==trigger.current)hide()}} onFocus={show} onBlur={hide}
   onClick={show} onKeyDown={e=>{if(e.key==='Escape'&&open){e.preventDefault();e.stopPropagation();hide()}}}>
-  <Icon name="info"/><span ref={tip} id={id} role="tooltip" popover="manual" className="info-tooltip">{text}</span>
+  <Icon name={icon}/><span ref={tip} id={id} role="tooltip" popover="manual" className="info-tooltip">{text}</span>
  </span>
 }
 export function FieldLabel({children,help}:{children:ReactNode;help?:string}){return <span className="field-label"><span className="field-label-text">{children}</span>{help&&<InfoTip text={help}/>}</span>}

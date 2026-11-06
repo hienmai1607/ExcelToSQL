@@ -9,6 +9,8 @@ class ProcessLossCode(BaseModel):
     MasterVersion: str | None = Field(None,pattern=r"^0x[0-9A-Fa-f]{16}$")
     ProcessName: str = Field(min_length=1,max_length=100)
     Shared: bool = False
+    SourceSheetID: int | None = Field(None,ge=1)
+    ManualLoss: bool = False
     DefaultID: int | None = Field(None,ge=1)
     DefaultVersion: str | None = Field(None,pattern=r"^0x[0-9A-Fa-f]{16}$")
 

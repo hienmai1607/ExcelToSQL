@@ -26,8 +26,8 @@ test('Administrator group and all four pages are Admin-only',async({page},info)=
  await setup(page);
  const nav=page.getByRole('navigation',{name:'Workspace navigation'}),group=nav.getByRole('region',{name:'Administrator'});
  await expect(group).toBeVisible();
- await expect(nav.getByRole('region')).toHaveCount(5);
- await expect(nav.getByRole('button')).toHaveCount(22);
+ await expect(nav.getByRole('region')).toHaveCount(6);
+ await expect(nav.getByRole('button')).toHaveCount(29);
  for(const title of ['User role','User master','Market Master','Currency Master']){
   await nav.getByRole('button',{name:title,exact:true}).click();
   await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible();

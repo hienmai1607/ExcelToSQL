@@ -295,7 +295,9 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                         cursor.execute("EXEC dbo.usp_ProductGrade_Save ?,?,NULL,NULL,?,?,?",
                             result["NewID"],scalar_params[0],result["NewRowVersion"],grade.Status,
                             json.dumps([i.model_dump(mode="json") for i in grade.items]))
-                        result["NewRowVersion"]=consume(cursor)[0][0]["ProductRowVersion"]
+                        saved_grade=consume(cursor)[0][0]
+                        cursor.execute('UPDATE dbo.ProductGradeVersion SET RequiresRecipeConfirmation=? WHERE ID=?',grade.RequiresRecipeConfirmation,saved_grade['ID'])
+                        result["NewRowVersion"]=saved_grade["ProductRowVersion"]
                     if kind=="Product" and model.command=="C" and getattr(model,"MixVersion",None) is not None:
                         from packaging_api import rv
                         mix=model.MixVersion

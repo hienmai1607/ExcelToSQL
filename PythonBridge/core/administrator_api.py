@@ -34,7 +34,7 @@ class RoleRecord(Record):
 class UserRecord(Record):
  UserName:str=Field(min_length=1,max_length=100)
  IsActive:bool=True
- DirectScopes:list[Literal["Admin","Customer","Product","Opportunity","Packaging","PackagingManager","RawMaterial"]]=Field(default_factory=list,max_length=7)
+ DirectScopes:list[Literal["Admin","Customer","Product","Opportunity","Packaging","PackagingManager","RawMaterial","NPD","NPDManager"]]=Field(default_factory=list,max_length=9)
  RoleIDs:list[int]=Field(default_factory=list,max_length=100)
  @model_validator(mode="after")
  def unique_access(self):

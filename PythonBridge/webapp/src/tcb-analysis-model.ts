@@ -137,7 +137,9 @@ export function buildTCBAnalysis(drafts:Draft[],tested:Record<number,string>={})
     const calc=costs({...d.costingInputs,Prices:d.selections},d.quoteGrades,d.quotes),weight=quantity(d.row.WeightGrams),loss=productLossValue(d,tested[Number(d.row.ItemID)]);
     const validLoss=loss&&loss.n<100n*loss.d;
     const factor=weight&&validLoss?divide(divide(weight,gramsPerLb),{n:100n*loss.d-loss.n,d:100n*loss.d}):null;
-    const product=d.pricingGradeKey!==JSON.stringify(d.grades)?missing('Reload pricing for current grades.'):
+    const recipeSource=objectValue(d.row.NPDRecipeSnapshot);
+    const product=d.row.RequiresRecipeConfirmation&&(!recipeSource.SheetID||recipeSource.Stale)?missing('An approved Recipe Sheet is required for this product.'):
+     d.pricingGradeKey!==JSON.stringify(d.grades)?missing('Reload pricing for current grades.'):
      calc.product&&factor?good(multiply(calc.product,factor)):missing('Product price, weight or current loss calculation is incomplete.');
     const packing=scale(packingRate(root,children)?good(packingRate(root,children)!):missing('Enter a Packing cost on the parent item.'),weight?divide(weight,gramsPerLb):null,'Missing product net weight.');
     const applicableWeight=quantity('ApplicableNetWeightGrams' in d.row?d.row.ApplicableNetWeightGrams:d.row.WeightGrams);

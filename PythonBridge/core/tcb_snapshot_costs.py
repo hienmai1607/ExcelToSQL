@@ -7,6 +7,14 @@ from decimal import Decimal, localcontext
 from fractions import Fraction as F
 
 
+def captured_components(recipe):
+    components=recipe.get("Components")
+    if isinstance(components,list):
+        return sum((F(str(c.get("USDPerLb") or 0))*(1 if c.get("CostBasis")=="FinishedProduct" else F(str(c.get("RatioPct") or 0))/100) for c in components if F(str(c.get("RatioPct") or 0))),F(0))
+    seasoning=F(str(recipe.get("SeasoningUSDPerLb") or 0))*(1 if recipe.get("SeasoningCostBasis")=="FinishedProduct" else F(str(recipe.get("SeasoningRatio") or 0))/100) if F(str(recipe.get("SeasoningRatio") or 0)) else F(0)
+    return seasoning+F(str(recipe.get("OilUSDPerLb") or 0))*F(str(recipe.get("OilPct") or 0))/100
+
+
 def recipe_rm_totals(value):
     """Expose recipe-weighted RM totals without altering captured unit prices."""
     if value.get("RMRecipeRatioApplied") or value.get("RMCostUSDPerLb") is None:
@@ -26,8 +34,7 @@ def recipe_rm_totals(value):
         before+=sum((F(str(p["USDPerLb"]))*F(str(p["Proportion"])) for p in leaves),F(0))*ratio
         if "RMUSDPerLb" in row:after+=F(str(row["RMUSDPerLb"]))*share*ratio
         elif "ProductUSDPerLb" in row:
-            non_rm=(F(str(recipe.get("SeasoningUSDPerLb") or 0))*F(str(recipe.get("SeasoningRatio") or 0))
-                    +F(str(recipe.get("OilUSDPerLb") or 0))*F(str(recipe.get("OilPct") or 0)))/100
+            non_rm=captured_components(recipe)
             non_rm+=F(str(row.get("ProcessingWithLossUSDPerLb",recipe.get("ProcessingUSDPerLb")) or 0))
             after+=(F(str(row["ProductUSDPerLb"]))-non_rm)*share
         else:return value
@@ -76,9 +83,7 @@ def processing_snapshot_costs(value):
             adjusted = processing * factors[0]
         else:
             adjusted = processing * rm / raw if processing else F(0)
-        line = (rm * F(str(recipe.get("RMRatio", 100)))
-                + F(str(recipe.get("SeasoningUSDPerLb") or 0)) * F(str(recipe.get("SeasoningRatio") or 0))
-                + F(str(recipe.get("OilUSDPerLb") or 0)) * F(str(recipe.get("OilPct") or 0))) / 100 + adjusted
+        line = rm * F(str(recipe.get("RMRatio", 100))) / 100 + captured_components(recipe) + adjusted
         total += line * share
     with localcontext() as ctx:
         ctx.prec = 60

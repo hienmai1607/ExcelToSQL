@@ -19,11 +19,16 @@ export function WorkspaceSidebar({session,tab,onNavigate}:{session:Session;tab:s
    {key:'grade-densities',label:'Grade Density Master',icon:'grade',allowed:has('Packaging','PackagingManager')},
    {key:'packaging-dimensions',label:'Packaging Dimension Master',icon:'layout',allowed:has('Packaging','PackagingManager')},
    {key:'containers',label:'Container Type Master',icon:'package',allowed:session.is_admin}]},
+  {label:'NPD / R&D',items:[
+   {key:'ingredients',label:'Ingredients Master',icon:'package',allowed:has('NPD','NPDManager')},
+   {key:'ingredient-prices',label:'Ingredient Pricing',icon:'price',allowed:has('NPD','NPDManager')},
+   {key:'recipe-requests',label:'Recipe Requests',icon:'list',allowed:has('NPD','NPDManager','Opportunity')},
+   {key:'recipe-sheets',label:'Recipe Sheets',icon:'calculator',allowed:has('NPD','NPDManager','Opportunity')}]},
   {label:'Raw materials',items:[
    {key:'raw-materials',label:'Raw Material',icon:'package',allowed:has('RawMaterial')},
    {key:'raw-prices',label:'Raw Pricing',icon:'price',allowed:has('RawMaterial')},
    {key:'raw-grades',label:'Raw Grade Master',icon:'grade',allowed:has('RawMaterial')}]},
-{label:'Shared masters',items:[
+{label:'Shared masters',items:[{key:'recipe-components',label:'Recipe Components',icon:'grade',allowed:has('Opportunity','Product','NPD','NPDManager')},
    {key:'categories',label:'Category Master',icon:'grade',allowed:has('Product')},{key:'loss-defaults',label:'Loss Process Master',icon:'calculator',allowed:has('Opportunity','Product')},{key:'loss-processes',label:'Process Types',icon:'calculator',allowed:has('Opportunity','Product')},
    {key:'ports',label:'Ports of Entry',icon:'customer',allowed:has('Opportunity','Customer')},
    {key:'vendors',label:'Vendors',icon:'customer',allowed:has('Packaging','PackagingManager')},

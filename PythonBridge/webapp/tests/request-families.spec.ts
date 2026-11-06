@@ -78,3 +78,14 @@ for(const action of ['assign','submit','approve'])test('parent '+action+' includ
  expect(writes[0].path).toBe('/api/packaging/items/1/'+(action==='assign'?'assign':'transition'));
  expect(rows[3].PICUserID).toBe(1);expect(rows[3].ItemStage).toBe(action==='approve'?'Pending Review':'Assigned');
 });
+
+
+test('Review controls wrap inside the cell without an inner scrollbar',async({page},info)=>{
+ await setup(page);await page.getByRole('button',{name:'View request',exact:true}).click();const table=page.getByRole('table',{name:'Packaging request items',exact:true});
+ for(const width of [1920,1366,700]){
+  await page.setViewportSize({width,height:1000});await expect(table.getByLabel('PIC for item 1',{exact:true})).toBeVisible();
+  const review=table.locator('.review-document-row').first();const overflow=await review.evaluate(el=>({mode:getComputedStyle(el).overflowX,extra:el.scrollWidth-el.clientWidth}));expect(overflow.extra).toBeLessThanOrEqual(1);expect(['auto','scroll']).not.toContain(overflow.mode);
+  const cell=await review.locator('..').boundingBox();for(const control of await review.locator('select,button').all()){const box=await control.boundingBox();if(box){expect(box.x).toBeGreaterThanOrEqual(cell!.x);expect(box.x+box.width).toBeLessThanOrEqual(cell!.x+cell!.width+1)}}
+ }
+ await page.setViewportSize({width:1366,height:1000});await table.locator('.review-document-row').first().screenshot({path:info.outputPath('packaging-review-wrap.png')});
+});

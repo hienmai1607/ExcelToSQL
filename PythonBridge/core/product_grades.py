@@ -40,6 +40,7 @@ class GradeTree(BaseModel):
 
 
 class GradeSave(GradeTree):
+    RequiresRecipeConfirmation:bool|None=None
     VersionID: int | None = Field(None, ge=1)
     RowVersion: str | None = None
     ProductRowVersion: str
@@ -58,8 +59,19 @@ class SnapshotGradeItem(GradeItem):
 
 
 class OpportunityGradeTree(GradeTree):
+    RequiresRecipeConfirmation:bool=False
+    RecipeRequirements:dict[str,str|None]=Field(default_factory=dict)
     items: list[SnapshotGradeItem] = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode='after')
+    def recipe_requirements(self):
+        from datetime import date
+        if set(self.RecipeRequirements)-{'LaunchingDate','SpecialComments'}:raise ValueError('Unknown Recipe requirements field.')
+        if self.RecipeRequirements.get('LaunchingDate'):date.fromisoformat(self.RecipeRequirements['LaunchingDate'])
+        if len(self.RecipeRequirements.get('SpecialComments') or '')>2000:raise ValueError('Recipe special comments support up to 2000 characters.')
+        return self
 
 
 class InitialGrade(GradeTree):
+    RequiresRecipeConfirmation:bool=False
     Status: Literal["Draft", "Active"] = "Draft"

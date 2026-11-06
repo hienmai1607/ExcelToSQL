@@ -1,5 +1,37 @@
 # Packaging
 
+## NPD language
+
+**Ingredient**:
+A seasoning input with an origin and a base unit of measure. Raw grades remain separate from ingredients.
+
+**Recipe Request**:
+A request to develop recipes for captured Opportunity items, with a due date and an assigned NPD person for each item.
+
+**Recipe Sheet**:
+A revision of one requested product recipe. Its fixed raw-grade identities come from the captured Level 1 Product Grades; NPD chooses their ratios and adds seasoning ingredients.
+
+**Seasoning price**:
+The loss-adjusted price per pound of the seasoning portion alone. The seasoning ratio describes its share of the finished recipe.
+
+**Recipe Component**:
+A named addition to the raw-material share, such as Salt, Oil or Seasoning. Process Types define which components are involved; each applicable component has a price per pound and a finished-recipe ratio.
+
+**Recipe confirmation**:
+The Product Grade or Opportunity snapshot setting that requires an approved NPD recipe. Its linked request captures and locks the grades and Recipe requirements.
+
+**Seasoning process loss**:
+The process yield loss whose default comes from the approved Sheet header. It is separate from ingredient-line loss, which increases ingredient cost only.
+
+**Price Ready**:
+A recipe whose ratios and seasoning prices are complete enough for commercial costing. Manager approval is separate from recipe status.
+
+**Final recipe**:
+A completed recipe revision. A manager-approved Price Ready or Final revision can supply seasoning values to TCB.
+
+**Ingredient tier quantity**:
+The ingredient quantity required for the estimated awarded product volume, measured in the ingredient's base unit. Ingredient loss affects price rather than this quantity or the finished recipe ratios.
+
 Packaging parents are assembled from child components. Shipping space and component consumption are separate quantities.
 
 ## Language

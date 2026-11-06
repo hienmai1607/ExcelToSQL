@@ -1,3 +1,4 @@
+import {recipeOnly} from './recipe-components';
 import type {Draft} from './opportunity-losses';
 import {classifyProcessLeaves,gradePath,savedProcessTree,processRecipePaths} from './grade-process';
 import {processLossRows,processLossTargets,remapAlignedLossFormulas} from './grade-process-loss';
@@ -7,7 +8,7 @@ export function activeCostInputs(d:GradePricing){
  const active=d.grades.length?new Set(savedProcessTree(d.grades).filter(g=>g.Process).map(gradePath)):processRecipePaths(d.quoteGrades??[]);
  const roots=d.grades.length?d.grades.filter(g=>g.ParentID==='0').map(gradePath):[...new Set((d.quoteGrades??[]).map(g=>recipePath(g.Path)))];
  const targets=new Set(processLossTargets(d.grades));
- return {...manualCostInputs(d.costingInputs),MaterialCosts:roots.map(Path=>({Path,...Object.fromEntries(productFields.map(([key])=>[key,materialRecipe(d.costingInputs,Path)[key]]))})),...(Array.isArray(d.costingInputs.ProcessLosses)?{ProcessLosses:processLossRows(d).filter(r=>r.Path==='0'||active.has(r.Path)),...(d.costingInputs.ProcessLossMode==='GradePath'?{ProcessLossMode:'GradePath' as const,ProcessLossFormulas:Object.fromEntries(Object.entries(d.costingInputs.ProcessLossFormulas??{}).filter(([path])=>targets.has(path)))}:{})}:{})};
+ return {...manualCostInputs(d.costingInputs),MaterialCosts:roots.map(Path=>({Path,...recipeOnly(materialRecipe(d.costingInputs,Path))})),...(Array.isArray(d.costingInputs.ProcessLosses)?{ProcessLosses:processLossRows(d).filter(r=>r.Path==='0'||active.has(r.Path)),...(d.costingInputs.ProcessLossMode==='GradePath'?{ProcessLossMode:'GradePath' as const,ProcessLossFormulas:Object.fromEntries(Object.entries(d.costingInputs.ProcessLossFormulas??{}).filter(([path])=>targets.has(path)))}:{})}:{})};
 }
 export function withTCBGrades<T extends GradePricing>(d:T,grades:Draft['grades']):T{
  const parents=new Set(grades.map(g=>g.ParentID)),oldParents=new Set(d.grades.map(g=>g.ParentID));

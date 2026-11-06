@@ -48,6 +48,26 @@ class Completion(unittest.TestCase):
   info=self.complete([root,child])[0]
   self.assertTrue(info["TCBBlockedByChildren"]);self.assertFalse(info["TCBReviewComplete"])
 class StageSummary(unittest.TestCase):
+ def test_recipe_progress_comes_from_saved_request_and_review(self):
+  base={'ProductGradeSnapshot':json.dumps({'RequiresRecipeConfirmation':True})}
+  info=json.loads(stage_summary(dict(base)))['Recipe']
+  self.assertTrue(info['Required']);self.assertEqual(info['State'],'Not requested');self.assertFalse(info['Reviewed'])
+  recipe={'RequestNumber':'RRQ-1','IsOpen':True,'IsLinked':True,'PIC':'npd.member','ApprovalStatus':'Pending','SubmittedAt':'2026-11-05'}
+  info=json.loads(stage_summary({**base,'_StageRecipe':json.dumps(recipe)}))['Recipe']
+  self.assertTrue(info['Submitted']);self.assertFalse(info['Approved']);self.assertEqual(info['State'],'Submitted')
+  recipe.update(ApprovalStatus='Returned',Reason='Adjust ratios')
+  info=json.loads(stage_summary({**base,'_StageRecipe':json.dumps(recipe)}))['Recipe']
+  self.assertTrue(info['Reviewed']);self.assertFalse(info['Approved']);self.assertEqual(info['Reason'],'Adjust ratios')
+  self.assertEqual(json.loads(stage_summary({}))['Recipe']['State'],'Not required')
+ def test_mix_recipe_branch_tracks_only_required_children(self):
+  from item_stage_summary import complete_stage_summaries
+  def row(identity,parent,recipe):return {'ItemID':identity,'ItemNumber':str(identity),'ParentItemID':parent,'IsMixParent':parent is None,'StageSummaryJSON':json.dumps({'Recipe':recipe})}
+  approved={'Required':True,'Requested':True,'Assigned':True,'Submitted':True,'Reviewed':True,'Approved':True,'State':'Approved'}
+  returned={**approved,'Approved':False,'State':'Returned'}
+  rows=[row(1,None,{'Required':False}),row(2,1,approved),row(3,1,returned),row(4,1,{'Required':False})]
+  recipe=json.loads(complete_stage_summaries(rows)[0]['StageSummaryJSON'])['Recipe']
+  self.assertEqual(recipe['RequiredCount'],2);self.assertEqual(recipe['RequestedCount'],2);self.assertEqual(recipe['ApprovedCount'],1)
+  self.assertFalse(recipe['Approved']);self.assertEqual(recipe['State'],'Returned');self.assertEqual(len(recipe['Children']),2)
  def test_child_tracks_own_tcb_with_inherited_shipping_and_zero_prices(self):
   row={"ParentItemID":1,"ProductGradeSnapshot":'{"Grades":[{"ID":1}]}',
        "ShipmentCostInfo":'{"DutyPct":0}',"_TCBCostInfo":'{"Inputs":{"Prices":[{"DirectUSDPerLb":"0"}],"ProductLossFormula":"0"},"ProductUSDPerLb":"0"}',

@@ -28,8 +28,8 @@
 .recipe-grade-label{display:flex;align-items:center;gap:5px;min-width:0}
 .recipe-grade-label strong{overflow-wrap:anywhere}
 .recipe-grade-label .icon-button{width:22px;min-width:22px;height:22px;min-height:22px;padding:2px;flex:none;border:0;background:transparent}
-.recipe-rm-prices{display:flex;flex-direction:row;align-items:center;gap:3px;min-width:0;justify-content:flex-end}
-.recipe-rm-prices>span{display:flex;align-items:center;gap:3px;padding:2px 3px;min-width:0;flex-wrap:wrap;justify-content:flex-end}
+.recipe-rm-prices{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
+.recipe-rm-prices>span{display:flex;align-items:center;gap:3px;padding:2px 3px;min-width:0;flex-wrap:nowrap;justify-content:flex-end}
 .recipe-rm-prices small{font-size:9px;color:var(--muted);white-space:nowrap}
 .recipe-rm-prices output{font-variant-numeric:tabular-nums;white-space:nowrap}
 .recipe-rm-with-loss{background:#e5e5e5;border-radius:4px;color:#303030;font-weight:600}
@@ -147,3 +147,12 @@
  .process-loss-cell::before{content:attr(data-process-column);display:block;font-size:10px;color:var(--muted);margin-bottom:2px}
  .process-loss-formula{grid-column:1/-1}
 }
+
+/* Recipe columns follow selected process components, with contained two-line headings. */
+.tcb-process-info-table .recipe-heading-line{display:block}
+.tcb-process-info-table .tcb-process-row>td{overflow-wrap:anywhere}
+.tcb-process-info-table [data-label="Processing with Loss ($/lbs)"] output{display:block;white-space:normal}
+
+.recipe-info-heading{display:flex;align-items:center;gap:8px}
+.tcb-process-info-table thead th:nth-child(4),.tcb-process-info-table .tcb-process-row>td:nth-child(4){text-align:left}
+.app input.recipe-sheet-default,.app input.recipe-sheet-default:disabled{background:#eaf4fa;border-color:#9cc4db;color:var(--text);opacity:1}

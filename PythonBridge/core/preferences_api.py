@@ -13,6 +13,7 @@ from shared_master_views import check_shared_layout
 from master_models import Entity, MasterLayout, check_layout, ColumnWidth
 from opportunity_views import OpportunityViews
 from request_views import RequestViews
+from npd_views import RecipeRequestViews
 from pallet_fields import PALLET_CAPACITY_LABELS
 from auth import AccessContext, get_access_context
 from db import get_raw_cursor
@@ -31,8 +32,9 @@ class Settings(BaseModel):
     list_layouts: dict[Literal["unit-conversions", "packaging-dimensions"], ListLayout] = Field(default_factory=dict)
     column_widths: dict[Column | Literal["_Actions"], ColumnWidth] = Field(default_factory=dict,max_length=9)
     requests: RequestViews = Field(default_factory=RequestViews)
+    recipe_requests: RecipeRequestViews = Field(default_factory=RecipeRequestViews)
     opportunity: OpportunityViews = Field(default_factory=OpportunityViews)
-    shared_masters: dict[Literal["loss-defaults","loss-processes","ports","categories","grade-densities"], MasterLayout] = Field(default_factory=dict)
+    shared_masters: dict[Literal["loss-defaults","loss-processes","ports","categories","grade-densities","ingredients","ingredient-prices","recipe-components"], MasterLayout] = Field(default_factory=dict)
     @field_validator("shared_masters")
     @classmethod
     def validate_shared_layouts(cls, layouts):
