@@ -46,18 +46,12 @@ def catalog(cur):
     return dict(components=components,mappings=mappings)
 
 def applicable_ids(inputs,path,config):
-    masters=set()
-    def field(row,key,default=None):return row.get(key,default) if isinstance(row,dict) else getattr(row,key,default)
-    stages=field(inputs,'ProcessLosses')
-    for stage in stages or []:
-        source=field(stage,'Path')
-        if source=='0' or source==path or source.startswith(path+'/') or path.startswith(source+'/'):
-            masters.update(field(code,'MasterID') for code in field(stage,'Codes') or [] if field(code,'MasterID'))
-    if stages is None:masters.update(field(s,'MasterID') for s in field(inputs,'LossProcesses') or [] if field(s,'MasterID'))
-    return {r['ComponentID'] for r in config['mappings'] if r['ProcessID'] in masters}
+    """Recipe Info always contains Seasoning, independently of process mappings."""
+    return {row['ID'] for row in config['components'] if row['SystemKey']=='Seasoning'}
+
 
 def process_component_inputs(inputs,config,approved=None,paths=None):
-    """Resolve current process mappings before costing; unpublished sheets never supply defaults."""
+    """Resolve fixed Seasoning inputs; unpublished sheets never supply defaults."""
     import copy
     from recipe_scope import normalize_seasoning_scope,allows_seasoning
     result=normalize_seasoning_scope(inputs,config,approved,paths or [])
@@ -65,8 +59,6 @@ def process_component_inputs(inputs,config,approved=None,paths=None):
     legacy={'Seasoning':('SeasoningUSDPerLb','SeasoningRatio'),'Oil':('OilUSDPerLb','OilPct')}
     def apply(path,row):
         allowed=applicable_ids(result,path,config)
-        if path!='0' and not allows_seasoning(approved,path):
-            allowed.difference_update(c['ID'] for c in config['components'] if c['SystemKey']=='Seasoning')
         if path=='0' and roots:allowed.intersection_update(*(applicable_ids(result,root,config) for root in roots))
         existing=row.get('Components')
         if existing is None:
@@ -80,7 +72,11 @@ def process_component_inputs(inputs,config,approved=None,paths=None):
             saved=next((r for r in existing if r['ComponentID']==definition['ID']),{})
             component=dict(ComponentID=definition['ID'],SystemKey=definition['SystemKey'],ComponentName=definition['ComponentName'],
                 USDPerLb=saved.get('USDPerLb'),RatioPct=saved.get('RatioPct') or 0,CostBasis=saved.get('CostBasis','Ingredient'))
-            if source and definition['SystemKey']=='Seasoning':
+            sheet_applies=all(allows_seasoning(approved,root) for root in roots) if path=='0' else allows_seasoning(approved,path)
+            if saved.get('SourceSheetID') and not sheet_applies:
+                if 'USDPerLb' not in saved.get('ManualFields',[]):component['USDPerLb']=None
+                if 'RatioPct' not in saved.get('ManualFields',[]):component['RatioPct']=0
+            if source and definition['SystemKey']=='Seasoning' and sheet_applies:
                 approved_component(component,saved,approved)
             components.append(component)
         total=sum((D(str(c['RatioPct'])) for c in components),D(0))
@@ -121,7 +117,7 @@ def validate_assignments(inputs,saved,config,requires_recipe=False):
             if row.SystemKey!=definition['SystemKey']:raise ValueError('Recipe Component identity changed. Refresh TCB.')
             row.ComponentName=definition['ComponentName']
             if row.RatioPct and row.ComponentID not in allowed:
-                raise ValueError(row.ComponentName+" is not configured for this grade's selected Process Types.")
+                raise ValueError(row.ComponentName+" is no longer used in Recipe Info. Use Seasoning instead.")
 
 
 def component_contribution(recipe):

@@ -36,7 +36,8 @@ main{margin-left:216px;width:calc(100% - 216px);padding:18px 24px 24px}
 .customers-page{padding:0 18px 18px;min-height:calc(100dvh - 42px);background:var(--surface);border:1px solid var(--border);border-radius:10px}
 .customers-page .customer-heading{padding:16px 0 8px}
 .customers-page h1{font-size:25px;letter-spacing:-.5px;margin:0}
-.customers-page>.view-toolbar,.customers-page>.opportunity-view-tools{position:sticky;top:0;z-index:8;background:var(--surface);padding:7px 0;margin:0 0 8px;border-bottom:1px solid var(--border)}
+/* Heading actions belong to the heading row; pinning only the actions covers filters on scroll. */
+.customers-page>.view-toolbar,.customers-page>.opportunity-view-tools{position:relative;top:auto;z-index:8;background:var(--surface);padding:7px 0;margin:0 0 8px;border-bottom:1px solid var(--border)}
 .opportunity-view-tools .view-toolbar{margin:0;gap:6px}
 .view-toolbar .icon-button{min-width:32px;min-height:32px;padding:5px}
 .filters{gap:10px;margin:8px 0 12px;align-items:end}

@@ -1,10 +1,11 @@
+import type {RecipeDetails} from './recipe-levels';
 import {quantity,multiply,divide,quantityDisplay} from './packaging-summary-model';
 import {call,type Row} from './api';
 export type NPDRow=Record<string,unknown>&{ID:number;RowVersion:string};
 export type RecipeLine={Kind:'Raw'|'Seasoning';GradePath:string|null;IngredientID:number|null;RatioPct:string;LossPct:string;PriceID:number|null;PriceMode?:'Auto'|'Direct';IngredientNote?:string;Note?:string;DirectPricePerKg?:string|null;DirectPriceCurrency?:'VND'|'USD'|null;DirectVendorID?:number|null};
 export type RecipeQuote=NPDRow&{VendorName:string;CurrencyCode:string;UnitPrice:string;PriceUnit:string;USDPerLb:string;RequiredQuantity:string;BaseUoM:string;VendorID?:number;QuantityFrom?:string;QuantityTo?:string|null;EffectiveFrom?:string;EffectiveTo?:string|null;USDPerKg?:string;VNDPerKg?:string|null};
 export type CalculatedLine=RecipeLine&{BufferRatio?:string;TotalQtyMT?:string;DirectPrice?:{IngredientCode:string;USDPerKg:string;VNDPerKg:string|null;USDPerLb:string};GradeNature?:string;Origin?:string;VendorName?:string;USDPerKg?:string;VNDPerKg?:string|null;Description?:string;SelectedPrice?:RecipeQuote;PriceIssue?:string;Candidates?:RecipeQuote[];Price?:RecipeQuote;EffectiveUSDPerLb?:string};
-export type RecipeCalculation={OrderEstimatedAwardedMT?:string;GradeSharePct?:string;LossWeightBasis?:string;CostFGUSDPerKg?:string|null;CostFGWithBufferUSDPerKg?:string|null;LossByValuePct?:string|null;SeasoningUSDPerKg?:string|null;SeasoningLossPct?:string;SeasoningCostBasis?:string;ExchangeRateVNDPerUSD?:string;EstimatedAwardedMT:string;RatioTotal:string;SeasoningRatio:string;SeasoningUSDPerLb:string;Lines:CalculatedLine[];Issues:string[];Warnings:string[]};
+export type RecipeCalculation={RecipeDetails?:RecipeDetails;OrderEstimatedAwardedMT?:string;GradeSharePct?:string;LossWeightBasis?:string;CostFGUSDPerKg?:string|null;CostFGWithBufferUSDPerKg?:string|null;LossByValuePct?:string|null;SeasoningUSDPerKg?:string|null;SeasoningLossPct?:string;SeasoningCostBasis?:string;ExchangeRateVNDPerUSD?:string;EstimatedAwardedMT:string;RatioTotal:string;SeasoningRatio:string;SeasoningUSDPerLb:string;Lines:CalculatedLine[];Issues:string[];Warnings:string[]};
 export type NPDLookups={units:Row[];vendors:Row[];currencies:Row[];ingredients:NPDRow[];members:Row[]};
 export const npd={
  lookups:()=>call<NPDLookups>('/api/npd/lookups'),

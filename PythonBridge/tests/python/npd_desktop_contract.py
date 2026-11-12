@@ -32,6 +32,10 @@ class Desktop(unittest.TestCase):
  def tearDown(self):
   self.cur.execute('IF @@TRANCOUNT>0 ROLLBACK TRANSACTION');self.context.__exit__(None,None,None);self.cur.close();self.connection.close()
  def row(self,table,identity):return api.one(self.cur,'SELECT * FROM dbo.'+table+' WHERE ID=?',identity)
+ def accept_sheet(self,identity):
+  import sales_response_review as sales
+  row=api.sheet_row(self.cur,identity)
+  sales.decide('recipe',identity,sales.Decision(Action='Accept',RowVersion=row['RowVersion']),self.admin)
  def setup_recipe(self):
   lookup=api.lookups(self.admin);unit=next(u for u in lookup['units'] if u['UoMCode'].lower()=='kg')
   self.ingredient=api.ingredient_save(api.Ingredient(Description='QA rollback seasoning '+str(uuid4()),Origin='Vietnam',BaseUoMID=unit['ID']),self.admin)['row']
@@ -52,13 +56,14 @@ class Desktop(unittest.TestCase):
   self.saved=api.sheet_save(self.sheet['ID'],api.SheetSave(RowVersion=self.sheet['RowVersion'],Status='Price Ready',Lines=lines),self.admin)
   self.sheet=self.saved['row']
   self.assertEqual(Decimal(self.sheet['ExchangeRateVNDPerUSD']),Decimal(self.source['ExchangeRateVNDPerUSD']))
- def test_full_flow_publishes_only_after_approval_and_keeps_grades(self):
+ def test_full_flow_publishes_only_after_manager_and_sales_review_and_keeps_grades(self):
   self.setup_recipe()
   self.assertEqual(self.row('OpportunityItem',self.source['OpportunityItemID'])['TCBCostInfo'],self.original)
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
   self.assertEqual(pending['ApprovalStatus'],'Pending')
   self.assertEqual(self.row('OpportunityItem',self.source['OpportunityItemID'])['TCBCostInfo'],self.original)
   approved=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)['row']
+  self.accept_sheet(self.sheet['ID'])
   self.assertEqual(approved['ApprovalStatus'],'Approved')
   linked=self.row('OpportunityItem',self.source['OpportunityItemID']);value=obj(linked['TCBCostInfo'])
   self.assertEqual(linked['ProductGradeSnapshot'],self.original_grade)
@@ -66,7 +71,7 @@ class Desktop(unittest.TestCase):
   if obj(self.original).get('ProductUSDPerLb') is not None:self.assertIsNotNone(value.get('ProductUSDPerLb'),'Approved recipe must preserve a complete raw-cost calculation.')
   self.assertEqual(Decimal(value['NPDRecipe']['SeasoningRatio']),5)
   self.assertAlmostEqual(Decimal(value['NPDRecipe']['SeasoningUSDPerLb']),Decimal('0.226796'),places=6)
-  for recipe in value['Inputs'].get('MaterialCosts') or []:self.assertEqual(Decimal(recipe['SeasoningRatio']),0)
+  for recipe in value['Inputs'].get('MaterialCosts') or []:self.assertEqual(Decimal(recipe['SeasoningRatio']),5)
   self.assertFalse(self.row('NPDRecipeRequestItem',self.item['ID'])['IsOpen'])
   versions=api.query(self.cur,'SELECT SavedJSON FROM dbo.OpportunityTCBVersion WHERE ItemID=? AND IsActive=1',self.source['OpportunityItemID'])
   if versions:self.assertEqual(obj(versions[0]['SavedJSON'])['NPDRecipe']['SheetID'],self.sheet['ID'])
@@ -90,6 +95,7 @@ class Desktop(unittest.TestCase):
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
   self.assertIsNone(linked()['RecipeSheetID'])
   api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(self.sheet['ID'])
   self.assertEqual(linked()['RecipeSheetID'],self.sheet['ID'])
   item=self.row('NPDRecipeRequestItem',self.item['ID'])
   revision=api.sheet_create(item['ID'],api.NewSheet(CreationKey=uuid4(),RowVersion=item['RowVersion']),self.admin)['row']
@@ -135,6 +141,7 @@ class Desktop(unittest.TestCase):
   self.assertIsNone(linked());self.assertEqual(len(history()['SheetVersions']),1);self.assertEqual(history(reader)['SheetVersions'],[])
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
   approved=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)['row']
+  self.accept_sheet(self.sheet['ID'])
   original_json=approved['CalculationJSON']
   item=self.row('NPDRecipeRequestItem',self.item['ID'])
   revision=api.sheet_create(item['ID'],api.NewSheet(CreationKey=uuid4(),RowVersion=item['RowVersion']),self.admin)['row']
@@ -150,6 +157,7 @@ class Desktop(unittest.TestCase):
   self.assertEqual(linked(),approved['ID']);self.assertEqual(history()['SheetVersions'][0]['ApprovalStatus'],'Returned')
   pending=api.sheet_review(saved['ID'],api.Review(RowVersion=returned['RowVersion'],Action='Submit'),self.admin)['row']
   api.sheet_review(saved['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(saved['ID'])
   self.assertEqual(linked(),saved['ID']);self.assertEqual([s['IsCurrentApproved'] for s in history()['SheetVersions']],[True,False])
   self.assertEqual(api.sheet_read(approved['ID'],reader)['row']['CalculationJSON'],original_json)
  def test_recipe_sheet_filters_sort_pagination_and_public_access(self):
@@ -170,6 +178,7 @@ class Desktop(unittest.TestCase):
   self.assertEqual(api.sheet_list(**{**args,'status':'Pending'})['total'],1)
   self.assertEqual(api.sheet_list(**{**args,'ctx':reader,'status':'Pending'})['total'],0)
   api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(self.sheet['ID'])
   self.assertEqual(api.sheet_list(**{**args,'ctx':reader,'status':'Approved'})['total'],1)
  def test_opportunity_recipe_branch_tracks_review_without_changing_opportunity(self):
   from opportunity_views import sorted_grid
@@ -190,7 +199,7 @@ class Desktop(unittest.TestCase):
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
   item=api.request_items(self.request['ID'],self.admin)['rows'][0]
   self.assertEqual(item['Status'],'Submitted');self.assertEqual(item['LatestSheetApprovalStatus'],'Pending');self.assertEqual(item['LatestSheetID'],self.sheet['ID']);self.assertFalse(item['CanAssignPIC'])
-  with self.assertRaisesRegex(HTTPException,'Return the submitted sheet'):api.assign(item['ID'],api.Assignment(RowVersion=item['RowVersion'],PICUserID=self.admin.user_id),self.admin)
+  with self.assertRaisesRegex(HTTPException,'Resolve the pending manager or Sales review'):api.assign(item['ID'],api.Assignment(RowVersion=item['RowVersion'],PICUserID=self.admin.user_id),self.admin)
  def test_returned_item_allows_pic_reassignment(self):
   self.setup_recipe()
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
@@ -203,6 +212,7 @@ class Desktop(unittest.TestCase):
   self.setup_recipe()
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
   api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(self.sheet['ID'])
   item=api.request_items(self.request['ID'],self.admin)['rows'][0]
   self.assertEqual(item['Status'],'Approved');self.assertFalse(item['CanAssignPIC']);self.assertEqual(item['PIC'],self.admin.username);self.assertEqual(item['LatestSheetApprovedByName'],self.admin.username)
   with self.assertRaisesRegex(HTTPException,'approved request items cannot be reassigned'):api.assign(item['ID'],api.Assignment(RowVersion=item['RowVersion'],PICUserID=self.admin.user_id),self.admin)
@@ -224,11 +234,13 @@ class Desktop(unittest.TestCase):
   preview=api.sheet_preview(self.sheet['ID'],api.SheetSave(RowVersion=saved['row']['RowVersion'],Status='Final',Lines=[RecipeLine(**r) for r in saved['lines']]),manager)
   self.assertEqual(Decimal(preview['calculation']['SeasoningUSDPerLb']),Decimal('.45359237'))
   api.sheet_review(self.sheet['ID'],api.Review(RowVersion=saved['row']['RowVersion'],Action='Approve'),manager)
+  self.accept_sheet(self.sheet['ID'])
   self.assertEqual(self.row('NPDRecipeSheet',self.sheet['ID'])['ApprovedBy'],manager.user_id)
  def test_manager_modifies_and_approves_atomically_with_final_values(self):
   self.setup_recipe();manager=self.review_manager()
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
   result=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve',Comment='Approved changes',Changes=self.changed_recipe(pending)),manager)['row']
+  self.accept_sheet(self.sheet['ID'])
   self.assertEqual(result['ApprovalStatus'],'Approved');self.assertEqual(result['ApprovedBy'],manager.user_id);self.assertEqual(result['Status'],'Final');self.assertEqual(result['ReviewComment'],'Approved changes')
   self.assertEqual(Decimal(result['ExchangeRateVNDPerUSD']),25000);self.assertEqual(obj(result['LinesJSON'])[-1]['Note'],'Manager changed price')
   item=self.row('NPDRecipeRequestItem',self.item['ID']);self.assertEqual(item['PICUserID'],self.admin.user_id);self.assertEqual(item['ActiveSheetID'],self.sheet['ID']);self.assertFalse(item['IsOpen'])
@@ -277,6 +289,7 @@ class Desktop(unittest.TestCase):
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=result['row']['RowVersion'],Action='Submit'),self.admin)['row']
   self.assertEqual(self.row('OpportunityItem',self.source['OpportunityItemID'])['TCBCostInfo'],self.original)
   api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(self.sheet['ID'])
   approved=obj(self.row('OpportunityItem',self.source['OpportunityItemID'])['TCBCostInfo'])
   self.assertEqual(Decimal(approved['NPDRecipe']['SeasoningUSDPerLb']),Decimal('.226796185'))
   self.assertEqual(approved['NPDRecipe']['SeasoningCostBasis'],'FinishedProduct')
@@ -298,6 +311,7 @@ class Desktop(unittest.TestCase):
   self.assertGreater(Decimal(result['calculation']['CostFGUSDPerKg']),Decimal(result['calculation']['SeasoningUSDPerKg']))
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=result['row']['RowVersion'],Action='Submit'),self.admin)['row']
   api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(self.sheet['ID'])
   after=obj(self.row('OpportunityItem',self.source['OpportunityItemID'])['TCBCostInfo'])
   self.assertEqual(after.get('PriceSnapshots'),obj(self.original).get('PriceSnapshots'))
  def test_ingredient_grade_nature_is_maintained_in_both_master_and_sheet(self):
@@ -331,6 +345,7 @@ class Desktop(unittest.TestCase):
  def test_approved_sheet_is_immutable(self):
   self.setup_recipe();pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
   approved=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)['row']
+  self.accept_sheet(self.sheet['ID'])
   with self.assertRaisesRegex(HTTPException,'locked'):api.sheet_save(self.sheet['ID'],api.SheetSave(RowVersion=approved['RowVersion'],Status='Draft',Lines=[RecipeLine(**r) for r in self.saved['lines']]),self.admin)
  def test_unassigned_member_cannot_edit_another_pic_sheet(self):
   self.setup_recipe();other=AccessContext(-123,'other.npd',frozenset({'NPD'}),{'recipe-sheets':'edit'})

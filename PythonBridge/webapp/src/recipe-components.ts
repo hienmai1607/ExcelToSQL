@@ -3,7 +3,6 @@ import {quantity,add,quantityDisplay} from './packaging-summary-model';
 import type {Draft} from './opportunity-losses';
 import {materialRecipe,recipePath} from './tcb-model';
 import {gradePath} from './grade-process';
-import {processLossRows} from './grade-process-loss';
 type RecipeContext=Pick<Draft,'row'|'steps'|'costingInputs'>&Partial<Pick<Draft,'grades'|'masters'|'formula'|'lossDefaults'>>;
 export type RecipeComponent={ID:number;ComponentName:string;SystemKey:string;Status:string};
 export type ComponentCost={SourceSheetID?:number|null;ManualFields?:('USDPerLb'|'RatioPct')[];CostBasis?:string;ComponentID:number;ComponentName:string;SystemKey:string;USDPerLb:unknown;RatioPct:unknown};
@@ -26,25 +25,17 @@ export function componentValues(values:Record<string,unknown>,definitions:Recipe
 export function componentConfig(d:RecipeContext):{components:RecipeComponent[];mappings:{ProcessID:number;ComponentID:number}[]}{
  try{const config=JSON.parse(String(d.row.RecipeComponentsSnapshot));if(!config?.components)throw new Error();return config}catch{return {components:[{ID:1,SystemKey:'Seasoning',ComponentName:'Seasoning',Status:'Active'},{ID:2,SystemKey:'Oil',ComponentName:'Oil',Status:'Active'}],mappings:[]}}
 }
-export function applicableComponents(d:RecipeContext,path:string):Set<number>{
- const config=componentConfig(d),masters=new Set<number>();
- const stages=d.grades?.length?processLossRows({...d,grades:d.grades}):d.costingInputs.ProcessLosses;
- for(const stage of stages??[])if(stage.Path==='0'||stage.Path===path||stage.Path.startsWith(path+'/')||path.startsWith(stage.Path+'/'))for(const code of stage.Codes??[])if(code.MasterID)masters.add(code.MasterID);
- if(!stages)for(const step of d.steps)if(step.MasterID)masters.add(step.MasterID);
- const ids=new Set(config.mappings.filter(m=>masters.has(m.ProcessID)).map(m=>m.ComponentID));
- if(path!=='0'&&!seasoningAllowed(d.row,path))for(const c of config.components)if(c.SystemKey==='Seasoning')ids.delete(c.ID);
- return ids;
+export function applicableComponents(d:RecipeContext,_path:string):Set<number>{
+ return new Set(componentConfig(d).components.filter(c=>c.SystemKey==='Seasoning').map(c=>c.ID));
 }
 export function displayedComponents(d:RecipeContext):RecipeComponent[]{
- const config=componentConfig(d),ids=applicableComponents(d,'0');
- if(d.row.InactiveTCBVersion)for(const values of [d.costingInputs,...d.costingInputs.MaterialCosts??[]])for(const c of componentValues(values,config.components))if(Number(c.RatioPct)>0)ids.add(c.ComponentID);
- return config.components.filter(c=>ids.has(c.ID));
+ return componentConfig(d).components.filter(c=>c.SystemKey==='Seasoning').map(c=>({...c,ComponentName:'Seasoning'}));
 }
 /** Keep visible components, their cost contributions and approved defaults in sync. */
 export function syncRecipeComponents<T extends RecipeContext&Partial<Pick<Draft,'grades'|'quoteGrades'|'mix'>>>(d:T):T{
  const config=componentConfig(d);
- // Older captured contexts without a catalog retain their original calculation.
- if(!d.row.RecipeComponentsSnapshot||d.row.RecipeComponentsSnapshot==='null'||d.mix||d.row.InactiveTCBVersion)return d;
+ // Historical versions retain their captured calculation.
+ if(d.mix||d.row.InactiveTCBVersion)return d;
  const approved=d.row.NPDRecipeSnapshot?JSON.parse(String(d.row.NPDRecipeSnapshot)):null;
  const recipe=(path:string,values:Record<string,unknown>)=>{
   const allowed=applicableComponents(d,path),current=componentValues(values,config.components);
@@ -52,7 +43,9 @@ export function syncRecipeComponents<T extends RecipeContext&Partial<Pick<Draft,
   const Components=config.components.filter(c=>allowed.has(c.ID)).map(c=>{
    const saved=current.find(v=>v.ComponentID===c.ID);
    const row:ComponentCost={ComponentID:c.ID,SystemKey:c.SystemKey,ComponentName:c.ComponentName,USDPerLb:saved?.USDPerLb??null,RatioPct:saved?.RatioPct??'0',CostBasis:saved?.CostBasis??'Ingredient'};
-   if(c.SystemKey==='Seasoning'&&approved&&!approved.Inactive&&!approved.Stale){
+   const sheetApplies=path==='0'?[...roots].every(root=>seasoningAllowed(d.row,root)):seasoningAllowed(d.row,path);
+   if(saved?.SourceSheetID&&!sheetApplies){if(!saved.ManualFields?.includes('USDPerLb'))row.USDPerLb=null;if(!saved.ManualFields?.includes('RatioPct'))row.RatioPct='0'}
+   if(c.SystemKey==='Seasoning'&&approved&&!approved.Inactive&&!approved.Stale&&sheetApplies){
     const manual=approved.SheetID&&saved?.SourceSheetID===approved.SheetID?saved?.ManualFields??[]:[];
     if(!manual.includes('USDPerLb'))row.USDPerLb=approvedPriceInput(approved.SeasoningUSDPerLb);
     if(!manual.includes('RatioPct'))row.RatioPct=approved.SeasoningRatio;

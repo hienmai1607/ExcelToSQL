@@ -18,6 +18,7 @@ def stage_summary(row):
     return json.dumps({
         **review,
         "Recipe": recipe_evidence(row),
+        "SalesReviewStatus": row.pop("_StageSalesReviewStatus", None),
         "PackagingStage": row.pop("_StagePackagingStage", None),
         "RequestNumber": row.pop("_StageRequestNumber", None),
         "PIC": row.pop("_StagePIC", None),
@@ -43,12 +44,13 @@ def recipe_evidence(row):
     assigned = bool(recipe.get('PIC'))
     submitted = bool(recipe.get('SubmittedAt') or approval in ('Pending', 'Approved', 'Returned'))
     reviewed = approval in ('Approved', 'Returned') or requested and not recipe.get('IsOpen', True)
-    approved = approval == 'Approved'
-    state = ('Not required' if not required else 'Approved' if approved else 'Returned' if approval == 'Returned'
+    approved = approval == 'Approved' and recipe.get('SalesReviewStatus', 'Accepted') == 'Accepted'
+    state = ('Not required' if not required else 'Approved' if approved else 'Awaiting Sales' if approval == 'Approved' else 'Returned' if approval == 'Returned'
              else 'Closed' if requested and not recipe.get('IsOpen', True) else 'Submitted' if approval == 'Pending'
              else 'Assigned' if assigned else 'Requested' if requested else 'Not requested')
     return {**recipe, 'Required': required, 'State': state, 'Requested': requested, 'Assigned': assigned,
-            'Submitted': submitted, 'Reviewed': bool(reviewed), 'Approved': approved}
+            'Submitted': submitted, 'Reviewed': bool(reviewed),
+            'ManagerApproved': approval == 'Approved' or recipe.get('SalesReviewStatus') == 'Returned', 'Approved': approved}
 
 
 def complete_stage_summaries(rows):
@@ -91,10 +93,11 @@ def complete_stage_summaries(rows):
                            if summaries[c['ItemID']].get('Recipe', {}).get('Required')]
                 if recipes:
                     recipe = {'Required': True, 'Children': recipes, 'RequiredCount': len(recipes)}
-                    for key in ('Requested', 'Assigned', 'Submitted', 'Reviewed', 'Approved'):
+                    for key in ('Requested', 'Assigned', 'Submitted', 'Reviewed', 'ManagerApproved', 'Approved'):
                         recipe[key+'Count'] = sum(bool(r.get(key)) for r in recipes)
                         recipe[key] = recipe[key+'Count'] == len(recipes)
                     recipe['State'] = ('Approved' if recipe['Approved'] else 'Returned' if any(r.get('State')=='Returned' for r in recipes)
+                                       else 'Awaiting Sales' if any(r.get('State')=='Awaiting Sales' for r in recipes)
                                        else 'Closed' if any(r.get('State')=='Closed' for r in recipes)
                                        else next((label for key,label in (('Submitted','Submitted'),('Assigned','Assigned'),('Requested','Requested')) if recipe[key]), 'Not requested'))
                     info['Recipe'] = recipe

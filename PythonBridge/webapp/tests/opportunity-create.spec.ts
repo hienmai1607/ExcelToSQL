@@ -1,4 +1,22 @@
 import {test,expect,type Page} from '@playwright/test';
+
+test('Estimate Delivery Date saves at header level beside Bid close on one line',async({page},info)=>{
+ await setup(page);let payload:any;
+ await page.route('**/api/opportunity/batch',route=>{payload=route.request().postDataJSON();return route.fulfill({json:{header_results:[{RowNum:1,Status:'OK',OpportunityNumber:'OPP-NEW'}],item_results:payload.item_rows.map((x:any)=>({RowNum:x.RowNum,Status:'OK'}))}})});
+ const form=await fill(page);await form.getByLabel('Estimate Delivery Date',{exact:true}).fill('2027-02-01');
+ await expect(form.getByText('Launching date',{exact:true})).toHaveCount(0);
+ for(const width of [1920,1440]){
+  await page.setViewportSize({width,height:1080});
+  const names=['Customer *','Description *','Bid open','Bid close','Estimate Delivery Date','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
+  const boxes=await Promise.all(names.map(name=>form.getByLabel(name,{exact:true}).boundingBox()));
+  expect(Math.max(...boxes.map(b=>b!.y))-Math.min(...boxes.map(b=>b!.y))).toBeLessThan(3);
+  expect(boxes[4]!.x).toBeGreaterThan(boxes[3]!.x+boxes[3]!.width);
+  expect(await form.locator('.opportunity-header-fields').evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
+ }
+ await page.screenshot({path:info.outputPath('estimate-delivery-date-header.png')});
+ await form.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
+ expect(payload.header_rows[0].EstimateDeliveryDate).toBe('2027-02-01');
+});
 async function setup(page:Page,scopes=['Opportunity']){
  await page.route('**/api/**',route=>{
   const path=new URL(route.request().url()).pathname;
@@ -83,7 +101,7 @@ test('compact heading and header align in one desktop row and estimated award un
  expect(Math.abs(title!.y+title!.height/2-refresh!.y-refresh!.height/2)).toBeLessThan(6);
  await expect(page.getByRole('button',{name:'Excel local template',exact:true})).toHaveCount(1);
  const form=await fill(page);
- const names=['Customer *','Description *','Bid open','Bid close','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
+ const names=['Customer *','Description *','Bid open','Bid close','Estimate Delivery Date','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
  const boxes=await Promise.all(names.map(name=>form.getByLabel(name,{exact:true}).boundingBox()));
  expect(Math.max(...boxes.map(b=>b!.y))-Math.min(...boxes.map(b=>b!.y))).toBeLessThan(3);
  expect(boxes[2]!.width).toBeLessThan(boxes[1]!.width);
@@ -168,7 +186,7 @@ test('creates one header with multiple items only after confirmation',async({pag
 test('entry controls align and packaging fields use a compact grid',async({page})=>{
  await page.setViewportSize({width:1800,height:1100});
  await setup(page);const form=await fill(page);
- const selectors=['Customer *','Bid open','Bid close','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
+ const selectors=['Customer *','Bid open','Bid close','Estimate Delivery Date','Exchange rate VND per USD *','Exchange rate Customer Currency per USD *'];
  const boxes=await Promise.all(selectors.map(name=>form.getByLabel(name,{exact:true}).boundingBox()));
  for(const box of boxes)expect(box!.height).toBe(32);
  await form.getByText('Packaging requirements',{exact:true}).click();await form.getByText('Shipment, Logistics, Co-Man & Others info',{exact:true}).click();

@@ -1,5 +1,28 @@
 import {test,expect,type Page} from '@playwright/test';
 
+test('Review Result separates manager approval from Sales acceptance on both branches',async({page})=>{
+ const recipe={Required:true,Requested:true,Assigned:true,Submitted:true,Reviewed:true,ManagerApproved:true,Approved:false,ApprovalStatus:'Approved',SalesReviewStatus:'Pending',State:'Awaiting Sales'};
+ await setup(page,[{...parent,StageSummaryJSON:JSON.stringify({PackagingStage:'Awaiting Sales',SalesReviewStatus:'Pending',TCBEntriesComplete:true,TCBReviewComplete:true,Recipe:recipe})}]);
+ await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'Stage Summary',exact:true}).click();
+ const root=page.getByRole('article',{name:'Stage for Item 1',exact:true});
+ for(const result of [root.locator('.stage-flow>li').nth(5),root.locator('.stage-recipe-node').last()]){
+  await expect(result).toHaveClass(/current/);
+  await expect(result.getByText('Manager: Approved',{exact:true})).toBeVisible();
+  await expect(result.getByText('Sales: Awaiting acceptance',{exact:true})).toBeVisible();
+ }
+ await expect(root.locator('.stage-current-label')).not.toHaveText('Ready for Customer proposal');
+});
+
+test('Mix Recipe Review Result shows manager and Sales counts separately',async({page})=>{
+ const recipe={Required:true,Requested:true,Assigned:true,Submitted:true,Reviewed:true,Approved:false,State:'Awaiting Sales',RequiredCount:2,Children:[{ManagerApproved:true,Approved:true,SalesReviewStatus:'Accepted'},{ManagerApproved:true,Approved:false,SalesReviewStatus:'Pending'}]};
+ await setup(page,[{...parent,StageSummaryJSON:JSON.stringify({PackagingStage:'Approved',Recipe:recipe})}]);
+ await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'Stage Summary',exact:true}).click();
+ const result=page.locator('.stage-recipe-node').last();
+ await expect(result.getByText('Manager: 2 / 2 approved',{exact:true})).toBeVisible();
+ await expect(result.getByText('Sales: 1 / 2 accepted',{exact:true})).toBeVisible();
+ await expect(result).toHaveClass(/current/);
+});
+
 test('Recipe pending result has no warning highlight and TCB branches from Recipe',async({page},info)=>{
  const recipe={Required:true,Requested:true,Assigned:true,Submitted:false,Reviewed:false,Approved:false,State:'Assigned'};
  await setup(page,[{...parent,StageSummaryJSON:JSON.stringify({PackagingStage:'Approved',TCBSaved:true,TCBEntriesComplete:true,Recipe:recipe})}]);
@@ -59,11 +82,11 @@ test('Opportunity responses show each item current linked PCR, including mix chi
  await page.getByRole('button',{name:'View details',exact:true}).click();
  const table=page.getByRole('table',{name:'Opportunity items',exact:true});
  await table.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
- await page.getByRole('button',{name:'Packaging Responses',exact:true}).click();
+ await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
  const headings=await table.getByRole('columnheader').allTextContents();
  const index=headings.findIndex(text=>text.includes('Current linked PCR'));
  expect(index).toBeGreaterThan(0);
- expect(index).toBeLessThan(headings.findIndex(text=>text.includes('Container type')));
+ expect(index).toBeLessThan(headings.findIndex(text=>text.includes('Response / Sales review')));
  const rows=table.locator('tbody tr');
  await expect(rows.nth(0).getByRole('cell').nth(index)).toHaveText('PCR-30293');
  await expect(rows.nth(1).getByRole('cell').nth(index)).toHaveText('PCR-30294');

@@ -109,3 +109,52 @@
 .npd-request-items .npd-item-review .npd-pic-assignment select{width:calc(20ch + 28px);min-width:0;max-width:190px;flex:0 0 auto}
 .npd-request-items .npd-pic-assignment .icon-button{flex:none}
 .npd-request-items .sort-heading{display:flex;align-items:center;gap:5px;text-align:left}
+
+.sales-review-cell{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.sales-review-metadata{margin:0 0 12px;color:var(--muted)}.sales-review-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}.sales-review-summary span,.sales-review-summary strong{display:block}.sales-review-summary span{font-size:12px;color:var(--muted)}.sales-packaging-item{padding:12px 0;border-bottom:1px solid var(--border)}.sales-response-dialog .npd-body>label{display:flex;flex-direction:column;gap:6px}.sales-response-dialog table{width:100%}@media(max-width:700px){.sales-review-summary{grid-template-columns:1fr 1fr}}
+
+.badge.awaiting-sales{background:#fff3db;color:#815c1f}.badge.accepted{background:#dff2e7;color:#23735d}
+
+/* Compact request selection matches the Packaging item controls. */
+.opportunity-recipe-request .resizable-table th,.opportunity-recipe-request .resizable-table td,.opportunity-items-box .resizable-table td{padding-top:8px;padding-bottom:8px}
+.opportunity-recipe-request .opportunity-item-controls{gap:8px}
+.opportunity-recipe-request .mix-item-number{min-width:32px}
+.opportunity-recipe-request .recipe-request-form{gap:12px;padding:12px}
+
+/* Recipe levels stay inside the existing full-size Sheet view. */
+.recipe-sheet-view-tabs,.recipe-nut-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+.recipe-sheet-view-tabs button[aria-selected=true],.recipe-nut-tabs button[aria-selected=true]{background:var(--primary,#176e67);color:white;border-color:var(--primary,#176e67)}
+.recipe-nut-heading{display:flex;align-items:center;gap:16px;margin:10px 0}.recipe-nut-heading h3{margin:0 auto 0 0}.recipe-nut-heading input{width:110px}
+.recipe-level-card{border:1px solid var(--border,#dce5e5);border-radius:8px;margin:12px 0;overflow:hidden;background:var(--surface,#fff)}
+.recipe-level-card>header{display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface-alt,#f1f6f5)}
+.recipe-level-card h4{margin:0;white-space:nowrap}.recipe-level-card>header label{flex:1;min-width:0}.recipe-level-card table{width:100%;table-layout:fixed}
+.recipe-level-card th{background:#754258!important;color:#fff;padding:8px 10px}.recipe-level-card td{padding:8px 10px;overflow-wrap:anywhere}
+.recipe-level-card td small{display:block;color:var(--muted);font-size:12px}.recipe-level-card td input,.recipe-level-card td select{width:100%;min-width:0}.recipe-level-card .icon-button{width:30px;min-width:30px;height:30px;padding:5px}.recipe-level-card tfoot th{background:var(--surface-alt,#f1f6f5)!important;color:var(--text,#284342);text-align:right}.recipe-level-add{margin:8px 12px}
+.recipe-details-actions{display:flex;gap:12px;align-items:end}.recipe-details-setup{padding:16px;border:1px solid var(--border);border-radius:8px}
+@media(max-width:900px){.recipe-level-card>header{flex-wrap:wrap}}
+.recipe-level-card td input,.recipe-level-card td select{box-sizing:border-box;max-width:100%}.recipe-level-card table{min-width:0}.recipe-level-card th,.recipe-level-card td{box-sizing:border-box}
+.dialog.npd-sheet .recipe-level-card td input{width:100%;min-width:0;max-width:100%;box-sizing:border-box;height:34px;padding:5px 7px}
+/* Compact Details rows and inline nut/output controls. */
+.dialog.npd-sheet .recipe-nut-heading{gap:16px;margin:8px 0;flex-wrap:nowrap;justify-content:flex-start}
+.dialog.npd-sheet .recipe-nut-heading>label,.dialog.npd-sheet .recipe-level-card>header>label{flex-direction:row;align-items:center;gap:8px;white-space:nowrap;margin:0}
+.dialog.npd-sheet .recipe-nut-picker select{width:260px;min-width:120px;max-width:35vw;height:32px;padding:4px 8px}
+.dialog.npd-sheet .recipe-nut-heading input{width:90px;min-width:0;height:32px;box-sizing:border-box}
+.dialog.npd-sheet .recipe-level-card{margin:8px 0}
+.dialog.npd-sheet .recipe-level-card>header{padding:7px 10px;gap:14px;flex-wrap:nowrap}
+.dialog.npd-sheet .recipe-level-card>header input{height:32px;min-width:0;flex:1;box-sizing:border-box;padding:4px 8px}
+.dialog.npd-sheet .recipe-level-card td,.dialog.npd-sheet .recipe-level-card th{padding:5px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.dialog.npd-sheet .recipe-level-card td .info-tip{margin-left:6px}
+.dialog.npd-sheet .recipe-level-card .master-lookup-control select{height:32px;padding:4px 7px;font-size:12px}
+.dialog.npd-sheet .recipe-level-card td input{height:32px}
+.dialog.npd-sheet .recipe-level-add,.dialog.npd-sheet .recipe-details-actions>button{margin-top:5px;margin-bottom:5px;padding:5px 9px;font-size:12px}
+.dialog.npd-sheet .recipe-level-card thead th{background:var(--primary,#176e67)!important;color:#fff}
+.recipe-level-title,.recipe-number-heading{display:flex;align-items:center;gap:6px;white-space:nowrap}
+
+.dialog.npd-sheet .recipe-level-card thead .icon-button{background:transparent;border-color:#ffffff80;color:#fff;width:26px;min-width:26px;height:26px;padding:3px}
+.dialog.npd-sheet .recipe-level-card thead .icon-button:hover{background:#ffffff20}
+.recipe-details-actions:empty{display:none}
+
+.dialog.npd-sheet .recipe-level-card table{border-collapse:collapse}
+.dialog.npd-sheet .recipe-level-card th,.dialog.npd-sheet .recipe-level-card td{border-right:1px solid var(--border,#dce5e5);border-bottom:1px solid var(--border,#dce5e5)}
+.dialog.npd-sheet .recipe-level-card thead th{border-color:#ffffff40}
+.recipe-level-card .detail-col-number{width:80px}.recipe-level-card .detail-col-code{width:140px}.recipe-level-card .detail-col-ingredient{width:35%}.recipe-level-card .detail-col-origin{width:85px}.recipe-level-card .detail-col-ratio{width:110px}.recipe-level-card .detail-col-action{width:45px}
+.dialog.npd-sheet .npd-recipe-table thead th{background:var(--primary,#176e67);border-color:#ffffff40;color:#fff}

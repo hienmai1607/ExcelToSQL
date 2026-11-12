@@ -34,5 +34,5 @@ def complete_review_families(cur, ctx, rows, review_ids, results):
         for result in results:
             if result["NewID"] in final:
                 result["NewRowVersion"] = final[result["NewID"]]["RowVersion"]
-                result["Stage"] = "Approved"
+                result["Stage"] = final[result["NewID"]]["Stage"]
         completed.add(root[0])

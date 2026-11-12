@@ -30,8 +30,8 @@ test('component ratios reduce RM and contribute once to product price',()=>{
  values=changeComponent(values,components[1],'USDPerLb','4',components);values=changeComponent(values,components[1],'RatioPct','2',components);
  expect(values.RMRatio).toBe('95');expect(values).not.toHaveProperty('Prices');expect(values).not.toHaveProperty('ProcessLosses');expect(recipeCost(values,{n:10n,d:1n}).product).toEqual({n:241n,d:25n});
 });
-test('process mappings select Salt and Oil while approved seasoning supplies its loss default',()=>{
- const draft={row:{...item,NPDRecipeSnapshot:'null',RecipeComponentsSnapshot:JSON.stringify(data.recipeComponents)},grades:snapshot.items,steps:[],costingInputs:data.saved.Inputs};expect(displayedComponents(draft).map(c=>c.SystemKey)).toEqual(['Salt','Oil']);
+test('fixed Seasoning columns do not change the approved process loss default',()=>{
+ const draft={row:{...item,NPDRecipeSnapshot:'null',RecipeComponentsSnapshot:JSON.stringify(data.recipeComponents)},grades:snapshot.items,steps:[],costingInputs:data.saved.Inputs};expect(displayedComponents(draft).map(c=>c.SystemKey)).toEqual(['Seasoning']);
  draft.row.NPDRecipeSnapshot=JSON.stringify({SheetID:1,SeasoningLossPct:'2.5'});
  expect(defaultProcessCode(draft,'0/1',masters[1]).ratio).toBe('2.5');
 });
@@ -47,51 +47,52 @@ test('approved seasoning defaults respect TCB six-decimal input precision',()=>{
  }
 });
 
-test('only selected processes expose components, including shared ancestors and no saved-value fallback',()=>{
- const draft={row:{...item,RequiresRecipeConfirmation:true,NPDRecipeSnapshot:JSON.stringify({SheetID:1,SeasoningRatio:5,SeasoningUSDPerLb:'.14'}),RecipeComponentsSnapshot:JSON.stringify(data.recipeComponents)},steps:[],costingInputs:{...data.saved.Inputs,OilPct:2,OilUSDPerLb:4,SeasoningRatio:5,SeasoningUSDPerLb:'.14',ProcessLosses:[]}};
- expect(displayedComponents(draft)).toEqual([]);
- draft.costingInputs.ProcessLosses=[{Path:'0/1',Codes:[{MasterID:77,MasterVersion:version,ProcessName:'Oil Salted Roasting'}],Ratios:['0']}];
- expect([...applicableComponents(draft,'0/1/1')]).toEqual([1,2]);expect([...applicableComponents(draft,'0/2')]).toEqual([]);
- expect(displayedComponents(draft).map(c=>c.SystemKey)).toEqual(['Salt','Oil']);
- const resolved=syncRecipeComponents({...draft,grades:[...snapshot.items,{...snapshot.items[0],ID:2,Grade:'Almonds'}]});
- expect(resolved.costingInputs.MaterialCosts[0]).toMatchObject({Path:'0/1',RMRatio:'98',OilPct:2,SeasoningRatio:'0'});
- expect(resolved.costingInputs.MaterialCosts[1]).toMatchObject({Path:'0/2',RMRatio:'100',OilPct:'0',SeasoningRatio:'0',Components:[]});
- const historical={...draft,row:{...draft.row,InactiveTCBVersion:true},costingInputs:{...draft.costingInputs,ProcessLosses:[]}};
- expect(syncRecipeComponents(historical)).toBe(historical);expect(displayedComponents(historical).map(c=>c.SystemKey)).toEqual(['Oil','Seasoning']);
+test('Seasoning is always available regardless of selected process mappings',()=>{
+ const draft={row:{...item,NPDRecipeSnapshot:'null',RecipeComponentsSnapshot:JSON.stringify(data.recipeComponents)},steps:[],costingInputs:{...data.saved.Inputs,ProcessLosses:[]}};
+ expect(displayedComponents(draft).map(c=>c.SystemKey)).toEqual(['Seasoning']);
+ expect([...applicableComponents(draft,'0/1')]).toEqual([3]);
+ expect([...applicableComponents(draft,'0/2')]).toEqual([3]);
+ const saved=syncRecipeComponents({...draft,grades:snapshot.items,costingInputs:{...draft.costingInputs,OilPct:'2',OilUSDPerLb:'4',SeasoningRatio:'5',SeasoningUSDPerLb:'6'}});
+ expect(saved.costingInputs.MaterialCosts[0]).toMatchObject({RMRatio:'95',OilPct:'0',SeasoningRatio:'5',SeasoningUSDPerLb:'6'});
+ const resolved=syncRecipeComponents({...draft,grades:snapshot.items});
+ expect(resolved.costingInputs.MaterialCosts[0].Components).toEqual([expect.objectContaining({SystemKey:'Seasoning',RatioPct:'0'})]);
 });
 
-test('TCB switches mapped columns and defaults approved seasoning immediately after process selection',async({page},info)=>{
+test('approved seasoning defaults remain visible without a Seasoning process',async({page},info)=>{
  await setup(page);
  const approved={SheetID:21,SheetNumber:'RCP-APPROVED',Revision:1,SeasoningRatio:'5',SeasoningUSDPerLb:'.14',SeasoningCostBasis:'FinishedProduct',SeasoningLossPct:'2.5'};
  await page.route('**/api/opportunity/items/11/tcb',route=>route.fulfill({json:{...data,saved:{...data.saved,NPDRecipe:approved}}}));
  await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'TCB Review',exact:true}).click();await page.getByRole('button',{name:'TCB Review for PRD-1 item 11',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'TCB Review',exact:true});
- await expect(dialog.getByRole('columnheader',{name:'Seasoning ($/lbs)',exact:true})).toHaveCount(0);
- await dialog.getByLabel('Oil ($/lbs) 0/1',{exact:true}).fill('4');await dialog.getByLabel('Oil Ratio (%) 0/1',{exact:true}).fill('2');
+ await expect(dialog.getByRole('columnheader',{name:'Seasoning ($/lbs)',exact:true})).toBeVisible();
+ for(const label of ['Oil ($/lbs)','Salt ($/lbs)'])await expect(dialog.getByRole('columnheader',{name:label,exact:true})).toHaveCount(0);
+ await expect(dialog.getByLabel('Seasoning ($/lbs) 0/1',{exact:true})).toHaveValue('.14');
+ await expect(dialog.getByLabel('Seasoning Ratio (%) 0/1',{exact:true})).toHaveValue('5');
  await dialog.getByLabel('Process type 0/1 L1 item 11',{exact:true}).selectOption('78');
- await expect(dialog.getByRole('columnheader',{name:'Oil ($/lbs)',exact:true})).toHaveCount(0);await expect(dialog.getByRole('columnheader',{name:'Salt ($/lbs)',exact:true})).toHaveCount(0);
- await expect(dialog.getByLabel('Seasoning ($/lbs) 0/1',{exact:true})).toHaveValue('.14');await expect(dialog.getByLabel('Seasoning Ratio (%) 0/1',{exact:true})).toHaveValue('5');
- await expect(dialog.getByLabel('Process loss 0/1 L1 item 11',{exact:true})).toHaveValue('2.5');await expect(dialog.getByLabel('RM Ratio (%) 0/1',{exact:true})).toHaveText('95');
+ await expect(dialog.getByLabel('Process loss 0/1 L1 item 11',{exact:true})).toHaveValue('2.5');
  await dialog.getByRole('button',{name:'Remove process type 0/1 L1 item 11',exact:true}).click();
- await expect(dialog.getByRole('columnheader',{name:'Seasoning ($/lbs)',exact:true})).toHaveCount(0);await expect(dialog.getByLabel('RM Ratio (%) 0/1',{exact:true})).toHaveText('100');
- await dialog.screenshot({path:info.outputPath('recipe-no-fixed-components.png')});
+ await expect(dialog.getByLabel('Seasoning ($/lbs) 0/1',{exact:true})).toHaveValue('.14');
+ await expect(dialog.getByLabel('RM Ratio (%) 0/1',{exact:true})).toHaveText('95');
+ await dialog.screenshot({path:info.outputPath('fixed-seasoning-columns.png')});
 });
-test('TCB displays process components and automatically updates RM',async({page},info)=>{
- await setup(page);await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'TCB Review',exact:true}).click();await page.getByRole('button',{name:'TCB Review for PRD-1 item 11',exact:true}).click();
+
+test('manual Seasoning updates RM without any component process mapping',async({page})=>{
+ await setup(page);await page.route('**/api/opportunity/items/11/tcb',route=>route.fulfill({json:{...data,recipeComponents:{components,mappings:[]},saved:{Inputs:{...data.saved.Inputs,ProcessLosses:[]}}}}));
+ await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'TCB Review',exact:true}).click();await page.getByRole('button',{name:'TCB Review for PRD-1 item 11',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'TCB Review',exact:true});
- await expect(dialog.getByRole('columnheader',{name:'Salt ($/lbs)',exact:true})).toBeVisible();await expect(dialog.getByRole('columnheader',{name:'Oil ($/lbs)',exact:true})).toBeVisible();
- await expect(dialog.getByRole('columnheader',{name:'Seasoning ($/lbs)',exact:true})).toHaveCount(0);
- await dialog.getByLabel('Salt ($/lbs) 0/1',{exact:true}).fill('2');await dialog.getByLabel('Salt Ratio (%) 0/1',{exact:true}).fill('3');await expect(dialog.getByLabel('RM Ratio (%) 0/1',{exact:true})).toHaveText('97');
- await dialog.getByLabel('Oil ($/lbs) 0/1',{exact:true}).fill('4');await dialog.getByLabel('Oil Ratio (%) 0/1',{exact:true}).fill('2');await expect(dialog.getByLabel('RM Ratio (%) 0/1',{exact:true})).toHaveText('95');
- await page.screenshot({path:info.outputPath('tcb-recipe-components.png')});
+ await dialog.getByLabel('Seasoning ($/lbs) 0/1',{exact:true}).fill('2');
+ await dialog.getByLabel('Seasoning Ratio (%) 0/1',{exact:true}).fill('3');
+ await expect(dialog.getByLabel('RM Ratio (%) 0/1',{exact:true})).toHaveText('97');
+ await expect(dialog.getByRole('columnheader',{name:'Oil ($/lbs)',exact:true})).toHaveCount(0);
 });
+
 test('Opportunity grade snapshot enables compact Recipe requirements and captures fields',async({page},info)=>{
  await setup(page);await page.getByRole('button',{name:'Edit Opportunity OPP-RECIPE',exact:true}).click();
  const opportunity=page.getByRole('dialog',{name:'Edit Opportunity',exact:true});await opportunity.getByRole('button',{name:'Edit Opportunity grade snapshot',exact:true}).click();
  const grades=page.getByRole('dialog',{name:'Product grades',exact:true});await grades.getByLabel('Requires Recipe confirmation',{exact:true}).check();await grades.getByRole('button',{name:'Use grades',exact:true}).click();
- await opportunity.getByText('Recipe requirements',{exact:true}).click();await opportunity.getByLabel('Recipe launching date item 1',{exact:true}).fill('2027-02-01');await opportunity.getByLabel('Recipe special comments item 1',{exact:true}).fill('Low sodium');
+ await opportunity.getByText('Recipe requirements',{exact:true}).click();await opportunity.getByLabel('Estimate Delivery Date',{exact:true}).fill('2027-02-01');await opportunity.getByLabel('Recipe special comments item 1',{exact:true}).fill('Low sodium');
  await expect(opportunity.getByLabel('Recipe special comments item 1',{exact:true})).toHaveValue('Low sodium');
- const comments=await opportunity.getByLabel('Recipe special comments item 1',{exact:true}).boundingBox(),launch=await opportunity.getByLabel('Recipe launching date item 1',{exact:true}).boundingBox();expect(comments!.height).toBeLessThanOrEqual(42);expect(Math.abs(comments!.height-launch!.height)).toBeLessThanOrEqual(2);await page.screenshot({path:info.outputPath('compact-recipe-requirements.png')});
+ const comments=await opportunity.getByLabel('Recipe special comments item 1',{exact:true}).boundingBox(),launch=await opportunity.getByLabel('Estimate Delivery Date',{exact:true}).boundingBox();expect(comments!.height).toBeLessThanOrEqual(42);expect(Math.abs(comments!.height-launch!.height)).toBeLessThanOrEqual(2);await page.screenshot({path:info.outputPath('compact-recipe-requirements.png')});
 });
 test('linked Recipe Request protects grade and requirement controls in Opportunity',async({page})=>{
  await setup(page,true);await page.getByRole('button',{name:'Edit Opportunity OPP-RECIPE',exact:true}).click();
@@ -127,13 +128,41 @@ test('Opportunity opens linked request and sheet in read-only views without leav
 
 test('Opportunity Recipe Request tab creates inline and refreshes the link',async({page},info)=>{
  const writes=await setup(page,false,true);await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'Recipe Request',exact:true}).click();
+ await expect(page.getByRole('form',{name:'Create Recipe Request',exact:true})).toHaveCount(0);
+ const table=page.getByRole('table',{name:'Opportunity Recipe Request items',exact:true});
+ await expect(table.getByRole('columnheader',{name:'Select',exact:true})).toHaveCount(0);
+ const selectionCell=table.locator('tbody tr').first().locator('td').first();
+ await expect(selectionCell.getByText('1',{exact:true})).toBeVisible();
+ await expect(selectionCell.getByRole('checkbox')).toBeVisible();
+ const controls=await selectionCell.locator('.opportunity-item-controls').boundingBox();expect(controls!.width).toBeLessThan(120);
+ const resize=table.getByRole('separator',{name:'Resize Product',exact:true});
+ const before=await table.getByRole('columnheader',{name:'Product',exact:true}).boundingBox();
+ await resize.focus();await resize.press('ArrowRight');
+ await expect(resize).toHaveAttribute('aria-valuenow','450');
+ const after=await table.getByRole('columnheader',{name:'Product',exact:true}).boundingBox();expect(after!.width-before!.width).toBeCloseTo(10,0);
+ await page.getByLabel('Select recipe item 11',{exact:true}).check();
+ await expect(page.getByRole('form',{name:'Create Recipe Request',exact:true})).toBeVisible();
+ await page.getByLabel('Select recipe item 11',{exact:true}).uncheck();
+ await expect(page.getByRole('form',{name:'Create Recipe Request',exact:true})).toHaveCount(0);
  await page.getByLabel('Select recipe item 11',{exact:true}).check();await expect(page.getByRole('button',{name:'Create Recipe Request (1)',exact:true})).toBeDisabled();
  const form=page.getByRole('form',{name:'Create Recipe Request',exact:true});await form.getByLabel('Response due',{exact:true}).fill('2027-01-15');await form.getByLabel('Request notes',{exact:true}).fill('Develop low sodium blend');
  const due=await form.getByLabel('Response due',{exact:true}).boundingBox(),notes=await form.getByLabel('Request notes',{exact:true}).boundingBox(),button=await form.getByRole('button',{name:'Create Recipe Request (1)',exact:true}).boundingBox();expect(notes!.height).toBeLessThanOrEqual(42);expect(Math.abs(due!.y-notes!.y)).toBeLessThanOrEqual(2);expect(Math.abs(notes!.y-button!.y)).toBeLessThanOrEqual(2);
  await page.screenshot({path:info.outputPath('inline-recipe-request.png')});await form.getByRole('button',{name:'Create Recipe Request (1)',exact:true}).click();
  await expect(page.getByRole('dialog',{name:'New Recipe Request',exact:true})).toHaveCount(0);await expect(page.getByLabel('Select recipe item 11',{exact:true})).toBeDisabled();expect(writes).toHaveLength(1);expect(writes[0]).toMatchObject({RequestDue:'2027-01-15',RequestNote:'Develop low sodium blend',Items:[{OpportunityItemID:11,RowVersion:rv}]});
+ await expect(page.getByRole('form',{name:'Create Recipe Request',exact:true})).toHaveCount(0);
 });
 
+
+test('Recipe Request creates on VM HTTP without crypto.randomUUID',async({page})=>{
+ await page.addInitScript(()=>Object.defineProperty(window.crypto,'randomUUID',{value:undefined,configurable:true}));
+ const writes=await setup(page,false,true);
+ await page.getByRole('button',{name:'View details',exact:true}).click();await page.getByRole('button',{name:'Recipe Request',exact:true}).click();
+ await page.getByLabel('Select recipe item 11',{exact:true}).check();
+ const form=page.getByRole('form',{name:'Create Recipe Request',exact:true});await form.getByLabel('Response due',{exact:true}).fill('2027-01-15');
+ await form.getByRole('button',{name:'Create Recipe Request (1)',exact:true}).click();
+ await expect(page.getByLabel('Select recipe item 11',{exact:true})).toBeDisabled();
+ expect(writes).toHaveLength(1);expect(writes[0].CreationKey).toMatch(/^[0-9a-f-]{36}$/i);
+});
 
 test('Recipe Request is the only highlighted item tab',async({page})=>{
  await setup(page,false,true);await page.getByRole('button',{name:'View details',exact:true}).click();
@@ -212,6 +241,6 @@ test('approved sheet permits Seasoning only for its matching Level 1 grade famil
  await expect(dialog.getByLabel('Process type 0/2 L1 item 11',{exact:true}).locator('option[value="78"]')).toHaveCount(0);
  await dialog.getByLabel('Process type 0/1 L1 item 11',{exact:true}).selectOption('78');
  await expect(dialog.getByLabel('Seasoning ($/lbs) 0/1',{exact:true})).toHaveValue('.14');await expect(dialog.getByLabel('Seasoning Ratio (%) 0/1',{exact:true})).toHaveValue('5');
- await expect(dialog.getByLabel('Seasoning ($/lbs) 0/2',{exact:true})).toHaveCount(0);await expect(dialog.getByLabel('RM Ratio (%) 0/2',{exact:true})).toHaveText('100');
+ await expect(dialog.getByLabel('Seasoning ($/lbs) 0/2',{exact:true})).toHaveValue('');await expect(dialog.getByLabel('RM Ratio (%) 0/2',{exact:true})).toHaveText('100');
  await expect(dialog.getByLabel('Process loss 0/1 L1 item 11',{exact:true})).toHaveValue('2.5');
 });

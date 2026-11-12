@@ -1,5 +1,6 @@
 """Shared additional-field contracts and atomic saves over existing business procedures."""
 import json
+from datetime import date
 import re
 from decimal import Decimal
 from pydantic import BaseModel, Field, model_validator, field_validator
@@ -45,8 +46,9 @@ class ProductFields(BaseModel):
             raise ValueError("Maintain Grade and Ratio in Product Grade versions. Download a fresh workbook.")
         return values
 
-OPPORTUNITY_FIELDS = ["CurrencyID","ExchangeRateToVND","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"]
+OPPORTUNITY_FIELDS = ["EstimateDeliveryDate","CurrencyID","ExchangeRateToVND","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"]
 class HeaderFields(BaseModel):
+    EstimateDeliveryDate: date | None = None
     ExchangeRateVNDPerUSD: Decimal | None = Field(None, max_digits=19, decimal_places=6, gt=0, allow_inf_nan=False)
     ExchangeRateCustomerCurrencyPerUSD: Decimal | None = Field(None, max_digits=19, decimal_places=6, gt=0, allow_inf_nan=False)
     CurrencyID: int | None = Field(None, ge=1)

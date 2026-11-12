@@ -86,6 +86,8 @@ app.include_router(packaging_excel_router)
 app.include_router(packaging_master_excel_router)
 app.include_router(packaging_router)
 app.include_router(npd_router)
+from sales_response_review import router as sales_response_review_router
+app.include_router(sales_response_review_router)
 app.include_router(recipe_component_router)
 app.include_router(workbench_router)
 app.include_router(unit_conversion_router)

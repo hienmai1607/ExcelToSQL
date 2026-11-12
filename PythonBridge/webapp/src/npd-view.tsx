@@ -6,7 +6,7 @@ import {ColumnResizer} from './column-widths';
 import {ColumnOrder,LayoutPanel,Notification,PageSizeSetting} from './ui';
 
 export const recipeHeaderColumns:Record<string,string>={RequestNumber:'Request',ItemCount:'Items',OpportunityNumber:'Opportunity',CustomerName:'Customer',RequestDue:'Request due',Status:'Status',Unassigned:'Unassigned',AssignedToMe:'Assigned to me',RequestedByName:'Requested by',RequestedAt:'Requested at'};
-export const recipeItemColumns:Record<string,string>={Review:'Review',ProductCode:'Product',ProductName:'Product name',AnnualUnit:'Annual units',WeightGrams:'Net weight (g)',EstimatedAwardedMT:'Estimated awarded MT',LaunchingDate:'Launching date',SpecialComments:'Special comments',Sheet:'Recipe Sheet',Status:'Stage',PIC:'PIC'};
+export const recipeItemColumns:Record<string,string>={Review:'Review',ProductCode:'Product',ProductName:'Product name',AnnualUnit:'Annual units',WeightGrams:'Net weight (g)',EstimatedAwardedMT:'Estimated awarded MT',LaunchingDate:'Estimate Delivery Date',SpecialComments:'Special comments',Sheet:'Recipe Sheet',Status:'Stage',PIC:'PIC'};
 export const recipeFilters={header:{search:'Code, description or reference',status:'Status',created_by:'Created by',assigned_to:'Assigned to'},items:{search:'Product or comments',pic:'PIC',status:'Stage'}};
 type Kind='header'|'items';
 export const recipeColumns=(kind:Kind)=>kind==='header'?recipeHeaderColumns:recipeItemColumns;

@@ -60,7 +60,7 @@ test('assigned NPD edits ratios, keeps raw identities and submits a saved sheet'
  await expect(dialog.getByLabel('Approval status: Draft',{exact:true})).toHaveText('Approval: Draft');await expect(dialog.getByLabel('Ratio line 1')).toHaveValue('57.00');await expect(dialog.getByLabel('Ratio line 1')).toBeEnabled();
  await expect(dialog.getByRole('button',{name:'Remove ingredient line 1',exact:true})).toHaveCount(0);
  await expect(dialog.getByRole('button',{name:'Remove ingredient line 3',exact:true})).toBeVisible();
- await expect(dialog.getByLabel('Ingredient description line 1',{exact:true})).toBeVisible();await expect(dialog.getByLabel('Price (USD/KG) line 1',{exact:true})).toBeEnabled();
+ await expect(dialog.getByLabel('Ingredient description line 1',{exact:true})).toHaveCount(0);await expect(dialog.getByLabel('Price (USD/KG) line 1',{exact:true})).toBeEnabled();
  await expect(dialog.getByRole('button',{name:'Edit ingredient line 3',exact:true})).toBeVisible();
  await expect(dialog.locator('footer').getByLabel('Loss by weight (%)',{exact:true})).toHaveText('0.56%');await expect(dialog.locator('footer input')).toHaveCount(0);await expect(dialog.locator('.npd-sheet-header').getByLabel('Loss by weight (%)',{exact:true})).toHaveCount(0);
  await expect(dialog.getByLabel('Exchange rate (VND / USD)',{exact:true})).toHaveValue('26500.00');await dialog.getByLabel('Exchange rate (VND / USD)',{exact:true}).fill('25000');
@@ -177,7 +177,7 @@ test('direct ingredient prices convert either currency, save, reopen and return 
  const saved=calls.find(c=>c.path==='/api/npd/sheets/21')!.body.Lines[2];expect(saved).toMatchObject({DirectPriceCurrency:'USD',DirectPricePerKg:'12',PriceID:null});
  await dialog.getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'RCP-1',exact:true}).click();dialog=page.getByRole('dialog',{name:'RCP-1',exact:true});await expect(usd()).toHaveValue('12.00');await expect(vnd()).toHaveValue('300000.00');await expect(dialog.locator('.npd-totals')).toContainText('0.27');
  await page.screenshot({path:info.outputPath('npd-direct-price.png')});await dialog.getByLabel('Price line 3',{exact:true}).selectOption('');await expect(dialog.getByLabel('Price line 3',{exact:true})).toHaveValue('');await dialog.getByRole('button',{name:'Save sheet',exact:true}).click();
- expect(calls.filter(c=>c.path==='/api/npd/sheets/21').at(-1)!.body.Lines[2]).toMatchObject({DirectPricePerKg:null,DirectPriceCurrency:null});
+ await expect.poll(()=>calls.filter(c=>c.path==='/api/npd/sheets/21').at(-1)?.body.Lines[2]).toMatchObject({DirectPricePerKg:null,DirectPriceCurrency:null});
 });
 
 test('direct prices use exact conversion and retain a free zero price',()=>{
@@ -192,8 +192,8 @@ test('recipe reference layout keeps metadata, notes, total ratio and seven summa
  expect(await table.locator('thead th').allTextContents()).toEqual(['No.','Code','Ingredient','Grade/ type/ nature','Origin','Ratio (%)','#','Vendor','Price (VND/KG)','Price (USD/KG)','Ingredient Loss (%)','Buffer Ratio (%)','Note','Total Qty (KG)','Actions']);
  await expect(table.getByText('USD/lbs',{exact:false})).toHaveCount(0);await expect(table.locator('tbody tr').nth(2).locator('td').nth(11)).toHaveText('5.56');
  await expect(table.getByText('Fine powder',{exact:true})).toBeVisible();await expect(table.getByText('Vietnam',{exact:true})).toBeVisible();await expect(table.getByText('NA',{exact:true})).toHaveCount(2);
- await dialog.getByLabel('Ingredient description line 1',{exact:true}).fill('Oil roasted cashews');await dialog.getByLabel('Note line 1',{exact:true}).fill('Inspect nuts');await dialog.getByLabel('Note line 3',{exact:true}).fill('Fine grind');await dialog.getByLabel('Price (USD/KG) line 1',{exact:true}).fill('12');await dialog.getByRole('button',{name:'Save sheet',exact:true}).click();
- const saved=calls.filter(c=>c.path==='/api/npd/sheets/21').at(-1)!.body.Lines;expect(saved[0]).toMatchObject({IngredientNote:'Oil roasted cashews',Note:'Inspect nuts',DirectPricePerKg:'12'});expect(saved[2].Note).toBe('Fine grind');
+ await expect(dialog.getByLabel('Ingredient description line 1',{exact:true})).toHaveCount(0);await dialog.getByLabel('Note line 1',{exact:true}).fill('Inspect nuts');await dialog.getByLabel('Note line 3',{exact:true}).fill('Fine grind');await dialog.getByLabel('Price (USD/KG) line 1',{exact:true}).fill('12');await dialog.getByRole('button',{name:'Save sheet',exact:true}).click();
+ const saved=calls.filter(c=>c.path==='/api/npd/sheets/21').at(-1)!.body.Lines;expect(saved[0]).toMatchObject({Note:'Inspect nuts',DirectPricePerKg:'12'});expect(saved[2].Note).toBe('Fine grind');
  await expect(table.getByLabel('Total ratio',{exact:true})).toHaveText('100.00%');await expect(table.getByLabel('Total Buffer Ratio',{exact:true})).toHaveText('100.56%');await expect(table.locator('tbody tr').nth(0).locator('td').nth(13)).toHaveText('5,700.000');await expect(table.locator('tbody tr').nth(2).locator('td').nth(13)).toHaveText('555.556');await expect(dialog.locator('footer').getByText('Total ratio',{exact:true})).toHaveCount(0);
  expect(await dialog.getByLabel('Recipe cost summaries',{exact:true}).locator(':scope>span').evaluateAll(elements=>elements.map(el=>el.firstChild?.textContent))).toEqual(['Cost of FG ($/kg)','Cost of FG with Buffer ($/kg)','Loss by weight (%)','Loss by value (%)','Seasoning price ($/kg)','Seasoning price ($/lbs)','Seasoning Ratio']);
  for(const width of [1920,1366]){await page.setViewportSize({width,height:1080});expect(await table.locator('..').evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);for(const input of await table.locator('input').all()){const box=await input.boundingBox(),cell=await input.locator('..').boundingBox();expect(box!.x+box!.width).toBeLessThanOrEqual(cell!.x+cell!.width+1)}}
@@ -331,6 +331,18 @@ test('request detail keeps a compact header and version metadata with inline cre
  await page.getByRole('button',{name:'RRQ-1',exact:true}).click();await expect(dialog.getByText('No Recipe Sheets yet.',{exact:true})).toBeVisible();await expect(dialog.getByRole('button',{name:'Add new Recipe Sheet for PRD-1',exact:true})).toBeEnabled();
 });
 
+
+test('Recipe Sheet creates on VM HTTP without crypto.randomUUID',async({page})=>{
+ await page.addInitScript(()=>Object.defineProperty(window.crypto,'randomUUID',{value:undefined,configurable:true}));
+ await setup(page);
+ await page.route('**/api/npd/requests/1/items',route=>route.fulfill({json:{rows:[{...item,HasWorkingSheet:false,IsLinked:true,SheetVersions:[]}]}}));
+ const bodies:any[]=[];
+ await page.route('**/api/npd/request-items/11/sheets',route=>{bodies.push(route.request().postDataJSON());return route.fulfill({json:{row:{ID:21}}})});
+ await page.getByRole('navigation').getByRole('button',{name:'Recipe Requests',exact:true}).click();await page.getByRole('button',{name:'RRQ-1',exact:true}).click();
+ await page.getByRole('button',{name:'Add new Recipe Sheet for PRD-1',exact:true}).click();
+ await expect(page.getByRole('dialog',{name:'RCP-1',exact:true})).toBeVisible();
+ expect(bodies).toHaveLength(1);expect(bodies[0].CreationKey).toMatch(/^[0-9a-f-]{36}$/i);
+});
 
 test('Recipe Request layout saves columns, filters, order and sorting to the profile',async({page})=>{
  await setup(page,'manager');let settings:any={},version=0;const queries:URLSearchParams[]=[];

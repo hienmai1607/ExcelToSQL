@@ -13,7 +13,7 @@ from shipment_ownership import effective_shipment
 from item_stage_summary import stage_summary, complete_stage_summaries
 from tcb_analysis_columns import TCB_COLUMNS, add_tcb_columns
 
-HEADER_COLUMNS = {"OpportunityNumber", "CustomerName", "OpportunityDesc", "BidOpen", "BidClose", "HeaderStage", "ItemCount", "CustomerCurrencyCode", "ExchangeRateVNDPerUSD", "ExchangeRateCustomerCurrencyPerUSD"}
+HEADER_COLUMNS = {"OpportunityNumber", "CustomerName", "OpportunityDesc", "BidOpen", "BidClose", "EstimateDeliveryDate", "HeaderStage", "ItemCount", "CustomerCurrencyCode", "ExchangeRateVNDPerUSD", "ExchangeRateCustomerCurrencyPerUSD"}
 from packaging_fields import OPPORTUNITYITEM_FIELDS, PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS, RETIRED_RESPONSE_COLUMNS
 MIX_COLUMNS = {"ItemNumber","MixUnitQuantity","ShelfLifeDays"}
 ITEM_COLUMNS = {"ProductCode", "ItemDescription", "AnnualUnit", "EstPctAwarded", "ShelfPrice", "ItemStage", "ProductName", "WeightGrams", "Category", "Grade", "MixRatioPct", "PackagingRequestNumber", "PackagingResponseStage", *OPPORTUNITYITEM_FIELDS, *PACKAGINGCONFIGURATIONREQUESTITEM_FIELDS}
@@ -105,7 +105,7 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
         DECLARE @CanReadRecipeDraft BIT=?;
         ;WITH Headers AS (
             SELECT o.ID OpportunityID,o.OpportunityNumber,o.CustomerID,c.CustomerName,
-                o.OpportunityDesc,o.BidOpen,o.BidClose,o.Stage HeaderStage,o.RowVersion HeaderRowVersion,
+                o.OpportunityDesc,o.BidOpen,o.BidClose,o.EstimateDeliveryDate,o.Stage HeaderStage,o.RowVersion HeaderRowVersion,
                 o.CurrencyID,o.ExchangeRateToVND,(SELECT CurrencyCode FROM dbo.Currency WHERE ID=o.CurrencyID) CurrencyCode,
                 o.ExchangeRateVNDPerUSD,c.CurrencyID AS CustomerCurrencyID,
                 (SELECT CurrencyCode FROM dbo.Currency WHERE ID=c.CurrencyID) CustomerCurrencyCode,
@@ -137,15 +137,16 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             stage_request.Stage AS _StagePackagingStage,stage_request.RequestNumber AS _StageRequestNumber,
             stage_request.PIC AS _StagePIC,stage_request.CreatedAt AS _StageRequestedAt,
             stage_request.SubmittedAt AS _StageSubmittedAt,stage_request.ReviewedAt AS _StageReviewedAt,
+            stage_request.SalesReviewStatus AS _StageSalesReviewStatus,
             CASE WHEN @CanReadDraft=1 OR stage_request.Stage IN('Approved','Canceled') THEN stage_request.ManagerComment END AS _StageReason,
             (SELECT TOP(1) recipe_header.RequestNumber,recipe_header.RequestedAt,recipe_item.IsOpen,recipe_item.IsLinked,
-              recipe_pic.UserName PIC,recipe_item.AssignedAt,recipe_sheet.SheetNumber,recipe_sheet.ApprovalStatus,
+              recipe_pic.UserName PIC,recipe_item.AssignedAt,recipe_sheet.SheetNumber,recipe_sheet.ApprovalStatus,recipe_sheet.SalesReviewStatus,
               recipe_sheet.SubmittedAt,COALESCE(recipe_sheet.ApprovedAt,recipe_review.CreatedAt) ReviewedAt,
               recipe_review.ActorName ReviewedBy,
               CASE WHEN @CanReadRecipeDraft=1 OR recipe_sheet.ApprovalStatus='Approved' THEN recipe_sheet.ReviewComment END Reason
              FROM dbo.NPDRecipeRequestItem recipe_item JOIN dbo.NPDRecipeRequest recipe_header ON recipe_header.ID=recipe_item.RequestID
              LEFT JOIN dbo.Users recipe_pic ON recipe_pic.ID=recipe_item.PICUserID
-             OUTER APPLY(SELECT TOP(1) s.ID,s.SheetNumber,s.ApprovalStatus,s.SubmittedAt,s.ApprovedAt,s.ReviewComment
+             OUTER APPLY(SELECT TOP(1) s.ID,s.SheetNumber,s.ApprovalStatus,s.SalesReviewStatus,s.SubmittedAt,s.ApprovedAt,s.ReviewComment
                FROM dbo.NPDRecipeSheet s WHERE s.RequestItemID=recipe_item.ID ORDER BY s.Revision DESC) recipe_sheet
              OUTER APPLY(SELECT TOP(1) a.CreatedAt,u.UserName ActorName FROM dbo.NPDAudit a JOIN dbo.Users u ON u.ID=a.ActorID
                WHERE a.Entity='Sheet' AND a.RecordID=recipe_sheet.ID AND a.Action IN('Approve','Return') ORDER BY a.ID DESC) recipe_review
@@ -249,6 +250,8 @@ def sorted_grid(username, page, page_size, sort, opportunity_number=None, custom
             ON active_request.OpportunityItemID=i.ID AND active_request.IsOpen=1
         OUTER APPLY(SELECT TOP(1) r.Stage,h.RequestNumber,u.UserName PIC,r.CreatedAt,
             r.SubmittedAt,r.ReviewedAt,
+            CASE WHEN r.Stage='Awaiting Sales' THEN 'Pending' WHEN r.Stage='Approved' THEN 'Accepted'
+                 WHEN r.Stage='Returned' AND r.SalesReviewedAt IS NOT NULL THEN 'Returned' ELSE 'Not submitted' END SalesReviewStatus,
             COALESCE((SELECT TOP(1) NULLIF(a.Reason,N'') FROM dbo.PackagingRequestChangeLog a
                 WHERE a.RequestID=r.RequestID AND a.ItemID=r.ID AND a.FieldName='Stage'
                 AND a.NewValue=r.Stage ORDER BY a.ID DESC),r.ManagerComment) ManagerComment

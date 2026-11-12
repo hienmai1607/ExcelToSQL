@@ -12,6 +12,25 @@ test('packaging pricing navigation displays its full label',async({page})=>{
  await button.click();await expect(page.getByRole('heading',{name:'Packaging Pricing',exact:true})).toBeVisible();
 });
 const view=(columns:string[],page_size=25)=>({columns,page_size,sort:[],filters:[],values:{},field_version:3});
+
+test('list heading toolbars scroll with their headings without covering filters',async({page},info)=>{
+ await setup(page);
+ for(const name of ['Opportunities','Packaging Requests','Recipe Requests','Recipe Sheets','Ingredients Master','Ingredient Pricing','Process Types']){
+  await page.getByRole('navigation').getByRole('button',{name,exact:true}).click();
+  const panel=page.locator('.customers-page').last();await expect(panel).toBeVisible();
+  // A tall result/detail area reproduces document scrolling independently of fixture row counts.
+  await panel.evaluate(el=>{el.style.minHeight='2000px'});
+  await page.evaluate(()=>window.scrollTo(0,0));
+  const toolbar=panel.locator('.opportunity-view-tools,.view-toolbar,.section-heading>.icon-button').first();
+  await expect(toolbar).toHaveCount(1);
+  const before=await toolbar.boundingBox();
+  await page.evaluate(()=>window.scrollTo(0,180));
+  await expect.poll(async()=>{const after=await toolbar.boundingBox();return Math.round(before!.y-after!.y)}).toBe(180);
+  await expect(toolbar).not.toBeInViewport();
+  if(name==='Opportunities')await page.screenshot({path:info.outputPath('opportunity-toolbar-scroll.png')});
+  await panel.evaluate(el=>{el.style.minHeight=''});await page.evaluate(()=>window.scrollTo(0,0));
+ }
+});
 async function setup(page:Page,scope='Admin'){
  let profile:any={version:0,settings:{columns:['CustomerName'],filters:[],sort:[],page_size:25,dark:false,nav_hidden:false,
   requests:{header:view(['RequestNumber','CustomerName','ItemCount','RequestStatus']),items:view(['ProductCode','ItemDescription','ItemStage'])},
@@ -91,7 +110,7 @@ test('density is in Product Info and each Packing Way weight sits below its matc
  for(const layer of ['Primary','Secondary','Tertiary']){
   const region=editor.getByRole('region',{name:layer+' packaging response',exact:true});
   await expect(region.getByLabel('Nut Density (g/ml)',{exact:true})).toHaveCount(0);
-  await expect(region.getByLabel(layer+' net weight (g)',{exact:true})).toHaveCount(0);
+  await expect(region.getByLabel(layer+' net weight (g)',{exact:true})).toHaveCount(1);
   await expect(region.getByRole('button',{name:layer+' Pricing Calculator',exact:true})).toBeEnabled();
   boxes.push((await region.boundingBox())!);
  }

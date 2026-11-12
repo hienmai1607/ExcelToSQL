@@ -41,23 +41,26 @@ class ComponentMath(unittest.TestCase):
   self.assertEqual(current['Components'][0]['ManualFields'],[])
 
 
- def test_components_follow_processes_not_saved_values_or_required_recipe_flag(self):
+ def test_fixed_seasoning_ignores_process_mappings_and_drops_old_oil(self):
   config={'components':[{'ID':1,'SystemKey':'Oil','ComponentName':'Oil','Status':'Active'},{'ID':2,'SystemKey':'Seasoning','ComponentName':'Seasoning','Status':'Active'}],
-   'mappings':[{'ProcessID':10,'ComponentID':1},{'ProcessID':20,'ComponentID':2}]}
-  inputs={'RMRatio':93,'OilPct':2,'OilUSDPerLb':4,'SeasoningRatio':5,'SeasoningUSDPerLb':6,'ProcessingUSDPerLb':0,
-   'ProcessLosses':[{'Path':'0/1/1','Codes':[{'MasterID':10}],'Ratios':[0]}]}
-  approved={'SheetID':1,'SeasoningRatio':5,'SeasoningUSDPerLb':'.14','SeasoningCostBasis':'FinishedProduct'}
-  result=process_component_inputs(inputs,config,approved,['0/1','0/2'])
-  first,second=result['MaterialCosts'];self.assertEqual(first['RMRatio'],'98');self.assertEqual(first['OilPct'],2)
-  self.assertEqual(result['Components'],[])
-  self.assertEqual(first['SeasoningRatio'],'0');self.assertEqual(second['Components'],[]);self.assertEqual(second['RMRatio'],'100')
-  inputs['ProcessLosses'][0]['Codes']=[{'MasterID':20}]
-  result=process_component_inputs(inputs,config,approved,['0/1','0/2'])
-  self.assertEqual(result['MaterialCosts'][0]['SeasoningUSDPerLb'],'0.140000');self.assertEqual(result['MaterialCosts'][0]['RMRatio'],'95')
-  self.assertEqual(result['MaterialCosts'][1]['RMRatio'],'100')
-  inputs['ProcessLosses']=[]
-  result=process_component_inputs(inputs,config,approved,['0/1'])
-  self.assertEqual(result['Components'],[]);self.assertEqual(result['MaterialCosts'][0]['RMRatio'],'100')
+   'mappings':[{'ProcessID':10,'ComponentID':1}]}
+  inputs={'RMRatio':93,'OilPct':2,'OilUSDPerLb':4,'SeasoningRatio':5,'SeasoningUSDPerLb':6,'ProcessingUSDPerLb':0,'ProcessLosses':[]}
+  result=process_component_inputs(inputs,config,None,['0/1','0/2'])
+  for recipe in [result,*result['MaterialCosts']]:
+   self.assertEqual(recipe['RMRatio'],'95');self.assertEqual(recipe['OilPct'],'0')
+   self.assertEqual(recipe['SeasoningRatio'],5);self.assertEqual(recipe['SeasoningUSDPerLb'],6)
+   self.assertEqual([c['SystemKey'] for c in recipe['Components']],['Seasoning'])
+  validate_assignments(Inputs(**result),{},config)
+  approved={'SheetID':1,'SeasoningRatio':5,'SeasoningUSDPerLb':'.14','SeasoningCostBasis':'FinishedProduct','ApplicableGradePaths':['0/1']}
+  result=process_component_inputs({'ProcessLosses':[]},config,approved,['0/1','0/2'])
+  first,second=result['MaterialCosts']
+  self.assertEqual(first['SeasoningUSDPerLb'],'0.140000');self.assertEqual(first['RMRatio'],'95')
+  self.assertEqual(second['SeasoningRatio'],0);self.assertEqual(second['RMRatio'],'100')
+  # Retiring a previously defaulted grade clears only values supplied by the sheet.
+  approved['ApplicableGradePaths']=['0/2']
+  result=process_component_inputs(result,config,approved,['0/1','0/2'])
+  self.assertEqual(result['MaterialCosts'][0]['SeasoningRatio'],0)
+  self.assertEqual(result['MaterialCosts'][1]['SeasoningUSDPerLb'],'0.140000')
  def test_stale_or_inactive_recipe_cannot_supply_component_defaults(self):
   config={'components':[{'ID':1,'SystemKey':'Seasoning','ComponentName':'Seasoning'}],'mappings':[{'ProcessID':20,'ComponentID':1}]}
   inputs={'ProcessLosses':[{'Path':'0/1','Codes':[{'MasterID':20}],'Ratios':[0]}]}
@@ -76,6 +79,21 @@ class ComponentMath(unittest.TestCase):
   self.assertEqual(result['RMRatio'],'90');self.assertEqual(len(result['Components']),3)
 
 class ComponentWorkflow(Desktop):
+ def test_manual_seasoning_can_save_without_a_process_mapping(self):
+  from tcb_api import commercial_value,CommercialSave,item_read
+  self.setup_recipe()
+  item=item_read(self.source['OpportunityItemID'],self.admin)
+  config=catalog(self.cur)
+  seasoning=next(c for c in config['components'] if c['SystemKey']=='Seasoning')
+  inputs=Inputs(RMRatio=95,SeasoningRatio=5,SeasoningUSDPerLb=2,Components=[{
+   'ComponentID':seasoning['ID'],'SystemKey':'Seasoning','ComponentName':'Seasoning',
+   'RatioPct':5,'USDPerLb':2}],ProcessLosses=[])
+  value,*_=commercial_value(CommercialSave(RowVersion=item['RowVersion'],CostInputs=inputs),item,self.admin,self.cur)
+  for recipe in value['Inputs']['MaterialCosts']:
+   self.assertEqual(D(recipe['RMRatio']),95)
+   self.assertEqual([c['SystemKey'] for c in recipe['Components']],['Seasoning'])
+   self.assertEqual(D(recipe['SeasoningUSDPerLb']),2)
+
  def test_approval_scopes_removed_grades_and_recipe_moq(self):
   from tcb_api import commercial_value,CommercialSave,item_read
   from recipe_scope import validate_seasoning_scope
@@ -93,6 +111,7 @@ class ComponentWorkflow(Desktop):
   self.cur.execute('UPDATE dbo.OpportunityItem SET TCBCostInfo=? WHERE ID=?',json.dumps(before),self.source['OpportunityItemID'])
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=saved['row']['RowVersion'],Action='Submit'),self.admin)['row']
   api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(self.sheet['ID'])
   item=item_read(self.source['OpportunityItemID'],self.admin);value=obj(item['TCBCostInfo'])
   self.assertEqual(value['NPDRecipe']['ApplicableGradePaths'],['0/1'])
   self.assertEqual(obj(item['ProductGradeSnapshot']),original)
@@ -100,7 +119,7 @@ class ComponentWorkflow(Desktop):
   self.assertEqual(included['Codes'][0]['MasterID'],master['MasterID']);self.assertFalse(included['Codes'][0]['Shared'])
   self.assertFalse(any(c['MasterID']==master['MasterID'] for r in stages if r['Path']=='0' or r['Path'].startswith('0/2') for c in r.get('Codes') or []))
   recipes={r['Path']:r for r in value['Inputs']['MaterialCosts']}
-  self.assertEqual(D(recipes['0/1']['SeasoningRatio']),5);self.assertEqual(D(recipes['0/2']['SeasoningRatio']),0)
+  self.assertEqual(D(recipes['0/1']['SeasoningRatio']),5);self.assertEqual(D(recipes['0/2']['SeasoningRatio']),D(next(r for r in before['Inputs']['MaterialCosts'] if r['Path']=='0/2')['SeasoningRatio']))
   forbidden=__import__('copy').deepcopy(value['Inputs'])
   forbidden['ProcessLosses'].append({'Path':'0/2','Codes':[included['Codes'][0]],'Ratios':['0']})
   with self.assertRaisesRegex(ValueError,'only on grades'):
@@ -116,6 +135,7 @@ class ComponentWorkflow(Desktop):
   self.cur.execute('UPDATE dbo.OpportunityItem SET TCBCostInfo=? WHERE ID=?',json.dumps(value),self.source['OpportunityItemID'])
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
   api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(self.sheet['ID'])
   value=obj(self.row('OpportunityItem',self.source['OpportunityItemID'])['TCBCostInfo'])
   recipe=next(r for r in value['Inputs']['MaterialCosts'] if r['Path']=='0/1')
   component=next(r for r in recipe['Components'] if r['SystemKey']=='Seasoning')
@@ -147,23 +167,24 @@ class ComponentWorkflow(Desktop):
   value,_,_,_=commercial_value(body,item,self.admin,self.cur)
   recipes=value['Inputs']['MaterialCosts'];self.assertTrue(recipes)
   selected=next(r for r in recipes if r['Path']==path)
-  self.assertEqual(D(selected['OilPct']),2);self.assertEqual(D(selected['RMRatio']),98)
+  self.assertEqual(D(selected['OilPct']),0);self.assertEqual(D(selected['RMRatio']),100)
   for row in recipes:
-   if row['Path']!=path:self.assertEqual(row['Components'],[]);self.assertEqual(D(row['RMRatio']),100)
+   if row['Path']!=path:self.assertEqual([c['SystemKey'] for c in row['Components']],['Seasoning']);self.assertEqual(D(row['RMRatio']),100)
   inputs.ProcessLosses=[]
   body=CommercialSave(RowVersion=item['RowVersion'],CostInputs=inputs,Prices=body.Prices)
   value,_,_,_=commercial_value(body,item,self.admin,self.cur)
-  for row in value['Inputs']['MaterialCosts']:self.assertEqual(row['Components'],[]);self.assertEqual(D(row['RMRatio']),100)
+  for row in value['Inputs']['MaterialCosts']:self.assertEqual([c['SystemKey'] for c in row['Components']],['Seasoning']);self.assertEqual(D(row['RMRatio']),100)
  def test_approval_keeps_defaults_without_forcing_an_unselected_seasoning_component(self):
   self.setup_recipe()
   value=obj(self.source['TCBCostInfo']);value['Inputs']['ProcessLosses']=[]
   self.cur.execute('UPDATE dbo.OpportunityItem SET TCBCostInfo=? WHERE ID=?',json.dumps(value),self.source['OpportunityItemID'])
   pending=api.sheet_review(self.sheet['ID'],api.Review(RowVersion=self.sheet['RowVersion'],Action='Submit'),self.admin)['row']
   api.sheet_review(self.sheet['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(self.sheet['ID'])
   value=obj(self.row('OpportunityItem',self.source['OpportunityItemID'])['TCBCostInfo'])
   self.assertEqual(value['NPDRecipe']['SheetID'],self.sheet['ID']);self.assertEqual(D(value['NPDRecipe']['SeasoningRatio']),5)
-  self.assertEqual(value['Inputs']['Components'],[])
-  for row in value['Inputs']['MaterialCosts']:self.assertEqual(row['Components'],[]);self.assertEqual(D(row['RMRatio']),100)
+  self.assertEqual([c['SystemKey'] for c in value['Inputs']['Components']],['Seasoning'])
+  for row in value['Inputs']['MaterialCosts']:self.assertEqual([c['SystemKey'] for c in row['Components']],['Seasoning']);self.assertEqual(D(row['RMRatio']),95)
  def test_product_grade_version_flag_is_inherited_by_opportunity_snapshot(self):
   from product_grades_api import save as save_grades
   from product_grades import GradeSave,GradeItem
@@ -179,7 +200,7 @@ class ComponentWorkflow(Desktop):
   self.cur.execute("UPDATE dbo.OpportunityItem SET ProductGradeSnapshot=JSON_MODIFY(ProductGradeSnapshot,'$.RequiresRecipeConfirmation',NULL) WHERE ID=?",self.source['OpportunityItemID'])
   self.assertTrue(obj(self.row('OpportunityItem',self.source['OpportunityItemID'])['ProductGradeSnapshot'])['RequiresRecipeConfirmation'])
  def test_request_captures_opportunity_requirements_instead_of_client_override(self):
-  self.setup_recipe();self.assertEqual(self.item['LaunchingDate'],'2027-01-01');self.assertEqual(self.item['SpecialComments'],'Recipe requirements retained')
+  self.setup_recipe();self.assertEqual(str(self.item['LaunchingDate']) if self.item['LaunchingDate'] else None,str(self.source.get('EstimateDeliveryDate')) if self.source.get('EstimateDeliveryDate') else None);self.assertEqual(self.item['SpecialComments'],'Recipe requirements retained')
  def test_sql_blocks_recipe_requirement_changes_while_linked(self):
   self.setup_recipe()
   with self.assertRaisesRegex(Exception,'locked by a linked Recipe Request'):
@@ -207,8 +228,8 @@ class ComponentWorkflow(Desktop):
   self.assertEqual(listing['rows'][0]['ComponentNames'],component['ComponentName'])
   recipe={'ComponentID':component['ID'],'SystemKey':component['SystemKey'],'ComponentName':component['ComponentName'],'USDPerLb':2,'RatioPct':5}
   inputs=Inputs(RMRatio=95,Components=[recipe],ProcessLosses=[{'Path':'0/1','Codes':[{'MasterID':process['ID'],'ProcessName':process['ProcessType']}],'Ratios':[0]}])
-  validate_assignments(inputs,{},config)
-  with self.assertRaisesRegex(ValueError,'not configured'):validate_assignments(Inputs(RMRatio=95,Components=[recipe]),{},config)
+  with self.assertRaisesRegex(ValueError,'Use Seasoning instead'):validate_assignments(inputs,{},config)
+  with self.assertRaisesRegex(ValueError,'Use Seasoning instead'):validate_assignments(Inputs(RMRatio=95,Components=[recipe]),{},config)
  def test_seasoning_loss_defaults_process_without_repricing_seasoning(self):
   self.setup_recipe();source=self.row('OpportunityItem',self.source['OpportunityItemID']);value=obj(source['TCBCostInfo'])
   master=next(m for m in active_loss_masters(self.admin) if m['ProcessName']=='Seasoning')
@@ -217,12 +238,13 @@ class ComponentWorkflow(Desktop):
   saved=api.sheet_save(self.sheet['ID'],api.SheetSave(RowVersion=self.sheet['RowVersion'],Status='Price Ready',SeasoningLossPct='2.5',Lines=[RecipeLine(**r) for r in self.saved['lines']]),self.admin)['row']
   pending=api.sheet_review(saved['ID'],api.Review(RowVersion=saved['RowVersion'],Action='Submit'),self.admin)['row']
   api.sheet_review(saved['ID'],api.Review(RowVersion=pending['RowVersion'],Action='Approve'),self.admin)
+  self.accept_sheet(saved['ID'])
   value=obj(self.row('OpportunityItem',self.source['OpportunityItemID'])['TCBCostInfo'])
   self.assertEqual(D(value['Inputs']['ProcessLosses'][0]['Ratios'][0]),D('0.56'))
   recipe=next(r for r in value['Inputs']['MaterialCosts'] if r['Path']=='0/1')
   self.assertEqual(D(recipe['SeasoningUSDPerLb']),D('0.226796'))
   self.assertEqual(recipe['SeasoningCostBasis'],'FinishedProduct')
   for row in value['Inputs']['MaterialCosts']:
-   if row['Path']!='0/1':self.assertEqual(D(row['SeasoningRatio']),0)
+   if row['Path']!='0/1':self.assertEqual(D(row['SeasoningRatio']),5)
 
 if __name__=='__main__':unittest.main()

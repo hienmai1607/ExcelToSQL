@@ -283,11 +283,9 @@ def material_save(payload: MaterialBatch, ctx: AccessContext = Depends(get_acces
                     if row.MaxPayloadKG is not None and kind!='Pallet':raise HTTPException(422,'Maximum gross payload applies only to Pallet materials.')
                     cur.execute('UPDATE dbo.PackagingMaterial SET MaxPayloadKG=? WHERE ID=?',row.MaxPayloadKG,saved['NewID'])
                 if kind=='Pallet' and cur.execute('SELECT MaxPayloadKG FROM dbo.PackagingMaterial WHERE ID=?',saved['NewID']).fetchval() is None:raise HTTPException(422,'Maintain maximum gross payload (kg) for each Pallet material.')
-                if kind=='Pallet' and 'MaxPayloadKG' in row.model_fields_set:
-                    ids=[r[0] for r in cur.execute("SELECT i.ID FROM dbo.PackagingConfigurationRequestItem i JOIN dbo.PalletPricingSnapshot s ON s.ID=i.PalletPricingID WHERE i.ResponsePalletMaterialID=? OR TRY_CONVERT(INT,JSON_VALUE(s.SnapshotJSON,'$.PalletMaterialID'))=?",saved['NewID'],saved['NewID']).fetchall()]
-                    if ids:
-                        from pallet_capacity_api import validate_saved_pallets
-                        validate_saved_pallets(cur,ids)
+                # Master maintenance must not revalidate historical response loads.
+                # Response save/submission checks capacity against the current rating;
+                # previously captured pallet pricing and load plans remain unchanged.
                 if not ({'TareWeight','TareWeightBasis'} & row.model_fields_set):
                     saved['NewRowVersion']=cur.execute('SELECT RowVersion FROM dbo.PackagingMaterial WHERE ID=?',saved['NewID']).fetchval()
                     continue

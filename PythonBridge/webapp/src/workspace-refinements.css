@@ -16,7 +16,7 @@
  .customers-page>.opportunity-view-tools .layout-panel{max-width:100%}
 }
 @media(min-width:1400px){
- .opportunity-entry-dialog .opportunity-header-fields{grid-template-columns:minmax(200px,1.25fr) minmax(260px,2.75fr) repeat(4,minmax(145px,.65fr));align-items:end}
+ .opportunity-entry-dialog .opportunity-header-fields{grid-template-columns:minmax(180px,1.25fr) minmax(220px,2.75fr) repeat(5,minmax(145px,.65fr));align-items:end}
  .opportunity-entry-dialog .opportunity-header-fields>.opportunity-rate input{width:100%!important}
  .opportunity-entry-dialog .opportunity-header-fields>label,.opportunity-entry-dialog .opportunity-header-fields>label:nth-child(2),.opportunity-entry-dialog .opportunity-bid-dates>label,.opportunity-entry-dialog .opportunity-header-fields>.opportunity-currency,.opportunity-entry-dialog .opportunity-header-fields>.opportunity-rate,.opportunity-entry-dialog .opportunity-header-fields>.opportunity-rate:nth-of-type(5){grid-column:auto}
  .opportunity-entry-dialog .opportunity-entry-summary{grid-column:1/-1;display:flex;justify-content:flex-end;gap:24px;border:0;padding:4px 0 0}

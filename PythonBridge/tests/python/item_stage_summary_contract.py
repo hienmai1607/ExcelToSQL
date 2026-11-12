@@ -4,6 +4,15 @@ from item_stage_summary import stage_summary
 
 
 class Completion(unittest.TestCase):
+ def test_manager_approval_is_separate_from_sales_acceptance(self):
+  base={'ProductGradeSnapshot':json.dumps({'RequiresRecipeConfirmation':True})}
+  for sales,approval,accepted in [('Pending','Approved',False),('Accepted','Approved',True),('Returned','Returned',False)]:
+   recipe={'RequestNumber':'RRQ-1','ApprovalStatus':approval,'SalesReviewStatus':sales,'IsLinked':True}
+   info=json.loads(stage_summary({**base,'_StageRecipe':recipe}))['Recipe']
+   self.assertTrue(info['ManagerApproved']);self.assertEqual(info['Approved'],accepted)
+   self.assertEqual(info['SalesReviewStatus'],sales)
+  info=json.loads(stage_summary({'_StagePackagingStage':'Awaiting Sales','_StageSalesReviewStatus':'Pending'}))
+  self.assertEqual(info['SalesReviewStatus'],'Pending')
  def row(self,id=1,parent=None,mix=False):
   from tcb_analysis_columns import TCB_COLUMNS
   info={key:True for key in ("TCBSaved","ShipmentSaved","LossSaved","GradesSaved","PricesSaved")}

@@ -30,14 +30,14 @@ router=APIRouter(prefix="/api/workbench/opportunity-excel",tags=["Opportunity Ex
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Opportunity_Local_Update.xlsm"
 HEADER_REQUIRED=["OpportunityNumber","CustomerName","OpportunityDesc","BidOpen","BidClose","CustomerCurrencyCode","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"]
 ITEM_REQUIRED=["ProductCode","AnnualUnit","ContainerRequest"]
-HEADER_EDITABLE={"CustomerName","OpportunityDesc","BidOpen","BidClose","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"}
+HEADER_EDITABLE={"CustomerName","OpportunityDesc","BidOpen","BidClose","EstimateDeliveryDate","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD"}
 ITEM_EDITABLE={"ProductCode","ItemDescription","AnnualUnit","EstPctAwarded","ShelfPrice",*OPPORTUNITYITEM_FIELDS,*SHIPMENT_COLUMNS}
 META=["_OpportunityID","_ItemID","_HeaderVersion","_ItemVersion","_Original"]
 AUTH="""IF NOT EXISTS(SELECT 1 FROM dbo.Users u JOIN dbo.UserAccess a ON a.UserID=u.ID
 WHERE u.UserName=? AND u.IsActive=1 AND a.Scope IN('Admin','Opportunity'))
 THROW 52744,'Opportunity access is required for this action.',1; """
 LABELS={"ApplicableNetWeightGrams":"Applicable Net weight (g)",**TCB_LABELS,**SHIPMENT_LABELS,"ContainerRequest":"Container Type","ConfigurationRequest":"Loading request","ItemNumber":"Item number","MixUnitQuantity":"Mix component quantity","OpportunityNumber":"Opportunity / new group key","CustomerName":"Customer","OpportunityDesc":"Description",
-"BidOpen":"Bid open","BidClose":"Bid close","HeaderStage":"Stage","CustomerCurrencyCode":"Customer currency",
+"BidOpen":"Bid open","BidClose":"Bid close","EstimateDeliveryDate":"Estimate Delivery Date","HeaderStage":"Stage","CustomerCurrencyCode":"Customer currency",
 "ExchangeRateVNDPerUSD":"Exchange rate VND per USD","ExchangeRateCustomerCurrencyPerUSD":"Exchange rate Customer Currency per USD","ItemCount":"Items","ProductCode":"Product code",
 "ItemDescription":"Description","AnnualUnit":"Annual units","EstPctAwarded":"Estimated award %",
 "ShelfPrice":"Shelf price","ItemStage":"Stage","WeightGrams":"Net weight (g)","MaxPalletHeightM":"Max pallet height (m)",
@@ -283,8 +283,8 @@ def prepare(group,ctx):
    if k in changes and changes[k]!=v:raise ValueError("Conflicting repeated header values for "+k+".")
    changes[k]=v
  values={**source,**changes}
- header={k:values.get(k) for k in ("OpportunityDesc","BidOpen","BidClose","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD")}
- for k in ("BidOpen","BidClose"):
+ header={k:values.get(k) for k in ("OpportunityDesc","BidOpen","BidClose","EstimateDeliveryDate","ExchangeRateVNDPerUSD","ExchangeRateCustomerCurrencyPerUSD")}
+ for k in ("BidOpen","BidClose","EstimateDeliveryDate"):
   if header[k]:header[k]=date.fromisoformat(str(header[k])[:10]).isoformat()
  if hc!="D":
   for k in HEADER_REQUIRED[1:]:

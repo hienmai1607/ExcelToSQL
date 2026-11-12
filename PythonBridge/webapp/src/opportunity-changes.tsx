@@ -5,7 +5,7 @@ import {ErrorNote,Modal,Pager} from './ui';
 import {IconButton} from './icons';
 import './opportunity-changes.css';
 
-const fields:Record<string,string>={OpportunityNumber:'Opportunity number',CustomerID:'Customer',OpportunityDesc:'Description',BidOpen:'Bid open',BidClose:'Bid close',Stage:'Stage',OpportunityID:'Opportunity ID',ProductID:'Product',ItemDescription:'Item description',AnnualUnit:'Annual units',EstPctAwarded:'Estimated award %',ShelfPrice:'Shelf price'};
+const fields:Record<string,string>={OpportunityNumber:'Opportunity number',CustomerID:'Customer',OpportunityDesc:'Description',BidOpen:'Bid open',BidClose:'Bid close',EstimateDeliveryDate:'Estimate Delivery Date',Stage:'Stage',OpportunityID:'Opportunity ID',ProductID:'Product',ItemDescription:'Item description',AnnualUnit:'Annual units',EstPctAwarded:'Estimated award %',ShelfPrice:'Shelf price'};
 const value=(v:unknown)=>v===null?'(blank)':v===''?'(empty text)':String(v??'');
 export function OpportunityChanges(props:{id:number;number:string;onClose:()=>void}){
  return <EntityChanges {...props} endpoint="/api/opportunity" entity="Opportunity" fields={fields}/>;

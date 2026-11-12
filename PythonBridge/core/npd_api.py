@@ -1,4 +1,4 @@
-"""NPD masters and captured request/sheet workflow. Approval publishes atomically."""
+"""NPD masters and captured request/sheet workflow. Sales acceptance publishes manager-approved responses atomically."""
 import base64
 import json
 from contextlib import contextmanager
@@ -222,7 +222,7 @@ OPPORTUNITY_SELECT="""i.ID OpportunityItemID,i.RowVersion,i.OpportunityID,i.Prod
  CASE WHEN i.ParentItemID IS NOT NULL THEN parent.EstPctAwarded ELSE i.EstPctAwarded END EstPctAwarded,
  i.ProductGradeSnapshot,i.TCBCostInfo,
  p.IsMix,i.ParentItemID,i.Stage ItemStage,o.Stage HeaderStage,o.OpportunityNumber,c.CustomerName,
- o.ExchangeRateVNDPerUSD,o.ExchangeRateCustomerCurrencyPerUSD,currency.CurrencyCode CustomerCurrencyCode"""
+ o.EstimateDeliveryDate,o.ExchangeRateVNDPerUSD,o.ExchangeRateCustomerCurrencyPerUSD,currency.CurrencyCode CustomerCurrencyCode"""
 
 @router.get('/opportunity-items')
 def opportunity_choices(search:str=Query('',max_length=200),ctx:AccessContext=Depends(get_access_context)):
@@ -277,7 +277,7 @@ def request_create(body:RecipeRequest,ctx:AccessContext=Depends(get_access_conte
         identity=cur.execute('INSERT dbo.NPDRecipeRequest(CreationKey,OpportunityID,OpportunityNumber,CustomerName,RequestNote,RequestDue,RequestedBy) OUTPUT INSERTED.ID VALUES(?,?,?,?,?,?,?)',str(body.CreationKey),first['OpportunityID'],first['OpportunityNumber'],first['CustomerName'],body.RequestNote,body.RequestDue,ctx.user_id).fetchval()
         for r,line in zip(selected,body.Items):
             requirements=obj(r['ProductGradeSnapshot']).get('RecipeRequirements') or {}
-            cur.execute('INSERT dbo.NPDRecipeRequestItem(RequestID,OpportunityItemID,ProductID,ProductCode,ProductName,WeightGrams,AnnualUnit,EstPctAwarded,GradeSnapshot,LaunchingDate,SpecialComments) VALUES(?,?,?,?,?,?,?,?,?,?,?)',identity,r['OpportunityItemID'],r['ProductID'],r['ProductCode'],r['ProductName'],r['WeightGrams'],r['AnnualUnit'],r['EstPctAwarded'],r['ProductGradeSnapshot'],requirements.get('LaunchingDate'),requirements.get('SpecialComments'))
+            cur.execute('INSERT dbo.NPDRecipeRequestItem(RequestID,OpportunityItemID,ProductID,ProductCode,ProductName,WeightGrams,AnnualUnit,EstPctAwarded,GradeSnapshot,LaunchingDate,SpecialComments) VALUES(?,?,?,?,?,?,?,?,?,?,?)',identity,r['OpportunityItemID'],r['ProductID'],r['ProductCode'],r['ProductName'],r['WeightGrams'],r['AnnualUnit'],r['EstPctAwarded'],r['ProductGradeSnapshot'],r['EstimateDeliveryDate'],requirements.get('SpecialComments'))
         audit(cur,'Request',identity,'Create',body.model_dump(mode='json'),ctx)
         return {'row':one(cur,'SELECT * FROM dbo.NPDRecipeRequest WHERE ID=?',identity)}
 
@@ -322,14 +322,15 @@ def request_items(request_id:int,ctx:AccessContext=Depends(get_access_context)):
     with get_raw_cursor() as cur:
         ready(cur);rows=query(cur,"""SELECT i.*,h.RequestNumber,h.RequestDue,pic.UserName PIC,
           CASE WHEN latest.ApprovalStatus='Pending' THEN 'Submitted'
+               WHEN latest.ApprovalStatus='Approved' AND latest.SalesReviewStatus='Pending' THEN 'Awaiting Sales'
                WHEN i.IsOpen=1 AND latest.ApprovalStatus='Returned' THEN 'Returned'
                WHEN i.IsOpen=1 AND i.PICUserID IS NOT NULL THEN 'Assigned'
                WHEN i.IsOpen=1 THEN 'Open' WHEN i.ActiveSheetID IS NOT NULL THEN 'Approved' ELSE 'Closed' END Status,
           latest.ID LatestSheetID,latest.SheetNumber LatestSheetNumber,
-          latest.Status LatestSheetStatus,latest.ApprovalStatus LatestSheetApprovalStatus,
+          latest.Status LatestSheetStatus,latest.ApprovalStatus LatestSheetApprovalStatus,latest.SalesReviewStatus LatestSheetSalesReviewStatus,
           latest.ApprovedAt LatestSheetApprovedAt,approver.UserName LatestSheetApprovedByName,
           approved.ID ApprovedSheetID,approved.SheetNumber ActiveSheetNumber,
-          (SELECT s.ID,s.SheetNumber,s.Revision,s.Status,s.ApprovalStatus,s.CreatedAt,s.UpdatedAt,s.SubmittedAt,s.ApprovedAt,
+          (SELECT s.ID,s.SheetNumber,s.Revision,s.Status,s.ApprovalStatus,s.SalesReviewStatus,s.CreatedAt,s.UpdatedAt,s.SubmittedAt,s.ApprovedAt,
              COALESCE(JSON_VALUE(created.SnapshotJSON,'$.PIC'),pic.UserName) PIC,
              reviewer.UserName ApprovedByName,CAST(CASE WHEN s.ID=i.ActiveSheetID AND i.IsLinked=1 AND s.ApprovalStatus='Approved' THEN 1 ELSE 0 END AS BIT) IsCurrentApproved
            FROM dbo.NPDRecipeSheet s LEFT JOIN dbo.Users reviewer ON reviewer.ID=s.ApprovedBy
@@ -337,8 +338,8 @@ def request_items(request_id:int,ctx:AccessContext=Depends(get_access_context)):
               WHERE a.Entity='Sheet' AND a.RecordID=s.ID AND a.Action='Create' ORDER BY a.ID) created
            WHERE s.RequestItemID=i.ID AND ?=1 AND (?=1 OR s.ApprovalStatus='Approved')
            ORDER BY s.Revision DESC FOR JSON PATH) SheetVersions,
-          CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.NPDRecipeSheet s WHERE s.RequestItemID=i.ID AND s.ApprovalStatus<>'Approved') THEN 1 ELSE 0 END AS BIT) HasWorkingSheet
-          """+ITEM_SOURCE+""" OUTER APPLY (SELECT TOP(1) s.ID,s.SheetNumber,s.Status,s.ApprovalStatus,s.ApprovedBy,s.ApprovedAt
+          CAST(CASE WHEN EXISTS(SELECT 1 FROM dbo.NPDRecipeSheet s WHERE s.RequestItemID=i.ID AND (s.ApprovalStatus<>'Approved' OR s.SalesReviewStatus='Pending')) THEN 1 ELSE 0 END AS BIT) HasWorkingSheet
+          """+ITEM_SOURCE+""" OUTER APPLY (SELECT TOP(1) s.ID,s.SheetNumber,s.Status,s.ApprovalStatus,s.SalesReviewStatus,s.ApprovedBy,s.ApprovedAt
            FROM dbo.NPDRecipeSheet s WHERE s.RequestItemID=i.ID ORDER BY s.Revision DESC) latest
            LEFT JOIN dbo.Users approver ON approver.ID=latest.ApprovedBy
            LEFT JOIN dbo.NPDRecipeSheet approved ON approved.ID=i.ActiveSheetID AND approved.RequestItemID=i.ID AND approved.ApprovalStatus='Approved'
@@ -364,8 +365,8 @@ def close_item(item_id:int,body:CloseItem,ctx:AccessContext=Depends(get_access_c
     manager(ctx)
     with transaction(ctx) as cur:
         row=one(cur,'SELECT * FROM dbo.NPDRecipeRequestItem WHERE ID=?',item_id);expected(row,body.RowVersion)
-        if cur.execute("SELECT ID FROM dbo.NPDRecipeSheet WHERE RequestItemID=? AND ApprovalStatus='Pending'",item_id).fetchone():
-            raise HTTPException(409,'Return the pending sheet before closing this request item.')
+        if cur.execute("SELECT ID FROM dbo.NPDRecipeSheet WHERE RequestItemID=? AND (ApprovalStatus='Pending' OR SalesReviewStatus='Pending')",item_id).fetchone():
+            raise HTTPException(409,'Resolve the pending manager or Sales review before closing this request item.')
         cur.execute('UPDATE dbo.NPDRecipeRequestItem SET IsOpen=0,IsLinked=0 WHERE ID=?',item_id)
         audit(cur,'RequestItem',item_id,'Close',{'Comment':body.Comment},ctx)
         return {'row':one(cur,'SELECT * FROM dbo.NPDRecipeRequestItem WHERE ID=?',item_id)}
@@ -378,7 +379,7 @@ def assign(item_id:int,body:Assignment,ctx:AccessContext=Depends(get_access_cont
         if not row['IsOpen'] or not row['IsLinked']:raise HTTPException(409,'Closed or approved request items cannot be reassigned. Start a new recipe revision first.')
         if body.PICUserID not in {r['ID'] for r in eligible_members(cur)}:
             raise ValueError('Choose an active NPD member with Recipe Sheet edit access.')
-        if cur.execute("SELECT ID FROM dbo.NPDRecipeSheet WHERE RequestItemID=? AND ApprovalStatus='Pending'",item_id).fetchone():raise HTTPException(409,'Return the submitted sheet before reassigning this item.')
+        if cur.execute("SELECT ID FROM dbo.NPDRecipeSheet WHERE RequestItemID=? AND (ApprovalStatus='Pending' OR SalesReviewStatus='Pending')",item_id).fetchone():raise HTTPException(409,'Resolve the pending manager or Sales review before reassigning this item.')
         cur.execute('UPDATE dbo.NPDRecipeRequestItem SET PICUserID=?,AssignedBy=?,AssignedAt=SYSUTCDATETIME() WHERE ID=?',body.PICUserID,ctx.user_id,item_id)
         result=one(cur,'SELECT * FROM dbo.NPDRecipeRequestItem WHERE ID=?',item_id);audit(cur,'RequestItem',item_id,'Assign',result,ctx);return {'row':result}
 
@@ -409,11 +410,26 @@ def all_prices(cur):
         r['EffectiveTo']=date.fromisoformat(r['EffectiveTo']) if r['EffectiveTo'] else None
     return rows
 
-def calculation(cur,row,lines,status,exchange_rate=None):
+def calculation(cur,row,lines,status,exchange_rate=None,details=None):
     opportunity=one(cur,'SELECT '+OPPORTUNITY_SELECT+' '+OPPORTUNITY_SOURCE+' WHERE i.ID=?',row['OpportunityItemID'])
     opportunity['ExchangeRateVNDPerUSD']=exchange_rate if exchange_rate is not None else row.get('ExchangeRateVNDPerUSD') or opportunity['ExchangeRateVNDPerUSD']
     ingredients=query(cur,"SELECT i.ID,i.IngredientCode,i.Description,i.GradeNature,i.Origin,i.Status,i.RowVersion IngredientVersion FROM dbo.NPDIngredient i JOIN dbo.UoM u ON u.ID=i.BaseUoMID WHERE u.Status='Active' AND u.Category='Weight/Mass' AND u.BaseFactor>0")
-    return evaluate(lines,row,all_prices(cur),opportunity,ready=status!='Draft',ingredients=ingredients,vendors=query(cur,"SELECT ID,VendorName,Status FROM dbo.Vendor"))
+    from recipe_levels import RecipeDetails,flatten
+    captured=details if details is not None else obj(row.get('CalculationJSON')).get('RecipeDetails')
+    level_issues=[]
+    if captured is not None:
+        captured=captured if isinstance(captured,RecipeDetails) else RecipeDetails(**captured)
+        lines,level_issues=flatten(captured,row['GradeSnapshot'],lines,ready=status!='Draft')
+    result=evaluate(lines,row,all_prices(cur),opportunity,ready=status!='Draft',ingredients=ingredients,vendors=query(cur,"SELECT ID,VendorName,Status FROM dbo.Vendor"))
+    if captured is not None:
+        result['RecipeDetails']=captured.model_dump(mode='json')
+        result['Issues']=level_issues+result['Issues']
+        grades={g['GradePath']:Decimal(g['RatioPct']) for g in raw_grades(row['GradeSnapshot'])}
+        total=sum((grades[n.GradePath] for n in captured.Nuts),Decimal(0))
+        differs=bool(total and any(abs(n.BlendRatioPct-grades[n.GradePath]/total*100)>Decimal('.000001') for n in captured.Nuts))
+        result['GradeRatiosDiffer']=differs
+        result['Warnings']=['Nut blend proportions differ from Product Grades. TCB grade proportions are unchanged; review them separately.'] if differs else []
+    return result
 
 @router.get('/sheets')
 def sheet_list(page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=200),search:str=Query('',max_length=200),ctx:AccessContext=Depends(get_access_context),pic:str='',status:Literal['','Draft','Price Ready','Final','Pending','Approved','Returned']='',sort:str=''):
@@ -461,20 +477,25 @@ def sheet_create(item_id:int,body:NewSheet,ctx:AccessContext=Depends(get_access_
             if replay[0]['RequestItemID']!=item_id:raise HTTPException(409,'Creation key belongs to another item.')
             return {'row':sheet_row(cur,replay[0]['ID'])}
         expected(item,body.RowVersion)
-        if cur.execute("SELECT ID FROM dbo.NPDRecipeSheet WHERE RequestItemID=? AND ApprovalStatus<>'Approved'",item_id).fetchone():raise HTTPException(409,'Continue the existing draft or returned recipe sheet for this item.')
+        if cur.execute("SELECT ID FROM dbo.NPDRecipeSheet WHERE RequestItemID=? AND (ApprovalStatus<>'Approved' OR SalesReviewStatus='Pending')",item_id).fetchone():raise HTTPException(409,'Continue the existing draft or returned recipe sheet for this item.')
         prior=query(cur,'SELECT TOP(1) * FROM dbo.NPDRecipeSheet WHERE RequestItemID=? ORDER BY Revision DESC',item_id)
         lines=obj(prior[0]['LinesJSON'],[]) if prior else [dict(Kind='Raw',GradePath=g['GradePath'],RatioPct=g['RatioPct'],LossPct='0',IngredientID=None,PriceID=None) for g in raw_grades(item['GradeSnapshot'])]
         if not lines:raise ValueError('The request needs captured Level 1 grades before creating a sheet.')
         cur.execute('UPDATE dbo.NPDRecipeRequestItem SET IsOpen=1 WHERE ID=?',item_id)
         exchange_rate=one(cur,'SELECT '+OPPORTUNITY_SELECT+' '+OPPORTUNITY_SOURCE+' WHERE i.ID=?',item['OpportunityItemID'])['ExchangeRateVNDPerUSD']
         identity=cur.execute('INSERT dbo.NPDRecipeSheet(CreationKey,RequestItemID,Revision,LinesJSON,CreatedBy,SeasoningLossPct,ExchangeRateVNDPerUSD) OUTPUT INSERTED.ID VALUES(?,?,?,?,?,?,?)',str(body.CreationKey),item_id,(prior[0]['Revision']+1) if prior else 1,document(lines),ctx.user_id,0,exchange_rate).fetchval()
+        if prior and obj(prior[0]['CalculationJSON']).get('RecipeDetails'):
+            cur.execute('UPDATE dbo.NPDRecipeSheet SET CalculationJSON=? WHERE ID=?',document({'RecipeDetails':obj(prior[0]['CalculationJSON'])['RecipeDetails']}),identity)
         result=sheet_row(cur,identity);audit(cur,'Sheet',identity,'Create',result,ctx);return {'row':result}
+
+from recipe_levels import RecipeDetails as RecipeDetailsDocument
 
 class SheetSave(BaseModel):
     model_config=ConfigDict(extra='forbid')
     RowVersion:str
     Status:Literal['Draft','Price Ready','Final']='Draft'
     Lines:list[RecipeLine]=Field(min_length=1,max_length=300)
+    RecipeDetails:RecipeDetailsDocument|None=None
     ExchangeRateVNDPerUSD:Decimal|None=Field(None,gt=0,max_digits=19,decimal_places=6)
     # Accepted for older clients; the server always derives loss from ingredient rows.
     SeasoningLossPct:Decimal|None=None
@@ -488,7 +509,7 @@ def sheet_editor(ctx,row):
 
 def store_sheet(cur,row,body,result,ctx,pending=False):
     saved=[{k:v for k,v in line.items() if k in RecipeLine.model_fields} for line in result['Lines']]
-    cur.execute("UPDATE dbo.NPDRecipeSheet SET Status=?,ApprovalStatus=?,LinesJSON=?,CalculationJSON=?,SeasoningLossPct=?,ExchangeRateVNDPerUSD=?,ReviewComment=NULL,UpdatedBy=?,UpdatedAt=SYSUTCDATETIME() WHERE ID=?",body.Status,'Pending' if pending else 'Draft',document(saved),document(result),Decimal(result['SeasoningLossPct']).quantize(Decimal('.000000000001')),result['ExchangeRateVNDPerUSD'],ctx.user_id,row['ID'])
+    cur.execute("UPDATE dbo.NPDRecipeSheet SET Status=?,ApprovalStatus=?,SalesReviewStatus='Not submitted',LinesJSON=?,CalculationJSON=?,SeasoningLossPct=?,ExchangeRateVNDPerUSD=?,ReviewComment=NULL,UpdatedBy=?,UpdatedAt=SYSUTCDATETIME() WHERE ID=?",body.Status,'Pending' if pending else 'Draft',document(saved),document(result),Decimal(result['SeasoningLossPct']).quantize(Decimal('.000000000001')),result['ExchangeRateVNDPerUSD'],ctx.user_id,row['ID'])
     audit(cur,'Sheet',row['ID'],'SaveReview' if pending else 'Save',result,ctx)
     return saved
 
@@ -497,7 +518,7 @@ def store_sheet(cur,row,body,result,ctx,pending=False):
 def sheet_preview(sheet_id:int,body:SheetSave,ctx:AccessContext=Depends(get_access_context)):
     with get_raw_cursor() as cur:
         ready(cur);row=sheet_row(cur,sheet_id);sheet_editor(ctx,row);expected(row,body.RowVersion)
-        try:return {'calculation':calculation(cur,row,body.Lines,body.Status,body.ExchangeRateVNDPerUSD)}
+        try:return {'calculation':calculation(cur,row,body.Lines,body.Status,body.ExchangeRateVNDPerUSD,body.RecipeDetails)}
         except ValueError as exc:raise HTTPException(422,str(exc)) from exc
 
 @router.post('/sheets/{sheet_id}')
@@ -508,7 +529,7 @@ def sheet_save(sheet_id:int,body:SheetSave,ctx:AccessContext=Depends(get_access_
         row=sheet_row(cur,sheet_id);sheet_editor(ctx,row);expected(row,body.RowVersion)
         pending=row['ApprovalStatus']=='Pending'
         if pending and body.Status=='Draft':raise HTTPException(422,'A submitted sheet must remain Price Ready or Final.')
-        result=calculation(cur,row,body.Lines,body.Status,body.ExchangeRateVNDPerUSD)
+        result=calculation(cur,row,body.Lines,body.Status,body.ExchangeRateVNDPerUSD,body.RecipeDetails)
         if pending:
             from npd_recipes import validate_submission
             validate_submission(result)
@@ -555,7 +576,7 @@ def publish(cur,row,result,ctx):
     value=obj(item['TCBCostInfo'])
     previous_loss=Decimal(str((value.get('NPDRecipe') or {}).get('SeasoningLossPct') or 0))
     value['NPDRecipe']={k:result[k] for k in ('SeasoningRatio','SeasoningUSDPerLb','SeasoningCostBasis','ExchangeRateVNDPerUSD','GradeRatiosDiffer','Warnings')}
-    value['NPDRecipe'].update(ApplicableGradePaths=result['ApplicableGradePaths'],SheetID=row['ID'],SheetNumber=row['SheetNumber'],Revision=row['Revision'],WeightGrams=row['WeightGrams'],ApprovedBy=ctx.username)
+    value['NPDRecipe'].update(ApplicableGradePaths=result['ApplicableGradePaths'],SheetID=row['ID'],SheetNumber=row['SheetNumber'],Revision=row['Revision'],WeightGrams=row['WeightGrams'],ApprovedBy=row.get('ApprovedByName') or ctx.username)
     component=one(cur,"SELECT ID FROM dbo.RecipeComponent WHERE SystemKey='Seasoning'")
     value['NPDRecipe'].update(SeasoningLossPct=str(Decimal(result['SeasoningLossPct']).quantize(Decimal('.01'))),SeasoningComponentID=component['ID'])
     value['NPDRecipe']['CapturedGrades']=obj(row['GradeSnapshot'])['items']
@@ -586,7 +607,7 @@ def sheet_review(sheet_id:int,body:Review,ctx:AccessContext=Depends(get_access_c
             if row['ApprovalStatus'] not in ('Draft','Returned') or row['Status']=='Draft':raise HTTPException(409,'Save a Price Ready or Final sheet before submitting.')
             result=calculation(cur,row,[RecipeLine(**r) for r in obj(row['LinesJSON'],[])],row['Status'])
             validate_submission(result)
-            cur.execute("UPDATE dbo.NPDRecipeSheet SET ApprovalStatus='Pending',CalculationJSON=?,SubmittedBy=?,SubmittedAt=SYSUTCDATETIME(),ReviewComment=NULL WHERE ID=?",document(result),ctx.user_id,sheet_id)
+            cur.execute("UPDATE dbo.NPDRecipeSheet SET ApprovalStatus='Pending',SalesReviewStatus='Not submitted',CalculationJSON=?,SubmittedBy=?,SubmittedAt=SYSUTCDATETIME(),ReviewComment=NULL WHERE ID=?",document(result),ctx.user_id,sheet_id)
         else:
             manager(ctx)
             if row['ApprovalStatus']!='Pending':raise HTTPException(409,'Only a submitted recipe sheet can be reviewed.')
@@ -599,7 +620,7 @@ def sheet_review(sheet_id:int,body:Review,ctx:AccessContext=Depends(get_access_c
                     access(ctx,'recipe-sheets',True)
                     expected(row,body.Changes.RowVersion)
                     if body.Changes.Status=='Draft':raise HTTPException(422,'Only a Price Ready or Final sheet can be approved.')
-                    result=calculation(cur,row,body.Changes.Lines,body.Changes.Status,body.Changes.ExchangeRateVNDPerUSD)
+                    result=calculation(cur,row,body.Changes.Lines,body.Changes.Status,body.Changes.ExchangeRateVNDPerUSD,body.Changes.RecipeDetails)
                     validate_submission(result)
                     store_sheet(cur,row,body.Changes,result,ctx,pending=True)
                     row=sheet_row(cur,sheet_id)
@@ -609,7 +630,6 @@ def sheet_review(sheet_id:int,body:Review,ctx:AccessContext=Depends(get_access_c
                     previous=obj(row['CalculationJSON'])
                     if previous.get('SeasoningCostBasis')!='FinishedProduct':raise HTTPException(409,'Recipe calculation changed. Refresh pricing and review the updated recipe before approving.')
                     if quote_key(result)!=quote_key(previous):raise HTTPException(409,'An ingredient price, master or exchange rate changed. Refresh pricing and review the updated recipe before approving.')
-                publish(cur,row,result,ctx)
-                cur.execute("UPDATE dbo.NPDRecipeSheet SET ApprovalStatus='Approved',CalculationJSON=?,ApprovedBy=?,ApprovedAt=SYSUTCDATETIME(),ReviewComment=? WHERE ID=?",document(result),ctx.user_id,body.Comment,sheet_id)
-                cur.execute('UPDATE dbo.NPDRecipeRequestItem SET ActiveSheetID=?,IsOpen=0 WHERE ID=?',sheet_id,row['RequestItemID'])
+                cur.execute("UPDATE dbo.NPDRecipeSheet SET ApprovalStatus='Approved',CalculationJSON=?,ApprovedBy=?,ApprovedAt=SYSUTCDATETIME(),ReviewComment=?,SalesReviewStatus='Pending',SalesReviewedBy=NULL,SalesReviewedAt=NULL,SalesReviewComment=NULL WHERE ID=?",document(result),ctx.user_id,body.Comment,sheet_id)
+                cur.execute('UPDATE dbo.NPDRecipeRequestItem SET IsOpen=1 WHERE ID=?',row['RequestItemID'])
         result=sheet_row(cur,sheet_id);audit(cur,'Sheet',sheet_id,body.Action,result,ctx);return {'row':result}
