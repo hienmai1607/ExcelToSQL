@@ -21,7 +21,8 @@ export function ItemReviewActions({item,canAssign,user,pics,onSaved,refreshing=f
  const canSetPic=canAssign&&members.every(r=>editableStages.has(String(r.ItemStage)));
  const pending=canAssign&&members.every(r=>r.ItemStage==='Pending Review');
  const approve=pending&&(session.is_admin||members.every(r=>Number(r.PICUserID)!==session.user_id));
- const actions=(canRespond?['Pending Review']:[]).concat(approve?['Approved']:[],pending?['Returned']:[],assigned&&canAssign&&members.every(r=>!['Approved','Canceled'].includes(String(r.ItemStage)))?['Canceled']:[]);
+ // Submit needs an assigned PIC and an item still being worked on (never one already Pending Review).
+ const actions=(canRespond&&assigned&&members.every(r=>editableStages.has(String(r.ItemStage)))?['Pending Review']:[]).concat(approve?['Approved']:[],pending?['Returned']:[],assigned&&canAssign&&members.every(r=>!['Approved','Canceled'].includes(String(r.ItemStage)))?['Canceled']:[]);
  async function perform(assign=false){
   if(!assign&&!assigned&&['Pending Review','Canceled'].includes(String(target))){setError('Assign PIC before submitting or canceling this item.');return}
   if(guard.current||uncertain||refreshing)return;guard.current=true;setBusy(true);setError('');

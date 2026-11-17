@@ -71,7 +71,7 @@ test('assigned NPD edits ratios, keeps raw identities and submits a saved sheet'
  expect(calls.find(c=>c.path==='/api/npd/sheets/21')?.body.ExchangeRateVNDPerUSD).toBe('25000');expect(calls.find(c=>c.path==='/api/npd/sheets/21')?.body).not.toHaveProperty('SeasoningLossPct');
  await expect(dialog.getByRole('button',{name:'Submit for approval'})).toBeEnabled();await dialog.getByRole('button',{name:'Submit for approval'}).click();
  await expect(dialog.getByLabel('Ratio line 1')).toBeDisabled();expect(calls.find(c=>c.path.endsWith('/review'))?.body.Action).toBe('Submit');
- for(const width of [1920,1366]){await page.setViewportSize({width,height:1000});const headerFields=await dialog.locator('.npd-sheet-header>label').all(),boxes=await Promise.all(headerFields.map(field=>field.boundingBox()));expect(boxes).toHaveLength(6);expect(Math.max(...boxes.map(box=>box!.y))-Math.min(...boxes.map(box=>box!.y))).toBeLessThanOrEqual(1);expect(await dialog.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);expect((await dialog.boundingBox())!.width).toBeGreaterThan(width*.85);await expect(dialog.getByRole('button',{name:'Close',exact:true})).toBeVisible();for(const field of await dialog.locator('tbody td>input').all()){const input=await field.boundingBox(),cell=await field.locator('..').boundingBox();expect(input!.x+input!.width).toBeLessThanOrEqual(cell!.x+cell!.width+1)}}
+ for(const width of [1920,1366]){await page.setViewportSize({width,height:1000});const headerFields=await dialog.locator('.npd-sheet-header>label').all(),boxes=await Promise.all(headerFields.map(field=>field.boundingBox()));expect(boxes).toHaveLength(6);expect(Math.max(...boxes.map(box=>box!.y))-Math.min(...boxes.map(box=>box!.y))).toBeLessThanOrEqual(1);expect(await dialog.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);expect((await dialog.boundingBox())!.width).toBeGreaterThan(width*.85);await expect(dialog.getByRole('button',{name:/^Close /}).first()).toBeVisible();for(const field of await dialog.locator('tbody td>input').all()){const input=await field.boundingBox(),cell=await field.locator('..').boundingBox();expect(input!.x+input!.width).toBeLessThanOrEqual(cell!.x+cell!.width+1)}}
  await page.screenshot({path:info.outputPath('npd-recipe-sheet.png')});
 });
 test('manager modifies a submitted recipe and approves its current edits without changing PIC',async({page})=>{
@@ -110,7 +110,7 @@ test('Sales views Recipe Request items inline without manual request creation',a
 test('Recipe Request item list keeps request editing and assigned Recipe Sheet access',async({page})=>{
  await setup(page,'manager');await page.getByRole('navigation').getByRole('button',{name:'Recipe Requests',exact:true}).click();await page.getByRole('button',{name:'View items for RRQ-1',exact:true}).click();
  const list=page.getByRole('region',{name:'Items for RRQ-1',exact:true});await list.getByRole('button',{name:'Recipe Sheets',exact:true}).click();await list.getByRole('button',{name:'RCP-1',exact:true}).click();
- const sheet=page.getByRole('dialog',{name:'RCP-1',exact:true});await expect(sheet.getByText('npd.member',{exact:false}).first()).toBeVisible();await sheet.getByRole('button',{name:'Close',exact:true}).click();
+ const sheet=page.getByRole('dialog',{name:'RCP-1',exact:true});await expect(sheet.getByText('npd.member',{exact:false}).first()).toBeVisible();await sheet.getByRole('button',{name:/^Close /}).first().click();
  await list.getByRole('button',{name:'Open Recipe Request item PRD-1',exact:true}).click();const requestDialog=page.getByRole('dialog',{name:'RRQ-1',exact:true});await expect(requestDialog.getByLabel('PIC 11',{exact:true})).toBeVisible();
 });
 
@@ -175,7 +175,7 @@ test('direct ingredient prices convert either currency, save, reopen and return 
  await dialog.getByLabel('Exchange rate (VND / USD)',{exact:true}).fill('25000');await expect(usd()).toHaveValue('21.20');
  await usd().fill('12');await expect(vnd()).toHaveValue('300000.00');await dialog.getByRole('button',{name:'Save sheet',exact:true}).click();
  const saved=calls.find(c=>c.path==='/api/npd/sheets/21')!.body.Lines[2];expect(saved).toMatchObject({DirectPriceCurrency:'USD',DirectPricePerKg:'12',PriceID:null});
- await dialog.getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'RCP-1',exact:true}).click();dialog=page.getByRole('dialog',{name:'RCP-1',exact:true});await expect(usd()).toHaveValue('12.00');await expect(vnd()).toHaveValue('300000.00');await expect(dialog.locator('.npd-totals')).toContainText('0.27');
+ await dialog.getByRole('button',{name:/^Close /}).first().click();await page.getByRole('button',{name:'RCP-1',exact:true}).click();dialog=page.getByRole('dialog',{name:'RCP-1',exact:true});await expect(usd()).toHaveValue('12.00');await expect(vnd()).toHaveValue('300000.00');await expect(dialog.locator('.npd-totals')).toContainText('0.27');
  await page.screenshot({path:info.outputPath('npd-direct-price.png')});await dialog.getByLabel('Price line 3',{exact:true}).selectOption('');await expect(dialog.getByLabel('Price line 3',{exact:true})).toHaveValue('');await dialog.getByRole('button',{name:'Save sheet',exact:true}).click();
  await expect.poll(()=>calls.filter(c=>c.path==='/api/npd/sheets/21').at(-1)?.body.Lines[2]).toMatchObject({DirectPricePerKg:null,DirectPriceCurrency:null});
 });
@@ -283,7 +283,7 @@ test('submitted Recipe Request items lock PIC and open manager approval from Rev
  const detail=page.getByRole('dialog',{name:'RRQ-1',exact:true});await expect(detail.getByLabel('PIC 11',{exact:true})).toHaveCount(0);await expect(detail.getByRole('button',{name:'Review Recipe Sheet for PRD-1',exact:true})).toBeVisible();await detail.getByRole('button',{name:'Close recipe request',exact:true}).click();
  await list.getByRole('button',{name:'Review Recipe Sheet for PRD-1',exact:true}).click();
  const sheet=page.getByRole('dialog',{name:'RCP-1',exact:true});await expect(sheet.getByRole('button',{name:'Approve recipe',exact:true})).toBeVisible();await expect(sheet.getByRole('button',{name:'Return',exact:true})).toBeVisible();
- await sheet.getByRole('button',{name:'Approve recipe',exact:true}).click();await sheet.getByRole('button',{name:'Close',exact:true}).click();
+ await sheet.getByRole('button',{name:'Approve recipe',exact:true}).click();await sheet.getByRole('button',{name:/^Close /}).first().click();
  list=page.getByRole('region',{name:'Items for RRQ-1',exact:true});await expect(list.getByText('Approved by: npd.manager',{exact:true})).toBeVisible();await expect(list.getByText('PIC: npd.member',{exact:true})).toBeVisible();await expect(list.getByRole('combobox',{name:'Assign PIC for PRD-1',exact:true})).toHaveCount(0);
 });
 
@@ -375,4 +375,21 @@ test('Recipe item layout filters and sorts all items before paging and saves sep
  await list.getByRole('button',{name:'Next',exact:true}).click();await expect(table.getByRole('button',{name:'Open Recipe Request item PRD-LARGE',exact:true})).toBeVisible();
  await list.getByRole('button',{name:'Recipe item sort',exact:true}).click();const sort=list.getByRole('complementary',{name:'Recipe item sort',exact:true});await sort.getByLabel('Sort direction 1',{exact:true}).selectOption('desc');await expect(list.getByLabel('Rows per page',{exact:true})).toHaveValue('1');await expect(table.getByRole('button',{name:'Open Recipe Request item PRD-LARGE',exact:true})).toBeVisible();await sort.getByRole('button',{name:'Save layout to profile',exact:true}).click();await expect(sort.getByText('Layout and sort saved.',{exact:true})).toBeVisible();
  expect(saved.recipe_requests.items).toMatchObject({page_size:1,filters:['pic'],values:{pic:'npd.member'},sort:[{column:'EstimatedAwardedMT',direction:'desc'}]});expect(saved.recipe_requests.header).toBeUndefined();
+});
+
+test('Recipe Sheet recalculates automatically after edits without a Calculate pricing button',async({page})=>{
+ const calls=await setup(page);await page.getByRole('navigation').getByRole('button',{name:'Recipe Sheets',exact:true}).click();await page.getByRole('button',{name:'RCP-1',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'RCP-1',exact:true});
+ await expect(dialog.getByLabel('Ratio line 1')).toHaveValue('57.00');
+ await expect(dialog.getByRole('button',{name:'Calculate pricing',exact:true})).toHaveCount(0);
+ const previews=()=>calls.filter(c=>c.path==='/api/npd/sheets/21/preview');
+ const before=previews().length;
+ // Several keystrokes are debounced into one preview carrying the final value.
+ await dialog.getByLabel('Ratio line 1').click();await dialog.getByLabel('Ratio line 1').press('Control+A');await dialog.getByLabel('Ratio line 1').pressSequentially('56',{delay:20});
+ await expect.poll(()=>previews().length).toBe(before+1);
+ expect(previews().at(-1)!.body.Lines[0].RatioPct).toBe('56');
+ await page.waitForTimeout(600);expect(previews().length).toBe(before+1);
+ await dialog.getByLabel('Exchange rate (VND / USD)').fill('27000');
+ await expect.poll(()=>previews().length).toBe(before+2);
+ expect(previews().at(-1)!.body.ExchangeRateVNDPerUSD).toBe('27000');
 });

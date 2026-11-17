@@ -158,3 +158,11 @@
 .dialog.npd-sheet .recipe-level-card thead th{border-color:#ffffff40}
 .recipe-level-card .detail-col-number{width:80px}.recipe-level-card .detail-col-code{width:140px}.recipe-level-card .detail-col-ingredient{width:35%}.recipe-level-card .detail-col-origin{width:85px}.recipe-level-card .detail-col-ratio{width:110px}.recipe-level-card .detail-col-action{width:45px}
 .dialog.npd-sheet .npd-recipe-table thead th{background:var(--primary,#176e67);border-color:#ffffff40;color:#fff}
+
+/* Level process: Process Type and Loss sit beside Output name; Output name takes the remaining width. */
+.recipe-level-card>header>label.recipe-level-process,.recipe-level-card>header>label.recipe-level-loss{flex:0 0 auto}
+.recipe-level-card>header .recipe-level-process select{width:200px}
+.recipe-level-card>header .recipe-level-loss .npd-percentage{width:90px}
+.npd-buffer-input{display:flex;align-items:center;gap:4px}.npd-buffer-input .npd-percentage{min-width:0;flex:1}.npd-buffer-input .icon-button{width:26px;min-width:26px;height:26px;padding:4px}
+.npd-buffer-manual .npd-percentage{background:#e8f2fb}
+.npd-pricing-status{align-self:center;color:var(--muted,#5b6b6a);font-size:13px;margin-right:8px}

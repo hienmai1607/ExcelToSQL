@@ -1,5 +1,5 @@
 import {tcbColumnGroups,tcbColumnLabels} from './tcb-columns';
-import {costSections} from './shipment-sections';
+import {costSections} from './shipment-model';
 export const shipmentFieldGroups=[
  {title:'Shipment',fields:{ContainerRequest:'Container Type',ConfigurationRequest:'Loading request',FloorLoadUSDPerMT:'Floor load cost (USD/MT)',Incoterm:'Incoterm',PortOfEntryName:'Port of Entry'} as Record<string,string>},
  ...costSections.map(section=>({title:section.title,fields:Object.fromEntries([...section.fields.map(field=>[field.key,field.label]),...(section.title==='Others'?[['MarginMode','Margin basis'],['InitialDesignCustomer','Initial Design (customer currency)']]:section.title==='Logistics'?[['PortToWHUSDPerContainer','Legacy Port - WH (USD/cont)'],['WHCostUSDPerPallet','Legacy WH Cost (USD/pallet)']]:[])])})),

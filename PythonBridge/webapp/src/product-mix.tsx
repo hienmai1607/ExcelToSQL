@@ -5,6 +5,9 @@ import {ApiError,call,type Row} from './api';
 import {Badge,ErrorNote,Modal} from './ui';
 import {IconButton} from './icons';
 import {ProductGrades} from './product-grades';
+import {InlineMasterCreate} from './inline-master-create';
+import {canCreateMaster} from './add-master-button';
+import {useSession} from './session';
 type Version={ID:number;Version:number;Status:string;RowVersion:string};
 type Line={ProductID:string;UnitQuantity:string};
 type MixData={product:Row;versions:Version[];items:Row[];choices:Row[]};
@@ -41,6 +44,9 @@ function MixChildGrades({product,tabs,onClose}:{product:Row;tabs:ReactNode;onClo
 export function ProductMix({product,tabs,onClose,onSaved}:{product:Row;tabs?:ReactNode;onClose:()=>void;onSaved:()=>void}){
  const [data,setData]=useState<MixData|null>(null),[version,setVersion]=useState<Version|null>(null),[lines,setLines]=useState<Line[]>([]),[status,setStatus]=useState('Draft');
  const [busy,setBusy]=useState(true),[error,setError]=useState(''),[confirm,setConfirm]=useState(false),[uncertain,setUncertain]=useState(false);
+ const session=useSession(),[creatingChild,setCreatingChild]=useState(false);
+ // A child created here joins the draft version; choices refresh without discarding unsaved lines.
+ async function childCreated(records:Row[]){setCreatingChild(false);try{const fresh=await call<MixData>('/api/workbench/products/'+product.ID+'/mix');setData(fresh);const created=records.find(r=>fresh.choices.some(p=>String(p.ID)===String(r.ID)));if(created)setLines(xs=>xs.some(l=>l.ProductID===String(created.ID))?xs:[...xs,{ProductID:String(created.ID),UnitQuantity:'1'}]);else if(records.length)setError('Product saved. It is not yet available as an active normal child Product of this Customer.')}catch(e){setError((e as Error).message)}}
  const baseline=useRef(''),lock=useRef(false),dirty=baseline.current!==JSON.stringify({lines,status}),readonly=!!version&&version.Status!=='Draft';
  const child=(id:string)=>data?.choices.find(p=>String(p.ID)===id)||data?.items.find(p=>String(p.ProductID)===id);
  const total=lines.reduce((n,l)=>n+Number(child(l.ProductID)?.WeightGrams||0)*Number(l.UnitQuantity||0),0);
@@ -77,11 +83,12 @@ export function ProductMix({product,tabs,onClose,onSaved}:{product:Row;tabs?:Rea
    <label>Status{readonly?<Badge value={version!.Status}/>:<select aria-label="Mix status" disabled={busy||uncertain} value={status} onChange={e=>setStatus(e.target.value)}><option>Draft</option><option>Active</option></select>}</label>
   </div><dl className="grade-summary"><div><dt>Child Products</dt><dd>{lines.length}</dd></div><div><dt>Calculated net weight (g)</dt><dd>{Number.isFinite(total)?decimalDisplay(total,3):'—'}</dd></div></dl></div>
   <p className="grade-readonly-note">{readonly?'Use New version to revise this mix.':'One level · Same Customer · Net weight = sum of child weight × quantity.'} Draft versions do not change the Product weight.</p>
-  <section className="panel"><div className="table-wrap"><table className="mix-table"><thead><tr><th>Child Product</th><th>Net weight (g)</th><th>Unit quantity</th><th>Total weight (g)</th><th>{!readonly&&<IconButton icon="plus" label="Add mix item" disabled={busy||uncertain||!data||lines.length>=500} onClick={()=>setLines(xs=>[...xs,{ProductID:'',UnitQuantity:'1'}])}/>}</th></tr></thead><tbody>
+  <section className="panel"><div className="table-wrap"><table className="mix-table"><thead><tr><th>Child Product</th><th>Net weight (g)</th><th>Unit quantity</th><th>Total weight (g)</th><th>{!readonly&&canCreateMaster(session,'products')&&<IconButton icon="package" label="Create new child Product" disabled={busy||uncertain||!data} onClick={()=>setCreatingChild(true)}/>}{!readonly&&<IconButton icon="plus" label="Add mix item" disabled={busy||uncertain||!data||lines.length>=500} onClick={()=>setLines(xs=>[...xs,{ProductID:'',UnitQuantity:'1'}])}/>}</th></tr></thead><tbody>
   {lines.map((l,i)=><tr key={i}><td>{readonly?<span>{String(child(l.ProductID)?.ProductCode||l.ProductID)} · {String(child(l.ProductID)?.ProductName||'')}</span>:<select aria-label={'Child Product '+(i+1)} disabled={busy||uncertain} value={l.ProductID} onChange={e=>change(i,'ProductID',e.target.value)}><option value="">Choose Product</option>{l.ProductID&&!data?.choices.some(p=>String(p.ID)===l.ProductID)&&<option value={l.ProductID}>{String(child(l.ProductID)?.ProductCode||l.ProductID)} (unavailable)</option>}{data?.choices.map(p=><option value={String(p.ID)} key={String(p.ID)} disabled={lines.some((x,j)=>i!==j&&x.ProductID===String(p.ID))}>{p.ProductCode} · {p.ProductName}</option>)}</select>}</td><td>{decimalDisplay(child(l.ProductID)?.WeightGrams,3)??'—'}</td><td><input aria-label={'Unit quantity '+(i+1)} readOnly={readonly} disabled={busy||uncertain} inputMode="decimal" value={l.UnitQuantity} onChange={e=>change(i,'UnitQuantity',e.target.value)}/></td><td>{decimalDisplay(Number(child(l.ProductID)?.WeightGrams||0)*Number(l.UnitQuantity||0),3)}</td><td>{!readonly&&<IconButton icon="close" label={'Remove mix item '+(i+1)} disabled={busy||uncertain} onClick={()=>setLines(xs=>xs.filter((_,j)=>j!==i))}/>}</td></tr>)}
   {!lines.length&&<tr><td colSpan={5} className="empty">{busy?'Loading…':'Add child Products to configure this mix.'}</td></tr>}
   </tbody></table></div></section>
   {!readonly&&<div className="actions"><button className="primary" disabled={busy||uncertain||!data} onClick={review}>Review & save</button></div>}
   {confirm&&<Modal label="Confirm mix save" onClose={()=>{if(!busy)setConfirm(false)}}><h2>Save Product Mix?</h2><p>{lines.length} child Products · {status} · {decimalDisplay(total,3)} g</p>{status==='Active'&&<p>The previous active version will become Inactive and the Product net weight will be recalculated.</p>}<div className="actions"><button disabled={busy} onClick={()=>setConfirm(false)}>Back</button><button className="primary" disabled={busy} onClick={save}>Confirm save</button></div></Modal>}
+ {creatingChild&&data&&<InlineMasterCreate entity="products" customerID={String(data.product.CustomerID??'')} normalProductOnly onClose={()=>setCreatingChild(false)} onSaved={records=>void childCreated(records)}/>}
  </Modal>;
 }

@@ -6,8 +6,10 @@ async function setup(page:Page,scope='Product'){
   const u=new URL(route.request().url()),p=u.pathname;
   if(p.endsWith('/session'))return route.fulfill({json:{username:'Tester',user_id:1,scopes:[scope],is_admin:scope==='Admin'}});
   if(p.endsWith('/preferences')){if(route.request().method()==='POST')profile={settings:route.request().postDataJSON().settings,version:profile.version+1};return route.fulfill({json:profile})}
-  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:"Northstar",Status:"Active"}],materials:[],currencies:[],creators:[{ID:1,UserName:'Tester'}]}});
-  if(p==='/api/workbench/masters/products')return route.fulfill({json:{rows:[{ID:7,CustomerID:1,CustomerName:'Northstar',ProductCode:'P1',ProductName:'Almonds',WeightGrams:'100.00',WeightOz:'3.53',Status:'Active',CreatedByName:'Tester',RowVersion:rv}],total:1,page:1}});
+  if(p==='/api/workbench/masters/lookups')return route.fulfill({json:{categories:[{ID:1,CategoryName:'Nuts',Status:'Active'}],customers:[{ID:1,CustomerName:"Northstar",Status:"Active"}],materials:[],currencies:[],creators:[{ID:1,UserName:'Tester'}],
+   // Weight units come from the UoM master (Weight/Mass).
+   uoms:[{ID:1,UoMCode:'g',UoMName:'Grams',Category:'Weight/Mass',BaseFactor:1,Status:'Active'},{ID:2,UoMCode:'oz',UoMName:'Ounces',Category:'Weight/Mass',BaseFactor:28.349523125,Status:'Active'}]}});
+  if(p==='/api/workbench/masters/products')return route.fulfill({json:{rows:[{ID:7,CustomerID:1,CustomerName:'Northstar',ProductCode:'P1',ProductName:'Almonds',Category:'Nuts',WeightGrams:'100.00',WeightOz:'3.53',Status:'Active',CreatedByName:'Tester',RowVersion:rv}],total:1,page:1}});
   if(p==='/api/product/batch'){const body=route.request().postDataJSON();writes.push(body);return route.fulfill({json:{results:body.rows.map((r:any)=>({RowNum:r.RowNum,Status:'OK'}))}})}
   return route.fulfill({json:{rows:[],total:0}});
  });

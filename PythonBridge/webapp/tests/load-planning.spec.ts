@@ -53,7 +53,7 @@ test('3D copies final dimensions and captures the viewed container into the draf
  await dialog.screenshot({path:info.outputPath('container-plan.png')});
 
  await expect(dialog.getByRole('button',{name:/Save|Apply/i})).toHaveCount(0);
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await dialog.getByRole('button',{name:/^Close /}).first().click();
  await expect(dialog).toHaveCount(0);
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  await expect(editor.getByLabel('Container type',{exact:true})).toHaveValue('20DC');
@@ -80,7 +80,7 @@ test('3D defaults to response cartons per layer without persisting the response'
  expect(writes[0].Inputs.cartons_per_layer).toBe(5);
  await expect(dialog.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue('97.5');
  await expect(dialog.getByRole('button',{name:/Save|Apply/i})).toHaveCount(0);
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await dialog.getByRole('button',{name:/^Close /}).first().click();
  expect(writes).toHaveLength(2);
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  await expect(editor.getByLabel('Cartons / layer',{exact:true})).toHaveValue('5');
@@ -270,8 +270,8 @@ test('pallet Proposal ticks share multiple captured container options, not just 
  await dialog.getByLabel('Proposal 40HC',{exact:true}).check();
  await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).toBeChecked();
  await expect(dialog.getByLabel('Proposal 40HC',{exact:true})).toBeChecked();
- await expect(dialog.getByRole('button',{name:'Close',exact:true})).toBeEnabled();
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await expect(dialog.getByRole('button',{name:/^Close /}).first()).toBeEnabled();
+ await dialog.getByRole('button',{name:/^Close /}).first().click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect.poll(()=>writes.some(w=>w.rows)).toBe(true);
@@ -339,7 +339,7 @@ test('viewed container captures automatically and normal response save persists 
  await expect(dialog.getByRole('button',{name:'Preview confirm',exact:true})).toHaveCount(0);
  await expect.poll(()=>writes.filter(w=>w.ItemRowVersion).length).toBe(1);
  await expect(dialog).toBeVisible();
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await dialog.getByRole('button',{name:/^Close /}).first().click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  await expect(editor.getByLabel('Container type',{exact:true})).toHaveValue('20DC');
  expect(writes.some(w=>w.rows)).toBe(false);
@@ -365,7 +365,7 @@ test('only viewed containers are captured and revisiting a row reuses its snapsh
  await expect.poll(()=>captured).toEqual([1,2]);
  await dialog.getByRole('button',{name:'View 20DC',exact:true}).click();
  await expect(dialog.getByLabel('Container type',{exact:true})).toHaveValue('1');
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await dialog.getByRole('button',{name:/^Close /}).first().click();
  expect(captured).toEqual([1,2]);expect(writes.some(w=>w.rows)).toBe(false);
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true});
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();
@@ -382,7 +382,7 @@ test('failed automatic capture keeps the viewer open and does not save the respo
  await expect(dialog.getByRole('alert')).toContainText('Response changed');
  await expect(dialog).toBeVisible();
  expect(writes.some(w=>w.rows)).toBe(false);
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await dialog.getByRole('button',{name:/^Close /}).first().click();
  await expect(page.getByRole('dialog',{name:'Edit Packaging request',exact:true}).getByLabel('Container type',{exact:true})).toHaveValue('');
 });
 
@@ -492,11 +492,11 @@ test('Packaging Manager can open completed response details without editing or s
  const pallet=page.getByRole('dialog',{name:'Pallet Pricing Calculator',exact:true});
  await expect(pallet.getByText(/Saved pallet pricing/)).toBeVisible();
  await expect(pallet.getByRole('button',{name:'Apply pallet pricing',exact:true})).toHaveCount(0);
- await pallet.getByRole('button',{name:'Close',exact:true}).click();
+ await pallet.getByRole('button',{name:/^Close /}).first().click();
  await editor.getByRole('button',{name:'3D container load',exact:true}).click();
  const planner=page.getByRole('dialog',{name:'3D load planner',exact:true});
  await expect(planner.getByRole('img',{name:'3D container load layout'})).toBeVisible();
- await planner.getByRole('button',{name:'Close',exact:true}).click();
+ await planner.getByRole('button',{name:/^Close /}).first().click();
  expect(writes).toHaveLength(1); // preview only, never save/capture
  await expect(editor.getByRole('button',{name:'Review & save',exact:true})).toBeDisabled();
 });
@@ -551,8 +551,8 @@ test('five container dimensions and totals fit desktop without scrollbars',async
   expect(scene!.width).toBeGreaterThan(size.width*.55);
   expect(scene!.height).toBeGreaterThan(size.height*(size.height>800?.4:.24));
   expect(scene!.x).toBeGreaterThanOrEqual(controls!.x+controls!.width);
-  const summary=await table.boundingBox(),close=await dialog.getByRole('button',{name:'Close',exact:true}).boundingBox();
-  expect(summary!.y+summary!.height).toBeLessThanOrEqual(close!.y);
+  const summary=await table.boundingBox(),frame=await dialog.boundingBox();
+  expect(summary!.y+summary!.height).toBeLessThanOrEqual(frame!.y+frame!.height);
  }
  await dialog.screenshot({path:info.outputPath('container-dimensions-compact.png')});
 });

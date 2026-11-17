@@ -2,6 +2,7 @@ import {Fragment,useState} from 'react';
 import {AddMasterButton} from './add-master-button';
 import type {Row} from './api';
 import {WarehouseCost} from './warehouse-cost';
+import {DutyCalculator} from './duty-calculator';
 import {IconButton} from './icons';
 import {FieldLabel} from './ui';
 import {quantity,divide,quantityDisplay} from './packaging-summary-model';
@@ -11,7 +12,7 @@ import {requestedContainerType,costSections,fields,customerCosts,fixedCost,incot
 export {requestedContainerType,costSections,shipmentValues,shipmentPayload,shipmentError,fixedCost,incoterms,scopedShipment,type ShipmentScope} from './shipment-model';
 
 export function ShipmentSections({values,requirements,customer,currency='',exchangeRate='',ports=[],child=false,scope='all',view='all',requirementsLocked=false,onAddPort,onPortEdited,onChange,onRequirementChange}:{onAddPort?:()=>void;onPortEdited?:(record:Row)=>void|Promise<void>;values:Record<string,string>;requirements:Record<string,string>;customer?:Row;currency?:string;exchangeRate?:string;ports?:Row[];child?:boolean;scope?:ShipmentScope;view?:'all'|'logistics'|'financials';requirementsLocked?:boolean;onChange:(key:string,value:string)=>void;onRequirementChange:(key:string,value:string)=>void}){
- const [warehouseOpen,setWarehouseOpen]=useState(false);
+ const [warehouseOpen,setWarehouseOpen]=useState(false),[dutyOpen,setDutyOpen]=useState(false);
  const available=ports.filter(p=>String(p.CustomerID)===String(customer?.ID)&&String(p.MarketID)===String(customer?.MarketID));
  function select(key:string,label:string,options:{id:string;label:string}[],value:string,help?:string,requirement=false){
   const known=options.some(o=>o.id===value);
@@ -21,7 +22,7 @@ export function ShipmentSections({values,requirements,customer,currency='',excha
  const costLabel=(field:CostField)=>['InitialDesignUSD','InitialDesignCustomer'].includes(field.key)?'Initial Design':customerCosts[field.key]?customerCosts[field.key].name+' ('+(currency||'customer currency')+(customerCosts[field.key].unit?'/'+customerCosts[field.key].unit:'')+')':field.key==='InitialDesignUSD'?'Initial Design (USD)':field.label;
  function costInput(field:CostField){
   const value=values[field.key]||'';
-  return <input aria-label={costLabel(field)} inputMode={field.kind==='days'?'numeric':'decimal'} readOnly={child||field.key==='WHCostCustomerPerPallet'} value={child&&field.kind!=='days'?fixedCost(value):value} onChange={event=>{onChange(field.key,event.target.value);if(field.key==='WHCostCustomerPerPallet')onChange('WHCostBreakdown','');const legacy=customerCosts[field.key]?.legacy;if(legacy)onChange(legacy,'');if(field.key==='ImportClearanceCustomerPerContainer'){onChange('ImportClearanceUSDPerContainer','');onChange('ImportClearanceCustomerPerPallet','')}}} onBlur={()=>{if(!child&&field.key!=='WHCostCustomerPerPallet'&&field.kind!=='days')onChange(field.key,fixedCost(value))}}/>;
+  return <input aria-label={costLabel(field)} inputMode={field.kind==='days'?'numeric':field.kind==='text'?'text':'decimal'} maxLength={field.kind==='text'?200:undefined} readOnly={child||field.key==='WHCostCustomerPerPallet'||field.key==='DutyPct'} value={child&&field.kind!=='days'&&field.kind!=='text'&&field.kind!=='pct4'?fixedCost(value):value} onChange={event=>{onChange(field.key,event.target.value);if(field.key==='WHCostCustomerPerPallet')onChange('WHCostBreakdown','');const legacy=customerCosts[field.key]?.legacy;if(legacy)onChange(legacy,'');if(field.key==='ImportClearanceCustomerPerContainer'){onChange('ImportClearanceUSDPerContainer','');onChange('ImportClearanceCustomerPerPallet','')}}} onBlur={()=>{if(!child&&field.key!=='WHCostCustomerPerPallet'&&field.key!=='DutyPct'&&field.kind!=='days'&&field.kind!=='text')onChange(field.key,fixedCost(value))}}/>;
  }
  function cost(field:CostField){
   const design=field.key==='InitialDesignUSD';
@@ -30,13 +31,14 @@ export function ShipmentSections({values,requirements,customer,currency='',excha
   const customerCost=customerCosts[field.key],suffix=customerCost?.unit?'/'+customerCost.unit:'';
   const legacy=customerCost?.legacy?values[customerCost.legacy]:'';
   const conversion=field.key==='WHCostCustomerPerPallet'&&currency==='USD'&&value?'':customerCost&&value?(amount&&fx?quantityDisplay(divide(amount,fx),2)+' USD'+suffix:'USD: enter exchange rate'):legacy?'Saved: '+fixedCost(legacy)+' USD'+suffix:'';
-  return <div key={design?'InitialDesign':field.key} className="shipment-cost-field"><FieldLabel>{costLabel(field)}</FieldLabel><span className="shipment-cost-input">{costInput(field)}{field.key==='WHCostCustomerPerPallet'&&<IconButton icon="calculator" label="Calculate warehouse cost" onClick={()=>setWarehouseOpen(true)}/>} {design&&<select aria-label="Initial Design currency" disabled={child} value={values.InitialDesignMode==='Customer'&&currency!=='USD'?'Customer':'USD'} onChange={e=>{onChange('InitialDesignMode',e.target.value==='Customer'?'Customer':'')}}><option value="USD">USD</option>{currency&&currency!=='USD'&&<option value="Customer">{currency}</option>}</select>}{conversion&&<output aria-label={customerCost.name+' USD'+(customerCost.unit?' per '+customerCost.unit:'')}>{conversion}</output>}</span></div>;
+  return <div key={design?'InitialDesign':field.key} className="shipment-cost-field"><FieldLabel>{costLabel(field)}</FieldLabel><span className="shipment-cost-input">{costInput(field)}{field.key==='WHCostCustomerPerPallet'&&<IconButton icon="calculator" label="Calculate warehouse cost" onClick={()=>setWarehouseOpen(true)}/>}{field.key==='DutyPct'&&<IconButton icon="calculator" label="Calculate duty" onClick={()=>setDutyOpen(true)}/>} {design&&<select aria-label="Initial Design currency" disabled={child} value={values.InitialDesignMode==='Customer'&&currency!=='USD'?'Customer':'USD'} onChange={e=>{onChange('InitialDesignMode',e.target.value==='Customer'?'Customer':'')}}><option value="USD">USD</option>{currency&&currency!=='USD'&&<option value="Customer">{currency}</option>}</select>}{conversion&&<output aria-label={customerCost.name+' USD'+(customerCost.unit?' per '+customerCost.unit:'')}>{conversion}</output>}</span></div>;
  }
  function margin(){
   const dollar=values.MarginMode==='USDPerLb',field=fields.find(f=>f.key===(dollar?'MarginUSDPerLb':'MarginPct'))!;
   return <div className="margin-cost-field" role="group" aria-label="Margin"><FieldLabel>{field.label}</FieldLabel><span className="shipment-cost-input margin-cost-input"><select aria-label="Margin basis" disabled={child} value={dollar?'USDPerLb':'Percent'} onChange={e=>onChange('MarginMode',e.target.value)}><option value="Percent">Margin %</option><option value="USDPerLb">Margin (USD/lbs)</option></select>{costInput(field)}</span></div>;
  }
  return <div className={'requirement-sections shipment-sections'+(child?' display-only-fields':'')}>
+ {dutyOpen&&<DutyCalculator value={values.DutyBreakdown||''} current={values.DutyPct||''} readOnly={child} onClose={()=>setDutyOpen(false)} onApply={(breakdown,total)=>{onChange('DutyBreakdown',breakdown);onChange('DutyPct',total)}}/>}
  {warehouseOpen&&<WarehouseCost currency={currency} value={values.WHCostBreakdown||''} readOnly={child} onClose={()=>setWarehouseOpen(false)} onApply={(breakdown,total)=>{onChange('WHCostBreakdown',breakdown);onChange('WHCostCustomerPerPallet',total);onChange('WHCostUSDPerPallet','')}}/>}
  {scope!=='child-others'&&view!=='financials'&&<section aria-label="Shipment"><h4>Shipment</h4><div className="shipment-entry-grid">
   <label className={requirementsLocked?'display-only-fields':undefined}><FieldLabel help="Required. The exact container type is captured in each new Packaging Request and locked while it is processing.">Container Type *</FieldLabel>{child?<input aria-label="Container Type" readOnly value={requestedContainerType(requirements,values)||requirements.ContainerRequest||''}/>:<select aria-label="Container Type" required aria-required="true" disabled={requirementsLocked} value={requestedContainerType(requirements,values)} onChange={event=>{const kind=event.target.value;onRequirementChange('ContainerRequest',kind);onChange('ContainerSizeFT',kind?kind.slice(0,2)+'FT':'')}}><option value="">Choose container type</option>{containerTypes.map(kind=><option key={kind} value={kind}>{kind}</option>)}</select>}</label>

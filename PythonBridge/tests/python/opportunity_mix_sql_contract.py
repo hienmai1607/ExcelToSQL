@@ -13,6 +13,7 @@ import packaging_api as packaging
 import packaging_fields
 import product_mix_api as mixes
 import opportunity_excel_api as excel
+from excel_template_version import TEMPLATE_VERSIONS
 from auth import AccessContext
 from db import bytes_to_b64
 from main import opportunity_batch
@@ -114,7 +115,7 @@ class OpportunityMixSQL(unittest.TestCase):
         row = next(r for r in excel.document_rows(self.ctx, self.opp) if r["ItemID"] == self.child)
         result = excel.save(excel.Batch(rows=[dict(row=4, number=self.number, opportunity_id=self.opp,
             item_id=self.child, header_version=row["HeaderRowVersion"], item_version=row["ItemRowVersion"],
-            item_changes={"PackagingType":"Bag"})]), self.ctx)
+            item_changes={"PackagingType":"Bag"})], template_version=TEMPLATE_VERSIONS["opportunities"]), self.ctx)
         self.assertEqual(result["results"][0]["status"], "OK", result)
         self.assertEqual(self.cur.execute("SELECT PackagingType FROM dbo.OpportunityItem WHERE ID=?", self.child).fetchval(),
                          "Bag")
@@ -126,7 +127,7 @@ class OpportunityMixSQL(unittest.TestCase):
         row = next(r for r in rows if r["ItemID"] == self.child)
         result = excel.save(excel.Batch(rows=[dict(row=4, number=self.number, opportunity_id=self.opp,
             item_id=self.child, header_version=row["HeaderRowVersion"], item_version=row["ItemRowVersion"],
-            item_changes={"AnnualUnit":999})]), self.ctx)
+            item_changes={"AnnualUnit":999})], template_version=TEMPLATE_VERSIONS["opportunities"]), self.ctx)
         self.assertEqual(result["results"][0]["status"], "ERROR", result)
         self.assertIn("read-only", result["results"][0]["message"])
 

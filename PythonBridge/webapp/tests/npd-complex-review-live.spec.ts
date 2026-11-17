@@ -69,6 +69,6 @@ test('NPD manager can inspect the retained pending revision and approval control
  await expect(sheet.getByRole('button',{name:'Approve recipe',exact:true})).toBeEnabled();
  await expect(sheet.getByRole('button',{name:'Save changes',exact:true})).toBeEnabled();
  await sheet.screenshot({path:info.outputPath('manager-pending-review.png')});
- await sheet.getByRole('button',{name:'Close',exact:true}).click();
+ await sheet.getByRole('button',{name:/^Close /}).first().click();
  expect(errors).toEqual([]);expect(writes).toEqual([]);
 });

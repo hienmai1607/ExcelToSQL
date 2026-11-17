@@ -104,6 +104,8 @@ def assert_no_references(cur,target,identity,locked=True,json_cache=None,identit
         # Type-order rows are the type's own multi-value attribute, not another
         # business record. They are the sole explicitly owned cleanup below.
         if target.table=='PackagingType' and schema=='dbo' and table=='PackagingTypeOrder' and column=='PackagingTypeID':continue
+        # A Mix parent owns its children and its snapshot; eligible_record checks each child itself.
+        if target.table=='OpportunityItem' and schema=='dbo' and column=='ParentItemID' and table in ('OpportunityItem','OpportunityMixSnapshot'):continue
         if target.table=='OpportunityItem' and schema=='dbo' and table=='OpportunityTCBVersion' and column=='ItemID':
             if not cur.execute("SELECT 1 FROM dbo.OpportunityTCBVersion"+hint+" WHERE ItemID=? AND (Version<>1 OR SavedJSON<>N'{}' OR ContextJSON IS NOT NULL)",identity).fetchone():continue
         if referenced!='ID':raise HTTPException(409,'This record has an unsupported reference definition; deletion is blocked.')
@@ -206,7 +208,20 @@ def eligible_record(cur,entity,body,ctx,locked=True,json_cache=None,identities=(
     if not row:raise HTTPException(404,'Record no longer exists. Refresh the page.')
     if bytes(row['RowVersion'])!=version:raise HTTPException(409,'Record changed. Refresh before deleting.')
     assert_unprocessed(cur,target,row,ctx,locked)
+    children=[]
+    if target.table=='OpportunityItem':
+        if row.get('ParentItemID') is not None:
+            raise HTTPException(409,'Mix children are removed with their parent item. Delete the Mix item instead.')
+        cur.execute('SELECT * FROM dbo.OpportunityItem'+hint+' WHERE ParentItemID=? ORDER BY ID',body.ID)
+        children=[dict(zip([c[0] for c in cur.description],r)) for r in cur.fetchall()]
+        if children and json_cache is None:
+            # One saved-JSON scan covers the whole Mix family.
+            json_cache={};identities=(body.ID,)+tuple(c['ID'] for c in children)
     assert_no_references(cur,target,body.ID,locked,json_cache,identities)
+    # The whole Mix family is deleted together, so every child must be deletable too.
+    for child in children:
+        assert_unprocessed(cur,target,child,ctx,locked)
+        assert_no_references(cur,target,child['ID'],locked,json_cache,identities)
     return target,row,actor,version
 
 def delete_record(cur,entity,body,ctx):
@@ -217,7 +232,9 @@ def delete_record(cur,entity,body,ctx):
     if target.table=='PackagingType':
         cur.execute('DELETE dbo.PackagingTypeOrder WHERE PackagingTypeID=?',body.ID)
     if target.table=='OpportunityItem' and cur.execute("SELECT OBJECT_ID('dbo.OpportunityTCBVersion','U')").fetchval():
-        cur.execute("DELETE dbo.OpportunityTCBVersion WHERE ItemID=? AND Version=1 AND SavedJSON=N'{}' AND ContextJSON IS NULL",body.ID)
+        # The automatic initial version is not history; remove it for the item and its Mix children.
+        cur.execute("""DELETE dbo.OpportunityTCBVersion WHERE Version=1 AND SavedJSON=N'{}' AND ContextJSON IS NULL
+            AND ItemID IN(SELECT ? UNION ALL SELECT ID FROM dbo.OpportunityItem WHERE ParentItemID=?)""",body.ID,body.ID)
     cur.execute('DELETE FROM dbo.'+quote(target.table)+' WHERE ID=? AND RowVersion=?',body.ID,version)
     # Triggers may emit result sets or NOCOUNT, so do not rely on rowcount.
     if cur.execute('SELECT 1 FROM dbo.'+quote(target.table)+' WHERE ID=?',body.ID).fetchone():
@@ -236,6 +253,11 @@ def eligibility(entity:str,body:EligibilityBatch,ctx:AccessContext=Depends(get_a
     result=[];cache={};identities=tuple(row.ID for row in body.rows)
     try:
         with get_raw_cursor() as cur:
+            if target.table=='OpportunityItem':
+                # Mix children are checked with their parent, so they join the shared JSON scan.
+                marks=','.join('?'*len(identities))
+                cur.execute('SELECT ID FROM dbo.OpportunityItem WHERE ParentItemID IN('+marks+')',*identities)
+                identities+=tuple(r[0] for r in cur.fetchall() if r[0] not in identities)
             for row in body.rows:
                 available=False
                 try:

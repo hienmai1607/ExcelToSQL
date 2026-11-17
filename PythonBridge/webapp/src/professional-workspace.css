@@ -280,7 +280,7 @@ summary>.field-label{font-weight:inherit}
 .request-editor-item>header{padding:0!important;margin-bottom:6px!important}
 .record-dialog .record-action-bar{position:static;flex:none;bottom:auto;margin:0;padding:8px 16px}
 @media(max-width:1200px){.packaging-request-layers[data-layers],.packaging-layer-sections[data-layers]{grid-template-columns:1fr}}
-@media(max-width:700px){.layout-panel{max-height:70dvh}.layout-options{grid-template-columns:1fr!important}.packaging-copy{align-items:center;flex-wrap:wrap}.packaging-request-layers .packaging-entry-grid{grid-template-columns:1fr}.floating-notification{inset:10px auto auto 50%;width:calc(100vw - 20px)}}
+@media(max-width:700px){.layout-panel{max-height:70dvh}.layout-options{grid-template-columns:1fr!important}.packaging-copy{align-items:center;flex-wrap:wrap}.packaging-request-layers .packaging-entry-grid{grid-template-columns:1fr}/* below dialog headers so their close icon stays reachable */.floating-notification{inset:64px auto auto 50%;width:calc(100vw - 20px)}}
 @media(max-width:700px){.requirement-sections:not(.response-sections){grid-template-columns:1fr}.requirement-sections:not(.response-sections)>section[aria-label]{grid-column:1}}
 /* Consistent label help, compact monetary controls and single-row actions. */
 .opportunity-header-fields label{line-height:18px}.opportunity-header-fields .field-label{line-height:18px;min-height:18px}
@@ -421,3 +421,4 @@ button.primary:hover:not(:disabled),[data-theme=dark] button.primary:hover:not(:
 
 .item-review-people{display:flex;flex-direction:column;gap:3px;min-width:0}
 .item-review-people>.item-review-pic{max-width:none;white-space:nowrap}
+

@@ -78,7 +78,7 @@ test('Recipe review keeps the current accepted link separate from the proposed r
  const sheetView=page.getByRole('dialog').last();
  await expect(sheetView.getByRole('heading',{name:'RCP-NEW',exact:true})).toBeVisible();
  await expect(sheetView.getByRole('button',{name:'Save sheet',exact:true})).toHaveCount(0);
- await sheetView.getByRole('button',{name:'Close',exact:true}).first().click();
+ await sheetView.getByRole('button',{name:/^Close /}).first().click();
  await page.getByRole('button',{name:'View recipe response 8'}).click();
  const dialog=page.getByRole('dialog',{name:'Sales response review'});
  await expect(dialog.getByRole('heading',{name:'RCP-NEW'})).toBeVisible();await expect(dialog.getByRole('cell',{name:'Salt',exact:true})).toBeVisible();

@@ -67,6 +67,8 @@ class ItemFields(BaseModel):
     PalletSpecialComments: str | None = Field(None,max_length=1000)
     NetWeightGrams: Decimal | None = Field(None, gt=0, max_digits=10, decimal_places=2, allow_inf_nan=False)
     RefreshProductWeight: bool = Field(False, strict=True)
+    # Explicit command: move a saved Mix item to its Product's current Active mix version (migration 162).
+    RefreshMixVersion: bool = Field(False, strict=True)
 
     @field_validator("NetWeightGrams", mode="before")
     @classmethod
@@ -286,7 +288,13 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                     if kind=="OpportunityItem":
                         from opportunity_item_weight import save_item_weight
                         save_item_weight(cursor,model,result,scalar_params[0])
-                    if not extra and not (kind=="Product" and model.command=="C"):
+                    if kind=="OpportunityItem" and getattr(model,"RefreshMixVersion",False):
+                        if model.command!="U":
+                            raise ValueError("Mix version update applies only to saved Mix items.")
+                        # Same document transaction; the parent weight is recalculated below from the new children.
+                        cursor.execute("EXEC dbo.usp_OpportunityItem_MixRefresh ?,?,?",scalar_params[0],result["NewID"],result["NewRowVersion"])
+                        result["NewRowVersion"]=consume(cursor)[0][0]["RowVersion"]
+                    if not extra and not (kind=="Product" and (model.command=="C" or getattr(model,"MixVersion",None) is not None)):
                         continue
                     cursor.execute("EXEC dbo.usp_"+kind+"_Fields_Save ?,?,?,?,?",
                         scalar_params[0],result["NewID"],result["NewRowVersion"],json.dumps(extra),int(model.command=="C"))
@@ -300,7 +308,8 @@ def enriched_batch(proc, groups, scalar_params, models, kinds):
                         saved_grade=consume(cursor)[0][0]
                         cursor.execute('UPDATE dbo.ProductGradeVersion SET RequiresRecipeConfirmation=? WHERE ID=?',grade.RequiresRecipeConfirmation,saved_grade['ID'])
                         result["NewRowVersion"]=saved_grade["ProductRowVersion"]
-                    if kind=="Product" and model.command=="C" and getattr(model,"MixVersion",None) is not None:
+                    # A new mix version: the initial one on create, or a further one on update (same transaction).
+                    if kind=="Product" and model.command in ("C","U") and getattr(model,"MixVersion",None) is not None:
                         from packaging_api import rv
                         mix=model.MixVersion
                         items=[dict(ProductID=i.ProductID,UnitQuantity=str(i.UnitQuantity),

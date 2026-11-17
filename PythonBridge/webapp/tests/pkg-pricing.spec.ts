@@ -55,14 +55,16 @@ test('pricing popup actions stay visible while content scrolls',async({page})=>{
  const footer=dialog.locator('.pricing-calculator-actions'),before=await footer.boundingBox();
  await expect(footer.getByRole('button',{name:'Calculate pricing',exact:true})).toBeInViewport();
  await expect(footer.getByRole('button',{name:'Apply to response',exact:true})).toBeInViewport();
- await expect(footer.getByRole('button',{name:'Close',exact:true})).toBeInViewport();
+ await expect(dialog.getByRole('button',{name:'Close pricing calculator',exact:true})).toBeInViewport();
  await dialog.getByRole('button',{name:'Add PKG-Jar price 2',exact:true}).click();
  await dialog.getByRole('button',{name:'Calculate pricing',exact:true}).click();
  await expect(footer.getByRole('status')).toContainText('Unit packaging price');
  await expect(dialog.locator('.pricing-calculator-body').getByRole('status')).toHaveCount(0);
+ // The footer grows by its status line; measure it just before and after scrolling the content.
+ expect(before).not.toBeNull();const pinned=await footer.boundingBox();
  await dialog.locator('.pricing-calculator-body').evaluate(el=>el.scrollTop=el.scrollHeight);
  const after=await footer.boundingBox();
- expect(after!.y).toBeCloseTo(before!.y,1);
+ expect(after!.y).toBeCloseTo(pinned!.y,1);await expect(footer.getByRole('button',{name:'Apply to response',exact:true})).toBeInViewport();
 });
 
 test('child consumption formula is selected separately from parent occupied space',async({page})=>{
@@ -650,7 +652,7 @@ test('calculator navigation never covers footer actions on desktop or mobile',as
  for(const viewport of [{width:1920,height:1080},{width:984,height:740},{width:390,height:844}]){
   await page.setViewportSize(viewport);
   const nav=dialog.getByRole('navigation',{name:'Open views',exact:true});
-  for(const name of ['Calculate pricing','Apply to response','Close']){
+  for(const name of ['Calculate pricing','Apply to response','Close pricing calculator']){
    const control=dialog.getByRole('button',{name,exact:true});
    const a=await control.boundingBox(),b=await nav.boundingBox();
    expect(a!.x+a!.width<=b!.x||b!.x+b!.width<=a!.x||a!.y+a!.height<=b!.y||b!.y+b!.height<=a!.y).toBe(true);

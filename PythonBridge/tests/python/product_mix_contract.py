@@ -99,8 +99,10 @@ class MixContracts(unittest.TestCase):
   from main import product_batch
   @contextmanager
   def cursor():yield self.c
+  # Category must name an active Category Master row (migration 97); "Test" is not one on the desktop DB.
+  category=self.c.execute("SELECT TOP(1) CategoryName FROM dbo.ProductCategory WHERE Status='Active' ORDER BY ID").fetchval()
   with patch.object(packaging_fields,"get_raw_cursor",cursor):
-   result=product_batch(ProductBatchRequest(rows=[dict(RowNum=1,Command="C",ProductName="API mix "+uuid4().hex,Category="Test",CustomerID=self.customer,IsMix=True)]),self.user,True,frozenset({"Admin"}))
+   result=product_batch(ProductBatchRequest(rows=[dict(RowNum=1,Command="C",ProductName="API mix "+uuid4().hex,Category=category,CustomerID=self.customer,IsMix=True)]),self.user,True,frozenset({"Admin"}))
   self.assertEqual(result["results"][0]["Status"],"OK",result)
  def test_mix_cannot_become_nested_child_after_save(self):
   self.save()

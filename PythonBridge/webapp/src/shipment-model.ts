@@ -1,3 +1,4 @@
+import {dutyLines,dutyTotal,dutyDisplay} from './duty-model';
 import type {Row} from './api';
 import {allowedContainerTypes,containerTypes} from './container-loading';
 import {childOtherKeys,scopedShipment,type ShipmentScope} from './shipment-ownership';
@@ -14,12 +15,12 @@ export function requestedContainerType(requirements:Record<string,string>,values
 
 export const incoterms=[...new Set(['CFA','FOB','FCA','FAS','CFR','CIF','CPT','CIP','EXW','DAP','DPU','DDP'])].sort();
 
-export type CostField={key:string;label:string;kind:'usd'|'pct'|'days'};
+export type CostField={key:string;label:string;kind:'usd'|'pct'|'pct4'|'days'|'text'};
 export const costSections:{title:string;fields:CostField[]}[]=[
  {title:'Logistics',fields:[
   {key:'FobbingUSDPerContainer',label:'Fobbing (USD/cont)',kind:'usd'},
   {key:'FreightUSDPerContainer',label:'Freight (USD/cont)',kind:'usd'},
-  {key:'DutyPct',label:'Duty %',kind:'pct'},
+  {key:'DutyPct',label:'Duty %',kind:'pct4'},
   {key:'ImportClearanceCustomerPerContainer',label:'Import clearance (customer currency/cont)',kind:'usd'},
   {key:'PortToWHCustomerPerContainer',label:'Port - WH (customer currency/cont)',kind:'usd'},
   {key:'WHCostCustomerPerPallet',label:'WH Cost (customer currency/pallet)',kind:'usd'},
@@ -40,10 +41,10 @@ export const costSections:{title:string;fields:CostField[]}[]=[
   {key:'InterestDays',label:'Interest days',kind:'days'},
   {key:'MarginPct',label:'Margin %',kind:'pct'},
   {key:'MarginUSDPerLb',label:'Margin (USD/lbs)',kind:'usd'},
-  {key:'PaymentTermDays',label:'Payment term (days)',kind:'days'}]}
+  {key:'PaymentTerm',label:'Payment term',kind:'text'}]}
 ];
 export const fields=costSections.flatMap(s=>s.fields);
-const keys=['WHCostBreakdown','Incoterm','PortOfEntryID','ContainerSizeFT','FloorLoadUSDPerMT','MarginMode','ImportClearanceUSDPerContainer','ImportClearanceCustomerPerPallet','InterestMonths','PortToWHUSDPerContainer','WHCostUSDPerPallet','InitialDesignCustomer',...fields.map(f=>f.key)];
+const keys=['WHCostBreakdown','DutyBreakdown','PaymentTermDays','Incoterm','PortOfEntryID','ContainerSizeFT','FloorLoadUSDPerMT','MarginMode','ImportClearanceUSDPerContainer','ImportClearanceCustomerPerPallet','InterestMonths','PortToWHUSDPerContainer','WHCostUSDPerPallet','InitialDesignCustomer',...fields.map(f=>f.key)];
 export const customerCosts:Record<string,{name:string;unit:string;legacy?:string}>={
  ImportClearanceCustomerPerContainer:{name:'Import clearance',unit:'cont'},
  PortToWHCustomerPerContainer:{name:'Port - WH',unit:'cont',legacy:'PortToWHUSDPerContainer'},
@@ -53,8 +54,9 @@ export const customerCosts:Record<string,{name:string;unit:string;legacy?:string
 export function shipmentValues(raw?:unknown):Record<string,string>{
  let data:Row={};
  try{const parsed=typeof raw==='string'?JSON.parse(raw):raw;if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))data=parsed as Row}catch{}
- const values=Object.fromEntries(keys.map(key=>[key,key==='WHCostBreakdown'&&data[key]!=null?JSON.stringify(data[key]):String(data[key]??'')]));
+ const values=Object.fromEntries(keys.map(key=>[key,(key==='WHCostBreakdown'||key==='DutyBreakdown')&&data[key]!=null?JSON.stringify(data[key]):String(data[key]??'')]));
  if(data.InterestDays==null&&data.InterestMonths!=null)values.InterestDays=String(Number(data.InterestMonths)*30);
+ if(!values.PaymentTerm&&data.PaymentTermDays!=null)values.PaymentTerm=String(data.PaymentTermDays)+' days';
  values.MarginMode=String(data.MarginMode??(data.MarginUSDPerLb!=null?'USDPerLb':'Percent'));
  values.InitialDesignMode=data.InitialDesignCustomer!=null?'Customer':'';
  return values;
@@ -63,7 +65,7 @@ export function shipmentPayload(values:Record<string,string>,scope:ShipmentScope
  values=scopedShipment(values,scope);
  const selectedKeys=keys.filter(key=>scope==='all'||(scope==='child-others'?childOtherKeys.has(key):!childOtherKeys.has(key)));
  if(!selectedKeys.some(key=>key!=='MarginMode'&&values[key]))return null;
- return Object.fromEntries(selectedKeys.map(key=>[key,key==='WHCostBreakdown'?(values[key]?JSON.parse(values[key]):null):key==='InitialDesignUSD'&&values.InitialDesignMode==='Customer'||key==='InitialDesignCustomer'&&values.InitialDesignMode!=='Customer'||key==='InterestMonths'&&values.InterestDays!==''||key==='MarginPct'&&values.MarginMode==='USDPerLb'||key==='MarginUSDPerLb'&&values.MarginMode!=='USDPerLb'?null:!values[key]?null:['PortOfEntryID','InterestMonths','InterestDays','PaymentTermDays'].includes(key)?Number(values[key]):values[key]]));
+ return Object.fromEntries(selectedKeys.map(key=>[key,key==='WHCostBreakdown'||key==='DutyBreakdown'?(values[key]?JSON.parse(values[key]):null):key==='InitialDesignUSD'&&values.InitialDesignMode==='Customer'||key==='InitialDesignCustomer'&&values.InitialDesignMode!=='Customer'||key==='InterestMonths'&&values.InterestDays!==''||key==='PaymentTermDays'&&!!values.PaymentTerm||key==='MarginPct'&&values.MarginMode==='USDPerLb'||key==='MarginUSDPerLb'&&values.MarginMode!=='USDPerLb'?null:!values[key]?null:['PortOfEntryID','InterestMonths','InterestDays','PaymentTermDays'].includes(key)?Number(values[key]):values[key]]));
 }
 export function fixedCost(value:string){
  if(!/^\d+(\.\d{1,2})?$/.test(value))return value;
@@ -74,10 +76,13 @@ export function shipmentError(values:Record<string,string>,original:Record<strin
  if(values.ContainerSizeFT&&!['20FT','40FT'].includes(values.ContainerSizeFT))return 'Choose 20FT or 40FT.';
  if(values.PortOfEntryID&&values.PortOfEntryID!==original?.PortOfEntryID&&!ports.some(p=>String(p.ID)===values.PortOfEntryID&&String(p.CustomerID)===String(customer?.ID)&&String(p.MarketID)===String(customer?.MarketID)))return 'Choose a Port of Entry for this Customer and Market.';
  if(values.WHCostBreakdown){try{const total=warehouseTotal(warehouseValues(values.WHCostBreakdown));if(total===null||total!==fixedCost(values.WHCostCustomerPerPallet||'0'))return 'WH Cost must match its calculation breakdown.'}catch{return 'Check WH Cost calculation.'}}
+ if(values.DutyBreakdown){const total=dutyTotal(dutyLines(values.DutyBreakdown,''));if(total===null||total!==dutyDisplay(values.DutyPct||''))return 'Duty % must match its tax lines.'}
  if(values.MarginMode&&!['Percent','USDPerLb'].includes(values.MarginMode))return 'Choose a Margin basis.';
  for(const field of [...fields,{key:'InitialDesignCustomer',label:'Initial Design (customer currency)',kind:'usd'},{key:'FloorLoadUSDPerMT',label:'Floor load cost (USD/MT)',kind:'usd'} as CostField]){
   if(field.key==='InitialDesignUSD'&&values.InitialDesignMode==='Customer'||field.key==='InitialDesignCustomer'&&values.InitialDesignMode!=='Customer')continue;
   const value=values[field.key]||'';if(!value||field.key==='MarginPct'&&values.MarginMode==='USDPerLb'||field.key==='MarginUSDPerLb'&&values.MarginMode!=='USDPerLb')continue;
+  if(field.kind==='text'){if(value.length>200)return 'Check '+field.label+': use up to 200 characters.';continue}
+  if(field.kind==='pct4'){if(!/^\d{1,3}(\.\d{1,4})?$/.test(value)||Number(value)>100)return 'Check '+field.label+': use 0 to 100 with up to four decimals.';continue}
   if(field.kind==='days'?(!/^\d{1,10}$/.test(value)||Number(value)>2147483647):(!/^\d{1,17}(\.\d{1,2})?$/.test(value)||field.kind==='pct'&&Number(value)>100))return 'Check '+field.label+': '+(field.kind==='days'?'use whole nonnegative days.':field.kind==='pct'?'use 0 to 100 with up to two decimals.':'use nonnegative amounts with up to two decimals.');
  }
  return '';

@@ -43,7 +43,8 @@ test('Packaging PIC edits response fields then submits with confirmation',async(
  await expect(form.getByRole('status')).toContainText('1 item(s) saved.');
  expect(response.rows[0]).not.toHaveProperty('PackagingDescription');
  expect(response.rows[0]).toMatchObject({ID:7,FirstPMType:'Film',UnitsPerCarton:'12',RowVersion:'AAAAAAAAAAE='});
- await expect(form.getByRole('button',{name:'Submit 7',exact:true})).toHaveCount(0);
+ // Since 02935d2 the request editor also shows the item's review actions after a save.
+ await expect(form.getByRole('button',{name:'Submit 7',exact:true})).toBeVisible();
  await form.getByRole('button',{name:'Close request editor',exact:true}).click();
  await page.getByRole('button',{name:'View request',exact:true}).click();
  await page.getByRole('button',{name:'Submit 7',exact:true}).click();

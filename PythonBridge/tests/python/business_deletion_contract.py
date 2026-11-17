@@ -148,7 +148,8 @@ class BusinessDeletionSQL(unittest.TestCase):
         self.assertIsNone(self.cur.execute('SELECT ID FROM dbo.Opportunity WHERE ID=?',self.opp).fetchone())
     def test_type_order_attribute_is_removed_without_business_cascade(self):
         identity=self.cur.execute("""INSERT dbo.PackagingType(PackagingType,PackagingOrder,PriceBasis,TareWeight,FinalComponent,CopyDim,Shipping,CreatedBy)
-            VALUES('Deletion type fixture','Primary','Count',0,1,0,0,?);SELECT CONVERT(INT,SCOPE_IDENTITY())""",self.actor).fetchval()
+            VALUES('Deletion type fixture','Primary','Count',0,1,1,0,?);SELECT CONVERT(INT,SCOPE_IDENTITY())""",self.actor).fetchval()
+        # CK_PackagingType_AutoCopyDim: a top-level final component always copies dimensions (CopyDim=1).
         if not self.cur.execute('SELECT 1 FROM dbo.PackagingTypeOrder WHERE PackagingTypeID=?',identity).fetchone():
             self.cur.execute("INSERT dbo.PackagingTypeOrder(PackagingTypeID,PackagingOrder) VALUES(?,'Primary')",identity)
         self.remove('packaging-types',identity)

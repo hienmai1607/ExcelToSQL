@@ -91,7 +91,7 @@ export function TCBCalculator({row,opportunity,onClose,onSaved,lossOnly=false}:{
    </section>}
    {readonly&&<p>Read only — this Opportunity or item is no longer Draft.</p>}
    <Notification value={message} onDismiss={()=>setMessage('')}/>
-   <div className="actions"><button type="button" disabled={saving} onClick={close}>Close</button>{!readonly&&<button type="button" className="primary" disabled={saving||!!processError||(!lossOnly&&!mix&&(!calc.product||!!data.gradeError))} onClick={save}>{saving?'Saving…' :lossOnly?'Save item losses':'Save TCB'}</button>}</div>
+   <div className="actions">{!readonly&&<button type="button" className="primary" disabled={saving||!!processError||(!lossOnly&&!mix&&(!calc.product||!!data.gradeError))} onClick={save}>{saving?'Saving…' :lossOnly?'Save item losses':'Save TCB'}</button>}</div>
   </>}
  </Modal>
 }

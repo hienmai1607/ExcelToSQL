@@ -1,4 +1,5 @@
-.pkg-pricing-dialog{width:min(1380px,96vw);max-width:96vw;padding:22px;max-height:92vh}
+/* .dialog.pkg-pricing-dialog: the generic .dialog rule (max-width 500px) may load later in the bundle. */
+.dialog.pkg-pricing-dialog{width:min(1380px,96vw);max-width:96vw;padding:22px;max-height:92vh}
 .pkg-pricing-dialog h2{font-size:1.35rem;margin:0}
 .pkg-pricing-dialog input,.pkg-pricing-dialog select{min-height:34px;padding:6px 9px}
 .pkg-pricing-dialog label{font-size:.85rem}

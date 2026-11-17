@@ -31,7 +31,7 @@ test('desktop Opportunity displays its linked Recipe Request and Recipe Sheet wi
  const versions=request.getByRole('table',{name:'Recipe Sheet versions for PRD-0000000646',exact:true});await expect(versions.getByText('Current approved sheet',{exact:true})).toHaveCount(1);await expect(request.getByRole('button',{name:'Open RCP-0000000175',exact:true})).toHaveCount(0);await expect(versions.getByRole('button',{name:'View Recipe Sheet RCP-0000000175 version 1',exact:true})).toBeVisible();await page.screenshot({path:info.outputPath('desktop-recipe-sheet-versions.png')});
  await request.getByRole('button',{name:'Close recipe request',exact:true}).click();
  await table.getByRole('button',{name:'View Recipe Sheet RCP-0000000175 for item 3813986',exact:true}).click();const sheet=page.getByRole('dialog',{name:'RCP-0000000175',exact:true});await expect(sheet.getByLabel('Ratio line 1',{exact:true})).toBeDisabled();await expect(sheet.getByRole('button',{name:'Save changes',exact:true})).toHaveCount(0);
- await page.screenshot({path:info.outputPath('desktop-opportunity-linked-recipe-sheet.png')});await sheet.getByRole('button',{name:'Close',exact:true}).click();await expect(table).toBeVisible();expect(failures).toEqual([]);expect(writes).toEqual([]);
+ await page.screenshot({path:info.outputPath('desktop-opportunity-linked-recipe-sheet.png')});await sheet.getByRole('button',{name:/^Close /}).first().click();await expect(table).toBeVisible();expect(failures).toEqual([]);expect(writes).toEqual([]);
 });
 
 test('desktop Recipe Sheet filters and Recipe workflow branch use saved records',async({page},info)=>{

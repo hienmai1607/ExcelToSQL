@@ -28,7 +28,8 @@ from raw_material_api import RawMaterialBatch, material_save as raw_material_sav
 from pallet_api import PalletBatch, pallet_save
 from pallet_fields import PALLET_CAPACITY_LABELS
 from packaging_type_api import PackagingTypeBatch, packaging_type_save
-Entity=Literal["materials","prices","raw-materials","raw-prices","vendors","uoms","pallets","packaging-types"]
+Entity=Literal["materials","prices","raw-materials","raw-prices","vendors","uoms","pallets","packaging-types","ingredients","ingredient-prices"]
+NPD_ENTITIES=("ingredients","ingredient-prices")
 router=APIRouter(prefix="/api/workbench/master-excel",tags=["Packaging Master Excel"])
 TEMPLATE=Path(__file__).resolve().parents[1]/"templates"/"Packaging_Master_Local_Update.xlsm"
 CONFIG={
@@ -104,6 +105,9 @@ def page_data(entity,body,ctx,override=False):
 
 @router.post("/{entity}/page")
 def page(entity:Entity,body:PageInput,ctx:AccessContext=Depends(get_access_context)):
+ if entity in NPD_ENTITIES:
+  import npd_master_excel
+  return npd_master_excel.page_data(entity,body,ctx,True)
  return page_data(entity,body,ctx,True)
 
 def filter_labels(entity,body,ctx):
@@ -123,15 +127,19 @@ def build(entity,body,data,base,labels=None):
  headers=[friendly.get(k,k)+(" *" if k in required else " [display]" if k in COLUMNS[entity] and k not in spec["editable"] else "") for k in keys]
  rows=[headers,keys]+[[r.get(k) for k in keys] for r in data["rows"]]
  hidden=[n+1 for n,k in enumerate(keys) if k in META or k in COLUMNS[entity] and k not in selected]
+ values=body.layout.values
+ inputs={"A1":spec["title"]+" Excel Local Update","B3":values.get("search",""),"B4":values.get("status",""),"B5":labels.get("created_by",""),
+ "B6":body.page,"B7":body.layout.page_size,"B8":data["total"],"B9":labels.get("material_id",""),"B10":labels.get("currency_id",""),"B11":values.get("as_of","")}
+ return render(entity,spec,required,keys,rows,hidden,body,base,inputs,data.get("dropdowns",{"Command":["C","U"],"Status":["Active","Block"]}))
+
+def render(entity,spec,required,keys,rows,hidden,body,base,inputs,dropdowns):
+ """Fill the shared base workbook; also used by the NPD ingredient masters."""
  config=[["Version",TEMPLATE_VERSIONS["masters"]],["API",base.rstrip("/")],["Layout",body.layout.model_dump_json()],["Pending","0"],
  ["LoadedPage",body.page],["Entity",entity],["Editable","|".join(sorted(spec["editable"]))],["Required","|".join(required)],["Title",spec["title"]]]
  with zipfile.ZipFile(TEMPLATE) as z:
   styles,colors=header_styles(z.read("xl/styles.xml").decode())
   ids=[colors["required" if k in required else "editable" if k in spec["editable"] or k=="Command" else "display"] for k in keys]
   control=z.read("xl/worksheets/sheet2.xml").decode()
-  values=body.layout.values
-  inputs={"A1":spec["title"]+" Excel Local Update","B3":values.get("search",""),"B4":values.get("status",""),"B5":labels.get("created_by",""),
-  "B6":body.page,"B7":body.layout.page_size,"B8":data["total"],"B9":labels.get("material_id",""),"B10":labels.get("currency_id",""),"B11":values.get("as_of","")}
   for ref,value in inputs.items():
    control,count=re.subn(r'<c\b[^>]*\br="'+ref+r'"[^>]*>.*?</c>',lambda _:'<c r="'+ref+'" t="inlineStr"><is><t>'+escape(str(value))+'</t></is></c>',control,count=1,flags=re.S)
    if count!=1:raise RuntimeError("Master control template is incomplete.")
@@ -140,17 +148,24 @@ def build(entity,body,data,base,labels=None):
   out=io.BytesIO()
   with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as target:
    for entry in z.infolist():target.writestr(entry,replacements.get(entry.filename,z.read(entry.filename)))
- return with_dropdowns(out.getvalue(),data.get("dropdowns",{"Command":["C","U"],"Status":["Active","Block"]}))
+ return with_dropdowns(out.getvalue(),dropdowns)
 
 @router.post("/{entity}/download")
 def download(entity:Entity,body:View,request:Request,ctx:AccessContext=Depends(get_access_context)):
- require_entity(ctx,entity)
+ if entity in NPD_ENTITIES:
+  import npd_master_excel
+  npd_master_excel.require_read(ctx,entity)
+ else:require_entity(ctx,entity)
  if not TEMPLATE.exists():raise HTTPException(503,"Packaging master Excel template is not installed.")
- data=page_data(entity,body,ctx)
  base=os.environ.get("EXCEL_API_BASE_URL",str(request.base_url))
  if not base.startswith(("http://","https://")):raise HTTPException(503,"Invalid Excel API URL.")
- return Response(build(entity,body,data,base,filter_labels(entity,body,ctx)),media_type="application/vnd.ms-excel.sheet.macroEnabled.12",
-  headers={"Content-Disposition":'attachment; filename="'+CONFIG[entity]["filename"]+'"',"Cache-Control":"no-store"})
+ if entity in NPD_ENTITIES:
+  blob=npd_master_excel.build(entity,body,npd_master_excel.page_data(entity,body,ctx),base)
+  filename=npd_master_excel.CONFIG[entity]["filename"]
+ else:
+  blob=build(entity,body,page_data(entity,body,ctx),base,filter_labels(entity,body,ctx));filename=CONFIG[entity]["filename"]
+ return Response(blob,media_type="application/vnd.ms-excel.sheet.macroEnabled.12",
+  headers={"Content-Disposition":'attachment; filename="'+filename+'"',"Cache-Control":"no-store"})
 
 class Edit(BaseModel):
  model_config=ConfigDict(extra="forbid")
@@ -305,6 +320,9 @@ def prepare(entity,edit,source,ctx):
 
 @router.post("/{entity}/save")
 def save(entity:Entity,body:Batch,ctx:AccessContext=Depends(get_access_context)):
+ if entity in NPD_ENTITIES:
+  import npd_master_excel
+  return npd_master_excel.save(entity,body,ctx)
  if entity=="uoms":require_page_edit(ctx,"uoms")
  else:require(ctx,"RawMaterial" if entity in ("raw-materials","raw-prices") else "Packaging")
  source=sources(entity,[r.id for r in body.rows if r.id],ctx)

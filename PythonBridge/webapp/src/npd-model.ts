@@ -2,11 +2,11 @@ import type {RecipeDetails} from './recipe-levels';
 import {quantity,multiply,divide,quantityDisplay} from './packaging-summary-model';
 import {call,type Row} from './api';
 export type NPDRow=Record<string,unknown>&{ID:number;RowVersion:string};
-export type RecipeLine={Kind:'Raw'|'Seasoning';GradePath:string|null;IngredientID:number|null;RatioPct:string;LossPct:string;PriceID:number|null;PriceMode?:'Auto'|'Direct';IngredientNote?:string;Note?:string;DirectPricePerKg?:string|null;DirectPriceCurrency?:'VND'|'USD'|null;DirectVendorID?:number|null};
+export type RecipeLine={Kind:'Raw'|'Seasoning';GradePath:string|null;IngredientID:number|null;RatioPct:string;LossPct:string;PriceID:number|null;PriceMode?:'Auto'|'Direct';IngredientNote?:string;Note?:string;DirectPricePerKg?:string|null;DirectPriceCurrency?:'VND'|'USD'|null;DirectVendorID?:number|null;BufferRatioPct?:string|null};
 export type RecipeQuote=NPDRow&{VendorName:string;CurrencyCode:string;UnitPrice:string;PriceUnit:string;USDPerLb:string;RequiredQuantity:string;BaseUoM:string;VendorID?:number;QuantityFrom?:string;QuantityTo?:string|null;EffectiveFrom?:string;EffectiveTo?:string|null;USDPerKg?:string;VNDPerKg?:string|null};
-export type CalculatedLine=RecipeLine&{BufferRatio?:string;TotalQtyMT?:string;DirectPrice?:{IngredientCode:string;USDPerKg:string;VNDPerKg:string|null;USDPerLb:string};GradeNature?:string;Origin?:string;VendorName?:string;USDPerKg?:string;VNDPerKg?:string|null;Description?:string;SelectedPrice?:RecipeQuote;PriceIssue?:string;Candidates?:RecipeQuote[];Price?:RecipeQuote;EffectiveUSDPerLb?:string};
-export type RecipeCalculation={RecipeDetails?:RecipeDetails;OrderEstimatedAwardedMT?:string;GradeSharePct?:string;LossWeightBasis?:string;CostFGUSDPerKg?:string|null;CostFGWithBufferUSDPerKg?:string|null;LossByValuePct?:string|null;SeasoningUSDPerKg?:string|null;SeasoningLossPct?:string;SeasoningCostBasis?:string;ExchangeRateVNDPerUSD?:string;EstimatedAwardedMT:string;RatioTotal:string;SeasoningRatio:string;SeasoningUSDPerLb:string;Lines:CalculatedLine[];Issues:string[];Warnings:string[]};
-export type NPDLookups={units:Row[];vendors:Row[];currencies:Row[];ingredients:NPDRow[];members:Row[]};
+export type CalculatedLine=RecipeLine&{BufferRatio?:string;CalculatedBufferRatio?:string;TotalQtyMT?:string;DirectPrice?:{IngredientCode:string;USDPerKg:string;VNDPerKg:string|null;USDPerLb:string};GradeNature?:string;Origin?:string;VendorName?:string;USDPerKg?:string;VNDPerKg?:string|null;Description?:string;SelectedPrice?:RecipeQuote;PriceIssue?:string;Candidates?:RecipeQuote[];Price?:RecipeQuote;EffectiveUSDPerLb?:string};
+export type RecipeCalculation={RecipeDetails?:RecipeDetails;OrderEstimatedAwardedMT?:string;GradeSharePct?:string;LossWeightBasis?:string;CostFGUSDPerKg?:string|null;CostFGWithBufferUSDPerKg?:string|null;LossByValuePct?:string|null;SeasoningUSDPerKg?:string|null;SeasoningLossPct?:string;LossByWeightPct?:string;SeasoningCostBasis?:string;ExchangeRateVNDPerUSD?:string;EstimatedAwardedMT:string;RatioTotal:string;SeasoningRatio:string;SeasoningUSDPerLb:string;Lines:CalculatedLine[];Issues:string[];Warnings:string[]};
+export type NPDLookups={units:Row[];vendors:Row[];currencies:Row[];ingredients:NPDRow[];members:Row[];processTypes?:Row[];lossDefaults?:Row[]};
 export const npd={
  lookups:()=>call<NPDLookups>('/api/npd/lookups'),
  list:(resource:string,page=1,search='',size=25,filters?:Record<string,string>)=>call<{rows:NPDRow[];total:number}>(`/api/npd/${resource}?page=${page}&page_size=${size}&search=${encodeURIComponent(search)}${filters?'&'+new URLSearchParams(filters):''}`),
@@ -26,7 +26,7 @@ export function masterBody(kind:string,values:Record<string,string>,row?:NPDRow)
  return result;
 }
 export const seasoningLine=():RecipeLine=>({Kind:'Seasoning',GradePath:null,IngredientID:null,RatioPct:'0',LossPct:'0',PriceID:null});
-export const recipeLines=(lines:CalculatedLine[]):RecipeLine[]=>lines.map(({Kind,GradePath,IngredientID,RatioPct,LossPct,PriceID,PriceMode,IngredientNote,Note,DirectPricePerKg,DirectPriceCurrency,DirectVendorID})=>({Kind,GradePath,IngredientID,RatioPct,LossPct,PriceID,PriceMode,IngredientNote,Note,DirectPricePerKg,DirectPriceCurrency,DirectVendorID}));
+export const recipeLines=(lines:CalculatedLine[]):RecipeLine[]=>lines.map(({Kind,GradePath,IngredientID,RatioPct,LossPct,PriceID,PriceMode,IngredientNote,Note,DirectPricePerKg,DirectPriceCurrency,DirectVendorID,BufferRatioPct})=>({Kind,GradePath,IngredientID,RatioPct,LossPct,PriceID,PriceMode,IngredientNote,Note,DirectPricePerKg,DirectPriceCurrency,DirectVendorID,BufferRatioPct}));
 
 
 export function directPriceValues(line:RecipeLine,exchangeRate:string){

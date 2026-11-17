@@ -22,6 +22,8 @@ class RecipeLine(BaseModel):
     DirectPricePerKg:Decimal|None=Field(None,ge=0,max_digits=19,decimal_places=6,allow_inf_nan=False)
     DirectPriceCurrency:Literal['VND','USD']|None=None
     DirectVendorID:int|None=Field(None,ge=1)
+    # Manual Full-view buffer; when absent the buffer is RatioPct / (1 - LossPct / 100).
+    BufferRatioPct:Decimal|None=Field(None,ge=0,max_digits=13,decimal_places=6,allow_inf_nan=False)
 
     @model_validator(mode='after')
     def price_source(self):
@@ -61,7 +63,8 @@ def selected_price_issue(price,line,mt,today,opportunity):
     if any(price.get(key)!='Active' for key in ('Status','IngredientStatus','VendorStatus')):return 'Selected ingredient, vendor or price is inactive.'
     base=D(str(price['BaseFactor']))
     if base<=0:return 'Selected price has no valid base-unit conversion.'
-    required=mt*1000000*line.RatioPct/(1-line.LossPct/100)/100/base
+    buffer=line.RatioPct/(1-line.LossPct/100) if line.BufferRatioPct is None else line.BufferRatioPct
+    required=mt*1000000*buffer/100/base
     unit=price.get('BaseUoM','base units')
     def amount(value):return format(D(str(value)),',.6f').rstrip('0').rstrip('.')
     if required<D(str(price['QuantityFrom'])):
@@ -83,8 +86,8 @@ def evaluate(lines,item,prices,opportunity,ready=False,today=None,ingredients=No
     if not fixed or not raw or len(raw)!=len(retained) or not retained.issubset(expected):
         raise ValueError('Keep at least one fixed line for a captured Level 1 grade, with no duplicate or unknown grade lines.')
     included=[g for g in fixed if g['GradePath'] in retained]
-    if any(r.IngredientID or r.PriceID or r.LossPct for r in raw):
-        raise ValueError('Fixed raw-grade lines contain ratios only; maintain raw pricing and loss in TCB.')
+    if any(r.IngredientID or r.PriceID for r in raw):
+        raise ValueError('Fixed raw-grade lines cannot use an ingredient or ingredient price; maintain raw pricing in TCB.')
     if any(r.GradePath for r in lines if r.Kind=='Seasoning'):
         raise ValueError('Seasoning lines cannot replace fixed raw-grade identities.')
     ingredient_ids=[r.IngredientID for r in lines if r.Kind=='Seasoning' and r.IngredientID]
@@ -97,11 +100,18 @@ def evaluate(lines,item,prices,opportunity,ready=False,today=None,ingredients=No
     if ready and mt<=0:raise ValueError('Estimated awarded MT must be positive before pricing a recipe.')
     seasoning=sum((r.RatioPct for r in lines if r.Kind=='Seasoning'),D(0))
     if ready and seasoning>=100:raise ValueError('Keep a positive raw-material share in the recipe.')
-    cost=D(0);fg_cost=D(0);fg_buffer_cost=D(0);buffer_total=D(0);output=[];issues=[]
+    cost=D(0);fg_cost=D(0);fg_buffer_cost=D(0);buffer_total=D(0);published_total=D(0);output=[];issues=[]
     with localcontext() as context:
         context.prec=50
         for line in lines:
             result=line.model_dump(mode='json')
+            calculated=line.RatioPct/(1-line.LossPct/100)
+            buffer=calculated if line.BufferRatioPct is None else line.BufferRatioPct
+            if buffer<line.RatioPct:issues.append('Buffer ratio for line '+str(len(output)+1)+' must not be below its ratio.')
+            buffer_total+=buffer
+            # TCB applies its own raw-grade process losses, so the published Seasoning loss excludes nut buffers.
+            published_total+=line.RatioPct if line.Kind=='Raw' else buffer
+            result.update(CalculatedBufferRatio=str(calculated))
             vendor=next((v for v in vendors or [] if v['ID']==line.DirectVendorID and v.get('Status')=='Active'),None)
             if line.DirectVendorID and not vendor:raise ValueError('Choose an active vendor for direct price line '+str(len(output)+1)+'.')
             if vendor:result.update(VendorName=vendor['VendorName'])
@@ -110,17 +120,14 @@ def evaluate(lines,item,prices,opportunity,ready=False,today=None,ingredients=No
                 if line.DirectPricePerKg is not None and not rate:issues.append('Enter a positive VND / USD exchange rate for nut-grade line '+str(len(output)+1)+'.')
                 usd_kg=line.DirectPricePerKg/rate if line.DirectPricePerKg is not None and rate else D(0)
                 fg_cost+=usd_kg*line.RatioPct/100
-                fg_buffer_cost+=usd_kg*line.RatioPct/100
-                buffer_total+=line.RatioPct
+                fg_buffer_cost+=usd_kg*buffer/100
                 name=next(g['Description'] for g in fixed if g['GradePath']==line.GradePath)
-                result.update(Description=line.IngredientNote,GradeNature=name,Origin='NA',BufferRatio=str(line.RatioPct),TotalQtyMT=str(line.RatioPct/100*mt),
+                result.update(Description=line.IngredientNote,GradeNature=name,Origin='NA',BufferRatio=str(buffer),TotalQtyMT=str(buffer/100*mt),
                               USDPerKg=str(usd_kg),VNDPerKg=str(usd_kg*D(str(opportunity['ExchangeRateVNDPerUSD']))) if opportunity.get('ExchangeRateVNDPerUSD') else None,
                               EffectiveUSDPerLb=str(usd_kg*LB_GRAMS/1000))
                 output.append(result);continue
             ingredient=next((i for i in ingredients or [] if i['ID']==line.IngredientID),None)
             result.update(Description=ingredient['Description'] if ingredient else '',GradeNature=(ingredient.get('GradeNature') or '') if ingredient else '',Origin=(ingredient.get('Origin') or '') if ingredient else '')
-            buffer=line.RatioPct/(1-line.LossPct/100)
-            buffer_total+=buffer
             result.update(BufferRatio=str(buffer),TotalQtyMT=str(buffer/100*mt))
             candidates=[]
             for p in prices:
@@ -175,7 +182,8 @@ def evaluate(lines,item,prices,opportunity,ready=False,today=None,ingredients=No
             output.append(result)
         if ready and issues:raise ValueError(' '.join(issues))
         seasoning_price=cost
-        seasoning_loss=(buffer_total/total-1)*100 if total else D(0)
+        seasoning_loss=(published_total/total-1)*100 if total else D(0)
+        weight_loss=(buffer_total/total-1)*100 if total else D(0)
         if seasoning_loss>=100 or seasoning_loss.quantize(D(".01"))>=100:
             issues.append("Loss by weight must be below 100% before submission.")
         if ready and (seasoning_price>=D('10000000000000') or seasoning_price.quantize(D('.000001'))>=D('10000000000000')):
@@ -191,7 +199,7 @@ def evaluate(lines,item,prices,opportunity,ready=False,today=None,ingredients=No
                 'CostFGWithBufferUSDPerKg':str(fg_buffer_cost) if cost_complete else None,
                 'LossByValuePct':str((fg_buffer_cost/fg_cost-1)*100) if fg_cost and cost_complete else None,
                 'SeasoningContributionUSDPerLb':str(cost),'SeasoningCostBasis':'FinishedProduct',
-                'LossWeightBasis':'Recipe','SeasoningLossPct':str(seasoning_loss),'ExchangeRateVNDPerUSD':opportunity.get('ExchangeRateVNDPerUSD'),
+                'LossWeightBasis':'Recipe','SeasoningLossPct':str(seasoning_loss),'LossByWeightPct':str(weight_loss),'ExchangeRateVNDPerUSD':opportunity.get('ExchangeRateVNDPerUSD'),
                 'Lines':output,'Issues':issues,
                 'GradeRatiosDiffer':differences,
                 'Warnings':['Raw grade proportions differ from Product Grades. TCB grade proportions are unchanged; review them separately.'] if differences else []}

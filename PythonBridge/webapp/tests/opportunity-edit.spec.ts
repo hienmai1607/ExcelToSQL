@@ -256,6 +256,9 @@ test('item tabs retain selection without removed entry columns; prefix layout su
  await layout.getByRole('button',{name:'Save layout to profile'}).click();
  await expect(layout.getByRole('status')).toContainText('saved');
  expect(state.profile().settings.opportunity.items.prefix_columns).toEqual(['ProductCode','AnnualUnit']);
+ // Since 86b816a the Packaging Request tab has a fixed column set; layout prefixes apply to the other tabs (checked on TCB Review).
+ await expect(table.getByRole('button',{name:'Sort by Annual units',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'TCB Review',exact:true}).click();
  await expect(table.getByRole('button',{name:'Sort by Annual units',exact:true})).toBeVisible();
  await expect(table.getByRole('button',{name:'Sort by Description',exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'All Fields',exact:true}).click();
@@ -264,7 +267,7 @@ test('item tabs retain selection without removed entry columns; prefix layout su
  await expect(table.getByLabel('Requirement 11',{exact:true})).toHaveCount(0);
  await page.reload();await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await page.getByRole('button',{name:'View details'}).click();await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
- await page.getByRole('button',{name:'Packaging Request',exact:true}).click();
+ await page.getByRole('button',{name:'TCB Review',exact:true}).click();
  await expect(table.getByRole('button',{name:'Sort by Annual units',exact:true})).toBeVisible();
  await expect(table.getByRole('button',{name:'Sort by Description',exact:true})).toHaveCount(0);
 });

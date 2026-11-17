@@ -31,6 +31,8 @@ def split_child_edits(cursor, models, username):
             continue
         if row.command != "U" or row.MixChildren or row.MixVersionID:
             raise ValueError("Mix children can only update their Packaging requirements.")
+        if getattr(row, "RefreshMixVersion", False):
+            raise ValueError("Update the mix version on the Mix parent item, not on a child.")
         if current.OpportunityNumber != row.opportunity_number or bytes(current.RowVersion) != b64_to_bytes(row.row_version):
             raise ValueError("Mix child changed or belongs to another Opportunity. Refresh before saving.")
         for provided, stored in ((row.product_id, current.ProductID), (row.item_description, current.ItemDescription),

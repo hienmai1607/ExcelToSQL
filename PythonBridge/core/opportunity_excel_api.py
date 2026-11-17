@@ -248,6 +248,13 @@ def merge_shipment(ctx,original,changes,header):
   shipment["ImportClearanceUSDPerContainer"]=None
  if "WHCostCustomerPerPallet" in changes or "WHCostUSDPerPallet" in changes:
   shipment["WHCostBreakdown"]=None
+ # Typing Duty % directly in Excel replaces its tax-line breakdown, as for WH Cost.
+ if "DutyPct" in changes:
+  shipment["DutyBreakdown"]=None
+ if "PaymentTerm" in changes:
+  # Free text (e.g. "30 days after B/L"); the legacy whole-day value is superseded.
+  if shipment.get("PaymentTerm") is not None:shipment["PaymentTerm"]=str(shipment["PaymentTerm"]).strip()[:200] or None
+  shipment["PaymentTermDays"]=None
  mode=changes.get("MarginMode")
  for customer_key,usd_key in (("PortToWHCustomerPerContainer","PortToWHUSDPerContainer"),("WHCostCustomerPerPallet","WHCostUSDPerPallet"),("InitialDesignCustomer","InitialDesignUSD")):
   if customer_key in changes and shipment.get(customer_key) is not None:

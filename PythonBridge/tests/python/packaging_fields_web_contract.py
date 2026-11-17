@@ -19,12 +19,12 @@ from auth import AccessContext
 class WebFields(PackagingFoundation):
     def setUp(self):
         super().setUp()
-        sql=(ROOT/"sql/23_packaging_field_writes.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/27_product_grade_versions.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/28_product_customer.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/29_product_mix.sql").read_text(encoding="utf-8")
-        sql+="\n"+(ROOT/"sql/46_product_grade_raw_material.sql").read_text(encoding="utf-8")+"\n"+(ROOT/"sql/48_product_shelf_life_packaging_scope.sql").read_text(encoding="utf-8")
-        for batch in re.split(r"^GO\s*$",sql,flags=re.M|re.I):
-            if batch.strip():
-                self.cur.execute(batch)
-                while self.cur.nextset():pass
+        # The desktop test DB has every migration. Replaying old ones (23-48) here would put
+        # superseded procedure versions back for the test, so the test uses the current ones.
+        # Category is checked against Category Master (migration 97): use a rolled-back active one.
+        self.cur.execute("""IF NOT EXISTS(SELECT 1 FROM dbo.ProductCategory WHERE CategoryName=N'Nuts')
+            INSERT dbo.ProductCategory(CategoryName,Status) VALUES(N'Nuts','Active')
+            ELSE UPDATE dbo.ProductCategory SET Status='Active' WHERE CategoryName=N'Nuts'""")
         @contextmanager
         def cursor():
             yield self.cur
@@ -92,8 +92,9 @@ class WebFields(PackagingFoundation):
         req=self.request()
         self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET PICUserID=? WHERE ID=?",self.actor,req)
         version=self.cur.execute("SELECT RowVersion FROM dbo.PackagingConfigurationRequestItem WHERE ID=?",req).fetchval()
+        # Response layers must be active top-level Packaging Types in layer order (migrations 66-98).
         body=packaging_api.ResponseBatch(rows=[dict(RowNum=1,ID=req,RowVersion=bytes_to_b64(version),
-            FirstPMType="Film",SecondPMType="Carton",UnitsPerCarton=12,PackagingDescription="Test pack",
+            FirstPMType="Pillow",SecondPMType="RSC",UnitsPerCarton=12,PackagingDescription="Test pack",
             LayersPerPallet=4)])
         ctx=AccessContext(username=self.username,user_id=self.actor,scopes=frozenset({"Admin"}))
         result=packaging_api.response_save(body,ctx)
@@ -109,22 +110,14 @@ class WebFields(PackagingFoundation):
         from opportunity_views import sorted_grid
         from request_views import item_read
         req=self.request()
-        # Direct fixture insertion represents a legacy request; snapshot it before reading.
-        for batch in re.split(r"^GO\s*$",(ROOT/"sql/25_packaging_request_snapshots.sql").read_text(encoding="utf-8"),flags=re.M|re.I):
-            if batch.strip():
-                self.cur.execute(batch)
-                while self.cur.nextset(): pass
-        self.cur.execute("UPDATE dbo.PackagingConfigurationRequestItem SET FirstPMType='Film' WHERE ID=?",req)
-        # Apply the current read-schema migration inside this fixture transaction.
-        for name in ("56_web_packaging_requirement_sections.sql","66_packaging_type_orders.sql",
-                     "67_packaging_layers.sql","71_packaging_request_layer_details.sql"):
-            for batch in re.split(r"^GO\s*$",(ROOT/"sql"/name).read_text(encoding="utf-8"),flags=re.M|re.I):
-                if batch.strip():
-                    self.cur.execute(batch)
-                    while self.cur.nextset():pass
+        # The desktop DB already has the snapshot and read-schema migrations (25-71); they are not replayed.
+        # The direct fixture insert has no Product snapshot, so capture it as request creation does.
+        self.cur.execute("""UPDATE i SET FirstPMType='Film',WeightGrams=p.WeightGrams,Category=p.Category
+            FROM dbo.PackagingConfigurationRequestItem i JOIN dbo.Product p ON p.ID=i.ProductID WHERE i.ID=?""",req)
         opportunity=sorted_grid(self.username,1,500,"[]",opportunity_number=self.cur.execute("SELECT OpportunityNumber FROM dbo.Opportunity WHERE ID=?",self.opp).fetchval())
         self.assertEqual(len(opportunity["rows"]),1)
-        self.assertEqual(opportunity["rows"][0]["FirstPMType"],"Film")
+        # Sales sees a packaging response on the Opportunity only once it is Approved; the Request view shows the draft.
+        self.assertIsNone(opportunity["rows"][0]["FirstPMType"])
         product=self.cur.execute("SELECT ProductName,WeightGrams FROM dbo.Product WHERE ID=?",self.product).fetchone()
         self.assertEqual(opportunity["rows"][0]["ProductName"],product[0])
         self.assertEqual(opportunity["rows"][0]["WeightGrams"],product[1])

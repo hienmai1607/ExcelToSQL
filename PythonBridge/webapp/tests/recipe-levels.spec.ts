@@ -15,14 +15,14 @@ test('existing flat recipe can initialize levels without changing ingredient tot
 });
 async function setup(page:Page,mixed=false){
  const writes:any[]=[];let lines=mixed?[{...raw,RatioPct:'40'},{...raw,GradePath:'0/2',RatioPct:'40'},{...raw,GradePath:'0/3',RatioPct:'20'}]:[raw];let details:RecipeDetails|undefined;
- const row={ID:21,RowVersion:'AAAAAAAAAAE=',SheetNumber:'RCP-LEVELS',RequestNumber:'RRQ-1',Revision:1,RequestItemID:11,Status:'Draft',ApprovalStatus:'Draft',PICUserID:2,PIC:'npd.member',IsOpen:true,IsLinked:true,WeightGrams:200,AnnualUnit:100000,EstPctAwarded:50,ExchangeRateVNDPerUSD:'26500',GradeSnapshot:JSON.stringify({items:(mixed?['Cashews','Almonds','Macadamias']:['Cashews']).map((Grade,i)=>({ParentID:'0',ID:i+1,Grade,RatioPct:mixed?[40,40,20][i]:100}))}),ProductCode:'PRD-1',ProductName:'Cashews'};
+ const row={ID:21,RowVersion:'AAAAAAAAAAE=',SheetNumber:'RCP-LEVELS',RequestNumber:'RRQ-1',Revision:1,RequestItemID:11,Status:'Draft',ApprovalStatus:'Draft',PICUserID:2,PIC:'npd.member',IsOpen:true,IsLinked:true,WeightGrams:200,AnnualUnit:100000,EstPctAwarded:50,ExchangeRateVNDPerUSD:'26500',GradeSnapshot:JSON.stringify({items:(mixed?['Cashews','Almonds','Macadamias']:['Cashews']).map((Grade,i)=>({ParentID:'0',ID:i+1,RawGradeID:42+i,Grade,RatioPct:mixed?[40,40,20][i]:100}))}),ProductCode:'PRD-1',ProductName:'Cashews'};
  const calc=(list=lines)=>({RecipeDetails:details,Lines:list.map(r=>({...r,BufferRatio:r.RatioPct,TotalQtyMT:Number(r.RatioPct)/10,Candidates:[],USDPerKg:r.DirectPricePerKg??'0'})),Issues:[],Warnings:[],RatioTotal:list.reduce((sum,r)=>sum+Number(r.RatioPct),0),SeasoningRatio:list.filter(r=>r.Kind==='Seasoning').reduce((sum,r)=>sum+Number(r.RatioPct),0),LossWeightBasis:'Recipe',SeasoningLossPct:0});
  await page.route('**/api/**',route=>{
   const path=new URL(route.request().url()).pathname,body=route.request().method()==='GET'?null:route.request().postDataJSON();
   let result:unknown={rows:[],total:0};
   if(path.endsWith('/session'))result={username:'npd.member',user_id:2,is_admin:false,scopes:['NPD'],permissions:{'recipe-sheets':'edit','recipe-requests':'display',ingredients:'edit','ingredient-prices':'edit'}};
   else if(path.endsWith('/preferences'))result={settings:{},version:0};
-  else if(path==='/api/npd/lookups')result={units:[],currencies:[],vendors:[],members:[],ingredients:[{ID:1,IngredientCode:'ING-OIL',Description:'Sunflower oil',GradeNature:'Refined',Origin:'Vietnam',Status:'Active'},{ID:2,IngredientCode:'ING-SALT',Description:'Salt',Status:'Active'}]};
+  else if(path==='/api/npd/lookups')result={units:[],currencies:[],vendors:[],members:[],ingredients:[{ID:1,IngredientCode:'ING-OIL',Description:'Sunflower oil',GradeNature:'Refined',Origin:'Vietnam',Status:'Active'},{ID:2,IngredientCode:'ING-SALT',Description:'Salt',Status:'Active'}],processTypes:[{ID:7,ProcessType:'Oil Roasting',Status:'Active'},{ID:8,ProcessType:'Seasoning',Status:'Active'},{ID:9,ProcessType:'Retired',Status:'Block'}],lossDefaults:[{RawGradeID:43,ProcessTypeID:7,LossPct:'9'},{RawGradeID:42,ProcessTypeID:7,LossPct:'5'},{RawGradeID:null,ProcessTypeID:7,LossPct:'1'},{RawGradeID:null,ProcessTypeID:8,LossPct:'2'}]};
   else if(path==='/api/npd/sheets')result={rows:[row],total:1};
   else if(path==='/api/npd/sheets/21'&&!body)result={row,lines,calculation:calc()};
   else if(path.startsWith('/api/npd/sheets/21')&&body){details=body.RecipeDetails??details;const next=details?flattenDetails(details,body.Lines):body.Lines;result={row,lines:next,calculation:calc(next)};if(path==='/api/npd/sheets/21'){writes.push(body);lines=next}}
@@ -35,7 +35,7 @@ test('Details levels feed a read-only Full ratio with shared ingredient pricing 
  const writes=await setup(page),sheet=page.getByRole('dialog',{name:'RCP-LEVELS',exact:true});
  await sheet.getByRole('tab',{name:'Details',exact:true}).click();
  await expect(sheet.getByLabel('Nut recipe',{exact:true})).toBeVisible();
- await expect(sheet.getByText('Process type',{exact:true})).toHaveCount(0);
+ await expect(sheet.getByLabel('Process type 0/1 Level 1',{exact:true})).toHaveValue('');
  await expect(sheet.getByRole('button',{name:'Remove nut from sheet',exact:true})).toHaveCount(0);
  await sheet.getByLabel('Output name 0/1 Level 1',{exact:true}).fill('Oil roasted Cashews');
  await sheet.getByLabel('Base ratio 0/1 Level 1',{exact:true}).fill('96');
@@ -58,9 +58,10 @@ test('Details levels feed a read-only Full ratio with shared ingredient pricing 
  await expect(sheet.getByRole('table',{name:'Recipe ingredients',exact:true}).locator('tbody tr')).toHaveCount(2);
  await expect(sheet.getByLabel('Ratio line 1',{exact:true})).toHaveText('93.12');await expect(sheet.getByLabel('Ratio line 2',{exact:true})).toHaveText('6.88');
  await expect(sheet.getByRole('button',{name:'Add seasoning ingredient',exact:true})).toHaveCount(0);
- await sheet.getByLabel('Price (USD/KG) line 2',{exact:true}).fill('2');await sheet.getByRole('button',{name:'Save sheet',exact:true}).click();
+ // Pricing refreshes automatically after edits; without a master quote the line becomes a Direct price.
+ await expect(sheet.locator('input[aria-label="Price (USD/KG) line 2"]')).toBeVisible();await sheet.getByLabel('Price (USD/KG) line 2',{exact:true}).fill('2');await sheet.getByRole('button',{name:'Save sheet',exact:true}).click();
  await expect.poll(()=>writes.length).toBe(1);expect(writes[0].RecipeDetails.Nuts[0].Levels).toHaveLength(2);expect(writes[0].Lines.filter((r:RecipeLine)=>r.IngredientID===1)).toHaveLength(1);
- await sheet.getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'RCP-LEVELS',exact:true}).click();await sheet.getByRole('tab',{name:'Details',exact:true}).click();await expect(sheet.getByLabel('Output name 0/1 Level 1',{exact:true})).toHaveValue('Oil roasted Cashews');
+ await sheet.getByRole('button',{name:/^Close /}).first().click();await page.getByRole('button',{name:'RCP-LEVELS',exact:true}).click();await sheet.getByRole('tab',{name:'Details',exact:true}).click();await expect(sheet.getByLabel('Output name 0/1 Level 1',{exact:true})).toHaveValue('Oil roasted Cashews');
 });
 
 
@@ -85,4 +86,40 @@ test('nut dropdown preserves separate outputs and keeps nut information inline',
   expect(await sheet.locator('.recipe-nut-heading').evaluate(e=>{const controls=Array.from(e.querySelectorAll('select,input'));return Math.abs(controls[0].getBoundingClientRect().top-controls[1].getBoundingClientRect().top)<2})).toBe(true);
   expect(await sheet.locator('.recipe-level-card tbody tr').first().evaluate(e=>e.getBoundingClientRect().height)).toBeLessThan(50);
  }
+});
+
+test('level process losses compound through later levels in Full view',()=>{
+ const lvl=(BaseRatioPct:string,LossPct:string,Ingredients:{IngredientID:number;RatioPct:string}[])=>({ProcessName:'',ProcessTypeID:null,LossPct,OutputName:'',BaseRatioPct,Ingredients});
+ const full=flattenDetails({Version:1,Nuts:[{GradePath:'0/1',BlendRatioPct:'100',Levels:[lvl('90','5',[{IngredientID:1,RatioPct:'10'}]),lvl('95','2',[{IngredientID:2,RatioPct:'5'}])]}]},[{...raw,Kind:'Seasoning',GradePath:null,IngredientID:2,BufferRatioPct:'6'}]);
+ expect(full.map(r=>[r.RatioPct,r.LossPct])).toEqual([['85.500000','6.900000'],['9.500000','6.900000'],['5.000000','2.000000']]);
+ expect(full[2].BufferRatioPct).toBe('6');
+});
+test('Process Type applies its Loss default and Full view buffers can be overridden and reset',async({page},info)=>{
+ const writes=await setup(page),sheet=page.getByRole('dialog',{name:'RCP-LEVELS',exact:true});
+ await sheet.getByRole('tab',{name:'Details',exact:true}).click();
+ const type=sheet.getByLabel('Process type 0/1 Level 1',{exact:true});
+ await expect(type.locator('option')).toHaveText(['No process','Oil Roasting','Seasoning']);
+ // Exact nut grade default wins over All grades and other grades.
+ await type.selectOption('7');await expect(sheet.getByLabel('Process loss 0/1 Level 1',{exact:true})).toHaveValue('5.00');
+ await sheet.getByLabel('Base ratio 0/1 Level 1',{exact:true}).fill('90');
+ await sheet.getByRole('button',{name:'Add ingredient',exact:true}).click();
+ await sheet.getByLabel('Ingredient 0/1 Level 1 line 2',{exact:true}).selectOption('1');await sheet.getByLabel('Ingredient ratio 0/1 Level 1 line 2',{exact:true}).fill('10');
+ await sheet.getByRole('button',{name:'Add level',exact:true}).click();
+ await sheet.getByLabel('Process type 0/1 Level 2',{exact:true}).selectOption('8');await expect(sheet.getByLabel('Process loss 0/1 Level 2',{exact:true})).toHaveValue('2.00');
+ await sheet.getByLabel('Process loss 0/1 Level 2',{exact:true}).fill('0');
+ const header=await sheet.locator('.recipe-level-card > header').first().evaluate(e=>{const box=(s:string)=>e.querySelector(s)!.getBoundingClientRect();return {output:box('input[aria-label^="Output name"]'),type:box('select'),loss:box('.recipe-level-loss input')}});
+ expect(header.type.left).toBeGreaterThan(header.output.left);expect(header.loss.left).toBeGreaterThan(header.type.left);expect(Math.abs(header.type.top-header.loss.top)).toBeLessThan(4);
+ await sheet.screenshot({path:info.outputPath('recipe-level-process.png')});
+ await sheet.getByRole('tab',{name:'Full view',exact:true}).click();
+ await expect(sheet.getByLabel('Loss line 1',{exact:true})).toHaveText('5.00');await expect(sheet.getByLabel('Loss line 2',{exact:true})).toHaveText('5.00');
+ await expect(sheet.getByLabel('Buffer ratio line 1',{exact:true})).toHaveValue('94.74');
+ await sheet.getByLabel('Buffer ratio line 2',{exact:true}).fill('12');
+ await expect(sheet.locator('td.npd-buffer-manual')).toHaveCount(1);
+ await sheet.screenshot({path:info.outputPath('recipe-full-buffer.png')});
+ await sheet.getByRole('button',{name:'Save sheet',exact:true}).click();
+ await expect.poll(()=>writes.length).toBe(1);
+ expect(writes[0].RecipeDetails.Nuts[0].Levels.map((l:any)=>[l.ProcessTypeID,l.ProcessName,l.LossPct])).toEqual([[7,'Oil Roasting','5'],[8,'Seasoning','0']]);
+ expect(writes[0].Lines.find((r:RecipeLine)=>r.IngredientID===1).BufferRatioPct).toBe('12');
+ await sheet.getByRole('button',{name:'Reset buffer line 2',exact:true}).click();
+ await expect(sheet.locator('td.npd-buffer-manual')).toHaveCount(0);await expect(sheet.getByLabel('Buffer ratio line 2',{exact:true})).toHaveValue('10.53');
 });

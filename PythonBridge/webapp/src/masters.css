@@ -114,3 +114,6 @@
 }
 
 .add-master-symbol.master-pen{padding-right:0}
+/* Edit Product (Mix): "Create a new mix version" checkbox beside its label. */
+.mix-new-version{display:flex;flex-direction:row;align-items:center;gap:8px;margin:4px 0 12px;font-weight:600}
+.mix-new-version input{width:auto;margin:0}

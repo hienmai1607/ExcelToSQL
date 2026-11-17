@@ -39,8 +39,23 @@ try {
   $cell.Value2=$legend[$i][0];$cell.Interior.Color=$legend[$i][2];$cell.Font.Bold=$true
   $controls.Cells.Item(22+$i,2).Value2=$legend[$i][1]
  }
+ $book.VBProject.VBComponents.Item('ThisWorkbook').CodeModule.AddFromString(@'
+Private Sub Workbook_Open()
+ SuspendAutoComplete
+End Sub
+Private Sub Workbook_Activate()
+ ' Hidden field keys must not be offered by AutoComplete (see modAutoCompleteGuard).
+ SuspendAutoComplete
+End Sub
+Private Sub Workbook_Deactivate()
+ RestoreAutoComplete
+End Sub
+Private Sub Workbook_BeforeClose(Cancel As Boolean)
+ RestoreAutoComplete
+End Sub
+'@)
  $config.Visible=2
- foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modLocalDropdowns.bas','modPackagingMasterLocal.bas')){
+ foreach($name in @('JsonConverter.bas','modSaveConfirmation.bas','modLocalDropdowns.bas','modAutoCompleteGuard.bas','modPackagingMasterLocal.bas')){
   [void]$book.VBProject.VBComponents.Import((Join-Path $root $name))
  }
  [void]$book.VBProject.References.AddFromGuid('{420B2830-E718-11CF-893D-00A0C9054228}',1,0)

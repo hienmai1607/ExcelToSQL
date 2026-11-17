@@ -137,7 +137,12 @@ def lookups(ctx:AccessContext=Depends(get_access_context)):
         currencies=query(cur,"SELECT ID,CurrencyCode FROM dbo.Currency ORDER BY CurrencyCode")
         ingredients=query(cur,'SELECT i.*,u.UoMCode BaseUoM FROM dbo.NPDIngredient i JOIN dbo.UoM u ON u.ID=i.BaseUoMID ORDER BY i.Description') if allowed(ctx,'ingredients') or allowed(ctx,'recipe-sheets') else []
         members=eligible_members(cur)
-        return dict(units=units,vendors=vendors,currencies=currencies,ingredients=ingredients,members=members)
+        # Recipe level processes: Process Type Master, with Loss Process Master defaults (grade-specific or All grades).
+        process_types=query(cur,"SELECT ID,ProcessType,Status FROM dbo.LossProcessMaster ORDER BY ProcessType,ID")
+        loss_defaults=query(cur,"""SELECT d.RawGradeID,d.ProcessTypeID,d.LossPct FROM dbo.GradeProcessLossMaster d
+          JOIN dbo.LossProcessMaster t ON t.ID=d.ProcessTypeID LEFT JOIN dbo.RawGrade g ON g.ID=d.RawGradeID
+          WHERE d.Status='Active' AND t.Status='Active' AND (d.RawGradeID IS NULL OR g.Status='Active')""")
+        return dict(units=units,vendors=vendors,currencies=currencies,ingredients=ingredients,members=members,processTypes=process_types,lossDefaults=loss_defaults)
 
 @router.get('/ingredients')
 def ingredients(page:int=Query(1,ge=1),page_size:int=Query(25,ge=1,le=500),search:str=Query('',max_length=200),status:Literal['','Active','Block']='',sort:str='[]',ctx:AccessContext=Depends(get_access_context)):
@@ -419,6 +424,9 @@ def calculation(cur,row,lines,status,exchange_rate=None,details=None):
     level_issues=[]
     if captured is not None:
         captured=captured if isinstance(captured,RecipeDetails) else RecipeDetails(**captured)
+        chosen={level.ProcessTypeID for nut in captured.Nuts for level in nut.Levels if level.ProcessTypeID}
+        if chosen and len(query(cur,'SELECT ID FROM dbo.LossProcessMaster WHERE ID IN (SELECT CAST(value AS INT) FROM OPENJSON(?))',json.dumps(sorted(chosen))))!=len(chosen):
+            raise ValueError('Choose Process Types from Process Type Master.')
         lines,level_issues=flatten(captured,row['GradeSnapshot'],lines,ready=status!='Draft')
     result=evaluate(lines,row,all_prices(cur),opportunity,ready=status!='Draft',ingredients=ingredients,vendors=query(cur,"SELECT ID,VendorName,Status FROM dbo.Vendor"))
     if captured is not None:

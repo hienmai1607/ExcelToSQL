@@ -15,10 +15,10 @@ export function mixError(mix:MixDraft,choices:Row[]){
  const total=mixWeight(mix,choices);
  return !Number.isFinite(total)||total<0.005||total>99999999.99?'Calculated net weight is outside the supported range.':'';
 }
-export function ProductMixDraft({value,choices,disabled,error,onChange,onNewChild}:{value:MixDraft;choices:Row[];disabled:boolean;error?:string;onChange:(value:MixDraft)=>void;onNewChild:()=>void}){
+export function ProductMixDraft({value,choices,disabled,error,statusLabel='Initial mix status',onChange,onNewChild}:{value:MixDraft;choices:Row[];disabled:boolean;error?:string;statusLabel?:string;onChange:(value:MixDraft)=>void;onNewChild:()=>void}){
  function change(index:number,key:'ProductID'|'UnitQuantity',next:string){onChange({...value,items:value.items.map((item,i)=>i===index?{...item,[key]:next}:item)})}
  return <fieldset className="initial-product-mix" disabled={disabled}><legend>Product Mix children</legend>
- <div className="mix-draft-toolbar"><label>Initial mix status<select aria-label="Initial mix status" value={value.Status} onChange={e=>onChange({...value,Status:e.target.value as MixDraft['Status']})}><option>Active</option><option>Draft</option></select></label>
+ <div className="mix-draft-toolbar"><label>{statusLabel}<select aria-label={statusLabel} value={value.Status} onChange={e=>onChange({...value,Status:e.target.value as MixDraft['Status']})}><option>Active</option><option>Draft</option></select></label>
  <div className="mix-draft-actions" role="group" aria-label="Product Mix child actions"><IconButton icon="plus" label="Add child Product" disabled={value.items.length>=500} onClick={()=>onChange({...value,items:[...value.items,{ProductID:'',UnitQuantity:'1'}]})}/>
  <AddMasterButton entity="products" label="New child Product" onClick={onNewChild}/></div></div>
  {!choices.length&&<p>No active normal Products for this Customer. Create a child Product first.</p>}

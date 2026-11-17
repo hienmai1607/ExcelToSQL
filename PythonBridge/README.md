@@ -6,7 +6,11 @@ Packaging PIC permissions: [migration 105 and deployment notes](docs/packaging-p
 
 Current user documentation: [User Guide](docs/user-guide.md)
 
-Latest VM upgrade: [combined migrations 142-147 and VM move checklist](docs/vm-upgrade-142-to-147.md), for databases already through 141 (also rerunnable if some of 142-147 are applied). If the VM is through 137, first apply [138-141](docs/vm-upgrade-138-to-141.md). If it is only through 116, first apply [117-137](docs/vm-upgrade-117-to-137.md), then 138-141. Deploy matching API/frontend files from the same commit. This release includes four packaging layers, pallet payload limits, reference copying, mandatory container proposals, and the complete-load 3D view. AI remains temporarily disabled.
+Test suite status: [November 2026 refresh, fixes and known failing specs](docs/test-suite-refresh-2026-11.md).
+
+Latest VM upgrade: [migrations 160-163 (Duty breakdown, Payment term text, Mix version update, Mix item deletion)](docs/vm-upgrade-160-to-163.md), for databases through 159; apply [158-159](docs/vm-upgrade-158-to-159.md) first if needed.
+
+Previous VM upgrade: [combined migrations 142-147 and VM move checklist](docs/vm-upgrade-142-to-147.md), for databases already through 141 (also rerunnable if some of 142-147 are applied). If the VM is through 137, first apply [138-141](docs/vm-upgrade-138-to-141.md). If it is only through 116, first apply [117-137](docs/vm-upgrade-117-to-137.md), then 138-141. Deploy matching API/frontend files from the same commit. This release includes four packaging layers, pallet payload limits, reference copying, mandatory container proposals, and the complete-load 3D view. AI remains temporarily disabled.
 
 For databases already through migration 104: [combined migrations 105-116 and deployment notes](docs/vm-upgrade-105-to-116.md).
 

@@ -1,4 +1,5 @@
-.opportunity-loss-dialog{width:min(1250px,96vw);max-width:96vw}
+/* Prefixed with .dialog so the generic .dialog max-width (500px) never wins by import order. */
+.dialog.opportunity-loss-dialog{width:min(1250px,96vw);max-width:96vw}
 .opportunity-loss-dialog.tcb-review-dialog{width:min(1850px,96vw)}
 
 

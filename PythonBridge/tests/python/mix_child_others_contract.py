@@ -52,7 +52,10 @@ class Ownership(unittest.TestCase):
   self.assertEqual(a["TCBFobbingPerUnit"],"4")
   self.assertEqual(b["TCBFobbingPerUnit"],"4")
   self.assertEqual(float(a["TCBFobbingPerUnit"])*2,8)
-  self.assertEqual((a["TCBPackingPerUnit"],b["TCBPackingPerUnit"]),("2","0"))
+  # Packing is one parent rate (docs/tcb-packing-final-box-totals.md): legacy Mixes start from the
+  # weight-weighted average of child rates, (2 x 2 + 1 x 0) / 3, which preserves the total packing cost.
+  self.assertEqual((a["TCBPackingPerUnit"],b["TCBPackingPerUnit"]),("1.333333333333","1.333333333333"))
+  self.assertAlmostEqual(float(a["TCBPackingPerUnit"])*2+float(b["TCBPackingPerUnit"]),4,places=9)
   self.assertEqual((a["TCBInitialDesignPerUnit"],a["TCBFixedCostsPerUnit"]),("0.1","0.2"))
   self.assertEqual((b["TCBInitialDesignPerUnit"],b["TCBFixedCostsPerUnit"]),("0","0"))
   self.assertEqual((a["TCBMarginPerUnit"],b["TCBMarginPerUnit"]),("0.5","0"))

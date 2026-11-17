@@ -44,7 +44,7 @@ Private Function Editable(ByVal key As String, ByVal level As String) As Boolean
 End Function
 Private Function Api(ByVal endpoint As String, ByVal body As Object) As Object
     Dim http As Object, base As String
-    If S(Config.Range("B1").Value2) <> "opportunity-4" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
+    If S(Config.Range("B1").Value2) <> "opportunity-5" Then Err.Raise vbObjectError + 3110, , "Unsupported workbook version. Download a fresh workbook."
     If endpoint = "save" Then body("template_version") = S(Config.Range("B1").Value2)
     base = S(Config.Range("B2").Value2)
     If Left$(base, 7) <> "http://" And Left$(base, 8) <> "https://" Then Err.Raise vbObjectError + 3101, , "Invalid API URL."

@@ -1,0 +1,1 @@
+source: https://github.com/anthropics/skills @ e4bb5d9 (2026-11-16)

@@ -96,8 +96,11 @@ class Recipes(unittest.TestCase):
   selected=seasoning_inputs({'LossProcesses':[{'MasterID':20}]},approved,config)
   self.assertEqual(D(selected['SeasoningRatio']),5);self.assertEqual(D(selected['RMRatio']),95)
   self.assertEqual(D(selected['SeasoningUSDPerLb']),D('2.5'))
+  # Since 86b816a Recipe Info always contains Seasoning, independently of process mappings,
+  # so the approved sheet's seasoning applies without its mapped process being selected.
   unselected=seasoning_inputs({},approved,config)
-  self.assertEqual(D(unselected['SeasoningRatio']),0);self.assertEqual(unselected['Components'],[])
+  self.assertEqual(D(unselected['SeasoningRatio']),5);self.assertEqual(D(unselected['RMRatio']),95)
+  self.assertEqual([c['SystemKey'] for c in unselected['Components']],['Seasoning'])
  def test_two_ingredients_weighted_contribution_and_buffer_loss(self):
   lines=[RecipeLine(Kind='Raw',GradePath='0/1',RatioPct=57),RecipeLine(Kind='Raw',GradePath='0/2',RatioPct=38),RecipeLine(Kind='Seasoning',IngredientID=1,RatioPct=3,LossPct=10),RecipeLine(Kind='Seasoning',IngredientID=2,RatioPct=2,LossPct=20)]
   prices=[{**self.price,'UnitPrice':'2','PriceUnitFactor':'453.59237'},{**self.price,'ID':2,'IngredientID':2,'UnitPrice':'4','PriceUnitFactor':'453.59237'}]

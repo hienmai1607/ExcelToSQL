@@ -4,7 +4,7 @@ $root=Split-Path $PSScriptRoot -Parent
 $source=Get-Content -LiteralPath (Join-Path $root 'scripts\build_opportunity_local_template.ps1') -Raw
 $match=[regex]::Match($source,"(?s)Private Sub Workbook_Activate\(\).*?End Sub\s*Private Sub Workbook_Deactivate\(\).*?End Sub")
 if(-not $match.Success){throw 'Workbook shortcut event code not found'}
-$events=$match.Value.Replace('Private Sub Workbook_Activate','Public Sub ProbeActivate').Replace('Private Sub Workbook_Deactivate','Public Sub ProbeDeactivate').Replace('Application.OnKey','ProbeApplication.OnKey')
+$events=$match.Value.Replace('Private Sub Workbook_Activate','Public Sub ProbeActivate').Replace('Private Sub Workbook_Deactivate','Public Sub ProbeDeactivate').Replace('Application.OnKey','ProbeApplication.OnKey').Replace('SuspendAutoComplete','ProbeGuard').Replace('RestoreAutoComplete','ProbeGuard')
 $excel=$null;$book=$null;$testPath=$null;$testDirectory=$null
 try {
  $excel=New-Object -ComObject Excel.Application
@@ -21,6 +21,8 @@ End Sub
 '@)
  $module=$book.VBProject.VBComponents.Add(1);$module.Name='ShortcutRegression'
  $module.CodeModule.AddFromString("Option Explicit"+[Environment]::NewLine+"Private ProbeApplication As KeyboardProbe"+[Environment]::NewLine+$events+[Environment]::NewLine+@'
+Public Sub ProbeGuard()
+End Sub
 Public Function CheckShortcuts() As String
  On Error GoTo Failed
  Set ProbeApplication = New KeyboardProbe

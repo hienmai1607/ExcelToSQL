@@ -12,6 +12,8 @@ from main import product_batch
 from opportunity_views import OpportunityViews
 from request_views import RequestViews
 from packaging_master_api import read as master_read
+from excel_template_version import TEMPLATE_VERSIONS
+PRODUCTS=TEMPLATE_VERSIONS["products"];OPPORTUNITIES=TEMPLATE_VERSIONS["opportunities"]
 
 
 class PackagingScopeSQL(unittest.TestCase):
@@ -32,7 +34,12 @@ class PackagingScopeSQL(unittest.TestCase):
 
     def setUp(self):
         mix.OpportunityMixSQL.setUp(self)
-        self.apply_migration()
+        # The desktop DB already has migration 48; replaying it in setUp would test superseded procedures.
+        # Category must name an active Category Master row (migration 97); create rolled-back ones.
+        for name in ("Shelf scope", "Preserve shelf"):
+            self.cur.execute("""IF NOT EXISTS(SELECT 1 FROM dbo.ProductCategory WHERE CategoryName=?)
+                INSERT dbo.ProductCategory(CategoryName,Status) VALUES(?,'Active')
+                ELSE UPDATE dbo.ProductCategory SET Status='Active' WHERE CategoryName=?""", name, name, name)
         @contextmanager
         def cursor():
             cur = self.conn.cursor()
@@ -69,7 +76,7 @@ class PackagingScopeSQL(unittest.TestCase):
         rows = mix.excel.document_rows(self.ctx, self.opp)
         self.assertEqual(next(r for r in rows if r["ItemID"] == self.child)["ShelfLifeDays"], 90)
 
-    def test_parent_logistics_snapshot_and_child_empty(self):
+    def test_parent_logistics_snapshot_copied_to_child(self):
         self.create_mix()
         result = self.batch(self.edit(self.parent, ProductID=self.mix, ItemDescription="Mix parent",
             AnnualUnit=10, PalletSize="1200x1000", PalletStacking="Yes", MaxPalletHeightM="1.8", ContainerRequest="40HC"))
@@ -80,7 +87,9 @@ class PackagingScopeSQL(unittest.TestCase):
         child = self.cur.execute("SELECT "+fields+" FROM dbo.PackagingConfigurationRequestItem WHERE OpportunityItemID=?", self.child).fetchone()
         self.assertEqual(parent.PalletSize, "1200x1000")
         self.assertEqual(parent.ContainerRequest, "40HC")
-        self.assertEqual(tuple(child), (None, None, None, None))
+        # Since migration 86 logistics are parent-owned: a child request copies the parent's requirements
+        # (docs/opportunity-mix-children.md) rather than having its own.
+        self.assertEqual(tuple(child), tuple(parent))
 
     def test_child_logistics_rejected_by_api_atomically(self):
         self.create_mix()
@@ -115,11 +124,11 @@ class PackagingScopeSQL(unittest.TestCase):
         from uuid import uuid4
         name = "Shelf-" + uuid4().hex[:12]
         result = product_batch(ProductBatchRequest(rows=[dict(RowNum=1, Command="C", CustomerID=self.customer,
-            ProductName=name, Category="Test", WeightValue=100, WeightUnit="g", ShelfLifeDays=365)]),
+            ProductName=name, Category="Shelf scope", WeightValue=100, WeightUnit="g", ShelfLifeDays=365)]),
             self.username, True, self.ctx.scopes)["results"][0]
         self.assertEqual(result["Status"], "OK", result)
         updated = product_excel.save(product_excel.Batch(rows=[dict(row=3,command="U",id=result["NewID"],
-            version=result["NewRowVersion"],changes={"ShelfLifeDays":730})]),self.ctx)["results"][0]
+            version=result["NewRowVersion"],changes={"ShelfLifeDays":730})],template_version=PRODUCTS),self.ctx)["results"][0]
         self.assertEqual(updated["Status"], "OK", updated)
         rows = master_read(entity="products",page=1,page_size=25,search=name,status=None,material_id=None,
             currency_id=None,as_of=None,created_by=None,sort="[]",ctx=self.ctx)["rows"]
@@ -131,7 +140,7 @@ class PackagingScopeSQL(unittest.TestCase):
         self.save_shelf(self.product, 365)
         version = self.cur.execute("SELECT RowVersion FROM dbo.Product WHERE ID=?", self.product).fetchval()
         result = product_excel.save(product_excel.Batch(rows=[dict(row=3,command="U",id=self.product,
-            version=mix.bytes_to_b64(version),changes={"Category":"Preserve shelf"})]), self.ctx)["results"][0]
+            version=mix.bytes_to_b64(version),changes={"Category":"Preserve shelf"})], template_version=PRODUCTS), self.ctx)["results"][0]
         self.assertEqual(result["Status"], "OK", result)
         self.assertEqual(self.cur.execute("SELECT ShelfLifeDays FROM dbo.Product WHERE ID=?", self.product).fetchval(), 365)
         for value in (-1, 1.25, 2147483648):
@@ -146,11 +155,11 @@ class PackagingScopeSQL(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 OpportunityBatchRequest(header_rows=[], item_rows=[dict(RowNum=1,Command="U",**{key:None})])
             with self.assertRaises(ValidationError):
-                mix.excel.Batch(rows=[dict(row=3,number=self.number,item_changes={key:1})])
+                mix.excel.Batch(rows=[dict(row=3,number=self.number,item_changes={key:1})],template_version=OPPORTUNITIES)
         row = next(r for r in mix.excel.document_rows(self.ctx,self.opp) if r["ItemID"] == self.child)
         result = mix.excel.save(mix.excel.Batch(rows=[dict(row=4,number=self.number,opportunity_id=self.opp,
             item_id=self.child,header_version=row["HeaderRowVersion"],item_version=row["ItemRowVersion"],
-            item_changes={"PalletSize":"Forbidden"})]),self.ctx)
+            item_changes={"PalletSize":"Forbidden"})],template_version=OPPORTUNITIES),self.ctx)
         self.assertEqual(result["results"][0]["status"],"ERROR",result)
         self.assertIn("parent",result["results"][0]["message"])
 

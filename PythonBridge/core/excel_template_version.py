@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 TEMPLATE_VERSIONS = {
     "masters": "master-5",
     "products": "product-2",
-    "opportunities": "opportunity-4",
+    "opportunities": "opportunity-5",
     "requests": "request-2",
 }
 

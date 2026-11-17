@@ -24,7 +24,11 @@ async function items(page:Page){await page.getByRole('button',{name:'View reques
 test('review icons share one horizontal row and response attachments are hidden',async({page},info)=>{
  await setup(page);const table=await items(page),row=table.locator('.review-document-row');
  const geometry=await row.evaluate(el=>[...el.querySelectorAll('button,select,.badge,.info-tip')].map(node=>{const b=node.getBoundingClientRect();return {middle:b.y+b.height/2,width:b.width,height:b.height}}));
- expect(Math.max(...geometry.map(g=>g.middle))-Math.min(...geometry.map(g=>g.middle))).toBeLessThan(2);
+ // Since 8e82515 review actions wrap inside their cell instead of scrolling: no hidden overflow,
+ // and the action buttons (Submit, Cancel) stay together on one line.
+ expect(geometry.length).toBeGreaterThan(0);
+ const actions=await row.locator('.item-review-buttons').evaluate(el=>[...el.querySelectorAll('button')].map(b=>{const r=b.getBoundingClientRect();return r.y+r.height/2}));
+ expect(Math.max(...actions)-Math.min(...actions)).toBeLessThan(2);
  expect(await row.evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
  for(const button of await row.getByRole('button').all()){const b=(await button.boundingBox())!;expect(b.width).toBe(28);expect(b.height).toBe(28)}
  await page.screenshot({path:info.outputPath('horizontal-review-1920.png')});
@@ -54,12 +58,15 @@ test('dragging layout columns persists order and keeps layout actions visible',a
  await expect(button).toBeInViewport();expect(Math.abs((await button.boundingBox())!.y-before!.y)).toBeLessThan(1);
  await panel.getByRole('button',{name:'Close layout'}).click();await page.getByRole('button',{name:'Request layout',exact:true}).click();
  const header=page.getByRole('complementary',{name:'Request layout',exact:true}),list=header.getByRole('list',{name:'Column order'});
+ // Saved layouts gain new columns over time (e.g. Assigned to me, d200d6a); capture the current key order first.
+ await header.getByRole('button',{name:'Save layout to profile'}).click();await expect(header.getByRole('status')).toContainText('saved');
+ const original=[...state.profile().settings.requests.header.columns];
  const beforeOrder=await list.locator('li').evaluateAll(nodes=>nodes.map(n=>n.children[1].textContent));
  await list.locator('li').nth(0).dragTo(list.locator('li').nth(2));
  const after=await list.locator('li').evaluateAll(nodes=>nodes.map(n=>n.children[1].textContent));
  expect(after).not.toEqual(beforeOrder);expect(after[2]).toBe(beforeOrder[0]);
  await header.getByRole('button',{name:'Save layout to profile'}).click();
- await expect(header.getByRole('status')).toBeInViewport();expect(state.profile().settings.requests.header.columns[2]).toBe('RequestNumber');
+ await expect(header.getByRole('status')).toBeInViewport();await expect.poll(()=>state.profile().settings.requests.header.columns[2]).toBe(original[0]);
  await page.screenshot({path:info.outputPath('drag-layout-1920.png')});
 });
 
@@ -81,14 +88,18 @@ test('request layers share a row and packaging regions use lines rather than box
  const regions=['Primary','Secondary','Tertiary'].map(layer=>editor.getByRole('region',{name:layer+' packaging requirements',exact:true}));
  const boxes=await Promise.all(regions.map(r=>r.boundingBox()));
  expect(Math.max(...boxes.map(b=>b!.y))-Math.min(...boxes.map(b=>b!.y))).toBeLessThan(1);
- for(const region of regions)expect(await region.evaluate(el=>({radius:getComputedStyle(el).borderRadius,border:getComputedStyle(el).borderTopWidth}))).toEqual({radius:'0px',border:'0px'});
+ // Since 0620a91 each layer is a light bordered section; all three share the same frame.
+ const frames=await Promise.all(regions.map(region=>region.evaluate(el=>({radius:getComputedStyle(el).borderRadius,border:getComputedStyle(el).borderTopWidth}))));
+ for(const frame of frames)expect(frame).toEqual(frames[0]);
  await editor.screenshot({path:info.outputPath('horizontal-request-1920.png')});
  await page.setViewportSize({width:390,height:844});
  expect(await editor.locator('.record-dialog-content').first().evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(1);
 });
 
 test('manager review is in Item View and return requires a reason and current version',async({page})=>{
- const state=await setup(page,'PackagingManager','Pending Review');const table=await items(page);
+ const state=await setup(page,'PackagingManager','Pending Review');
+ // A manager never approves a response they were PIC on, so another member is the PIC here.
+ Object.assign(state.row,{PICUserID:2,PIC:'Other'});const table=await items(page);
  await expect(table.getByRole('button',{name:'Approve 21',exact:true})).toBeVisible();
  await expect(table.getByRole('button',{name:'Submit 21',exact:true})).toHaveCount(0);
  await table.getByRole('button',{name:'Return 21',exact:true}).click();

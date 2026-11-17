@@ -6,6 +6,8 @@ from typing import Annotated
 
 USD = Annotated[Decimal, Field(ge=0, max_digits=19, decimal_places=2, allow_inf_nan=False)]
 Percent = Annotated[Decimal, Field(ge=0, le=100, max_digits=5, decimal_places=2, allow_inf_nan=False)]
+# Duty % and its tax lines keep four decimals (migration 161).
+DutyPercent = Annotated[Decimal, Field(ge=0, le=100, max_digits=7, decimal_places=4, allow_inf_nan=False)]
 
 INCOTERMS = tuple(sorted({"CFA", "FOB", "FCA", "FAS", "CFR", "CIF", "CPT", "CIP", "EXW", "DAP", "DPU", "DDP"}))
 
@@ -27,13 +29,20 @@ class WarehouseCostBreakdown(BaseModel):
                      + self.StorageCostPerMonth * self.StorageMonths + self.OrderFeeAdminCost + self.OthersCost)
             return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+class DutyLine(BaseModel):
+    """One tax component of Duty %; Duty % is the sum of its lines."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    TaxType: str = Field(min_length=1, max_length=100)
+    Pct: DutyPercent
+
 class ShipmentCostInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
     Incoterm: Literal["CFA", "CFR", "CIF", "CIP", "CPT", "DAP", "DDP", "DPU", "EXW", "FAS", "FCA", "FOB"] | None = None
     PortOfEntryID: int | None = Field(None, ge=1, le=2147483647)
     ContainerSizeFT: Literal["20FT", "40FT"] | None = None
     FreightUSDPerContainer: USD | None = None
-    DutyPct: Percent | None = None
+    DutyPct: DutyPercent | None = None
+    DutyBreakdown: list[DutyLine] | None = Field(None, min_length=1, max_length=50)
     ImportClearanceUSDPerContainer: USD | None = None
     PortToWHUSDPerContainer: USD | None = None
     WHCostUSDPerPallet: USD | None = None
@@ -60,7 +69,8 @@ class ShipmentCostInfo(BaseModel):
     ImportClearanceCustomerPerContainer: USD | None = None
     ImportClearanceCustomerPerPallet: USD | None = None # Historical basis only.
     InterestDays: int | None = Field(None,ge=0,le=2147483647,strict=True)
-    PaymentTermDays: int | None = Field(None,ge=0,le=2147483647,strict=True)
+    PaymentTermDays: int | None = Field(None,ge=0,le=2147483647,strict=True)  # Legacy; superseded by PaymentTerm.
+    PaymentTerm: str | None = Field(None, max_length=200)
     MarginMode: Literal["Percent","USDPerLb"] | None = None
     MarginUSDPerLb: USD | None = None
 
@@ -75,6 +85,13 @@ class ShipmentCostInfo(BaseModel):
             if self.WHCostUSDPerPallet is not None:
                 raise ValueError("Clear the legacy USD WH cost when applying a customer-currency breakdown.")
             self.WHCostCustomerPerPallet = total
+        if self.DutyBreakdown is not None:
+            total = sum((line.Pct for line in self.DutyBreakdown), Decimal(0))
+            if total > 100:
+                raise ValueError("Duty tax lines must not exceed 100% in total.")
+            if self.DutyPct is not None and self.DutyPct != total:
+                raise ValueError("Duty % must match the sum of its tax lines.")
+            self.DutyPct = total
         if self.InitialDesignUSD is not None and self.InitialDesignCustomer is not None:
             raise ValueError("Choose USD or customer currency for Initial Design, not both.")
         if self.MarginPct is not None and self.MarginUSDPerLb is not None:

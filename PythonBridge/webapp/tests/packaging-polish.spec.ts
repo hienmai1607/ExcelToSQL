@@ -103,7 +103,11 @@ test('packaging request and response share compact typography and spacing in bot
   expect(await entry.evaluate(el=>parseFloat(getComputedStyle(el).borderTopWidth))).toBeGreaterThan(0);
   expect(await request.locator('h4').evaluate(style)).toEqual(await response.locator('h4').evaluate(style));
   const reqLabel=request.locator('.field-label').first(),respLabel=response.locator('label').first();
-  expect(await reqLabel.evaluate(style)).toEqual(await respLabel.evaluate(style));
+  // Response Packing Way labels scale with their container (clamp 10-12px, no wrapping, since 02935d2);
+  // everything else matches the request label.
+  const {size:reqSize,...reqRest}=await reqLabel.evaluate(style),{size:respSize,...respRest}=await respLabel.evaluate(style);
+  expect(respRest).toEqual(reqRest);
+  for(const size of [reqSize,respSize]){expect(parseFloat(size)).toBeGreaterThanOrEqual(10);expect(parseFloat(size)).toBeLessThanOrEqual(12);}
   expect(await reqLabel.evaluate(el=>getComputedStyle(el).fontWeight)).toBe('500');
   expect(await request.locator('.packaging-readonly-field p').first().evaluate(style)).toEqual(await editor.locator('.response-product-summary strong').evaluate(style));
   for(const layer of ['Primary','Secondary']){
@@ -118,8 +122,11 @@ test('packaging request and response share compact typography and spacing in bot
     expect(await field.evaluate(el=>getComputedStyle(el).gap)).toBe('4px');
    }
   }
+  // Request and response layers share one compact padding (its exact value follows the current theme).
+  const padding=await request.evaluate(el=>getComputedStyle(el).paddingTop);
+  expect(parseFloat(padding)).toBeLessThanOrEqual(10);
   for(const region of [request,response]){
-   expect(await region.evaluate(el=>getComputedStyle(el).paddingTop)).toBe('8px');
+   expect(await region.evaluate(el=>getComputedStyle(el).paddingTop)).toBe(padding);
    // Layer symbols share the quantity/price row, not a separate heading row.
    await expect(region.locator('h4')).toHaveCSS('position','absolute');
    await expect(region.locator('h4')).toHaveCSS('margin-bottom','0px');
@@ -151,7 +158,9 @@ test('locked response fields display without boxes or dropdown arrows',async({pa
  const {item}=await setup(page);item.ItemStage='Approved';
  await page.getByRole('button',{name:'Edit request PCR-1',exact:true}).click();
  const editor=page.getByRole('dialog',{name:'Edit Packaging request',exact:true}),type=editor.getByLabel('Primary Type',{exact:true});
- await expect(type).toBeDisabled();await expect(type).toHaveCSS('border-top-width','0px');await expect(type).toHaveCSS('background-color','rgba(0, 0, 0, 0)');await expect(type).toHaveCSS('appearance','none');
+ await expect(type).toBeDisabled();await expect(type).toHaveCSS('border-top-width','0px');await expect(type).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
+ // A locked type now renders as a read-only text field; a select would need appearance:none to hide its arrow.
+ expect(await type.evaluate(el=>el.tagName==='SELECT'?getComputedStyle(el).appearance:'none')).toBe('none');
  await expect(editor.getByLabel('Nut Density (g/ml)',{exact:true})).toHaveCSS('border-top-width','0px');
  await expect(editor.getByRole('button',{name:'Close request editor',exact:true})).toBeVisible();
  await expect(editor.locator('.record-action-bar').getByRole('button',{name:'Close',exact:true})).toHaveCount(0);

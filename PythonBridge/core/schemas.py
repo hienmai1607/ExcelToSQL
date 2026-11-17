@@ -32,8 +32,11 @@ class ProductRow(ProductFields):
 
     @model_validator(mode="after")
     def grade_create_only(self):
-        if self.MixVersion is not None and (self.command != "C" or self.is_mix is not True):
-            raise ValueError("Initial MixVersion is allowed only when creating a Product Mix.")
+        # Create: the initial version of a new Product Mix. Update: a new version of an existing
+        # Product Mix, saved with its fields (usp_ProductMix_Save rejects non-Mix Products).
+        if self.MixVersion is not None and not (self.command == "C" and self.is_mix is True
+                                                or self.command == "U" and self.is_mix is not False):
+            raise ValueError("MixVersion is allowed only when creating or updating a Product Mix.")
         if self.is_mix and self.GradeVersion is not None:
             raise ValueError("Product Mix uses child Product grades; it cannot maintain its own Grade version.")
         if self.command != "C" and self.GradeVersion is not None:

@@ -115,3 +115,10 @@ dialog.opportunity-entry-dialog{width:min(1760px,98vw);max-width:98vw;max-height
 .mix-child-toggle{padding:4px 8px}
 .opportunity-mix-child .mix-item-number{padding-left:14px}
 @media(max-width:550px){.opportunity-entry-row.opportunity-mix-child{margin-left:8px}}
+
+/* Saved Mix item whose Product has a newer Active mix version. */
+.mix-version-update{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 0;padding:8px 12px;border-radius:6px;background:#fff8e6;color:#5c4400;font-size:13px}
+.mix-version-update button{min-height:30px;padding:4px 10px;font-size:12px}
+.mix-update-preview section{margin:0 0 10px}.mix-update-preview h4{margin:0 0 4px;font-size:13px}.mix-update-preview ul{margin:0;padding-left:18px}
+/* The mix version notice spans the whole item row, not the narrow label column. */
+.opportunity-entry-row>.mix-version-update{grid-column:1/-1}

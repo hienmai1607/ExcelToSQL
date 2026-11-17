@@ -7,6 +7,7 @@ import {ResizableTable,ColumnResizer,columnWidth} from './column-widths';
 import type {MasterLayout,MasterRule} from './master-config';
 import './masters.css';
 type Entity='ports'|'loss-defaults'|'loss-processes'|'categories'|'grade-densities'|'ingredients'|'ingredient-prices'|'recipe-components';
+const LOCAL_TEMPLATES:Partial<Record<Entity,string>>={ingredients:'Ingredients_Master_Local_Update.xlsm','ingredient-prices':'Ingredient_Pricing_Local_Update.xlsm'};
 type Props={recordField?:string;recordFieldLabel?:string;filterKeys?:string[];entity:Entity;title:string;newLabel:string;recordLabel:string;columns:Record<string,string>;initialSort:string;canWrite:boolean;revision:number;notice:string;onDismiss:()=>void;onEdit:(row:Row|null)=>void;display?:(row:Row,column:string)=>string};
 export function SharedMasterView({recordField,recordFieldLabel,filterKeys=['search','status'],entity,title,newLabel,recordLabel,columns,initialSort,canWrite,revision,notice,onDismiss,onEdit,display}:Props){
  const {profile,ready,saving,save}=useProfile();
@@ -29,12 +30,21 @@ export function SharedMasterView({recordField,recordFieldLabel,filterKeys=['sear
  if(!response.ok)throw new Error('Excel export failed ('+response.status+').');
  const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');link.href=url;link.download=entity+'-current-view.xlsx';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
  }catch(e){setActionError((e as Error).message)}finally{setExporting(false)}}
+ // Editors receive the macro-enabled Local Update workbook; read-only users keep the static export.
+ const localFile=canWrite?LOCAL_TEMPLATES[entity]:undefined;
+ async function localTemplate(){setExporting(true);setActionError('');try{
+ const headers:Record<string,string>={'Content-Type':'application/json'},user=sessionStorage.getItem('bridge.testUser');if(user)headers['X-User-Name']=user;
+ const response=await fetch('/api/workbench/master-excel/'+entity+'/download',{method:'POST',credentials:'same-origin',headers,body:JSON.stringify({layout:{...view,values:filters},page})});
+ if(!response.ok){const detail=await response.json().catch(()=>({}));throw new Error(typeof detail.detail==='string'?detail.detail:'Excel download failed ('+response.status+').')}
+ const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');link.href=url;link.download=localFile!;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
+ setMessage('Open the downloaded workbook in desktop Excel. Use the Controls sheet for Save, Refresh, filters and pages. Enable macros only through your company-approved trust policy.');
+ }catch(e){setActionError((e as Error).message)}finally{setExporting(false)}}
  return <><div className="page-heading customer-heading"><h1>{title}</h1>{!canWrite&&<Badge value="Read only"/>}</div>
  <div className="view-toolbar" role="toolbar" aria-label="Master tasks">
  <IconButton icon="refresh" label="Refresh" disabled={busy} onClick={()=>setRefresh(n=>n+1)}/>
  <IconButton icon="sort" label="Sort options" aria-expanded={sortOpen} onClick={()=>setSortOpen(v=>!v)}/>
  <IconButton icon="layout" label="Layout options" aria-expanded={layoutOpen} onClick={()=>setLayoutOpen(v=>!v)}/>
- <IconButton icon="export" label="Excel local template" disabled={busy||exporting||!!error||!data.rows.length} onClick={exportPage}/>
+ <IconButton icon="export" label="Excel local template" disabled={busy||exporting||!!error||(!localFile&&!data.rows.length)} onClick={localFile?localTemplate:exportPage}/>
  <IconButton icon="save" label="Save layout to profile" disabled={!ready||saving} onClick={persist}/>
  </div>
  {sortOpen&&<LayoutPanel className="layout-panel" aria-label="Master sort"><h2>Sort records</h2>{view.sort.map((rule,index)=><div className="sort-rule" key={index}><span>{index+1}</span><label>Column<select aria-label={'Sort column '+(index+1)} value={rule.column} onChange={e=>changeSort(view.sort.map((r,i)=>i===index?{...r,column:e.target.value}:r))}>{Object.entries(columns).filter(([key])=>key===rule.column||!view.sort.some(r=>r.column===key)).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label><label>Direction<select aria-label={'Sort direction '+(index+1)} value={rule.direction} onChange={e=>changeSort(view.sort.map((r,i)=>i===index?{...r,direction:e.target.value as 'asc'|'desc'}:r))}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><IconButton icon="up" label={'Raise sort priority '+(index+1)} disabled={!index} onClick={()=>{const next=[...view.sort];[next[index],next[index-1]]=[next[index-1],next[index]];changeSort(next)}}/><IconButton icon="close" label={'Remove sort '+(index+1)} onClick={()=>changeSort(view.sort.filter((_,i)=>i!==index))}/></div>)}<div className="actions"><button disabled={view.sort.length>=Object.keys(columns).length} onClick={()=>changeSort([...view.sort,{column:Object.keys(columns).find(key=>!view.sort.some(r=>r.column===key))!,direction:'asc'}])}>Add sort column</button><button onClick={()=>changeSort(defaults().sort)}>Reset sort</button><button onClick={()=>setSortOpen(false)}>Close sort</button></div></LayoutPanel>}

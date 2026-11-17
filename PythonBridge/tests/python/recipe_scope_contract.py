@@ -80,5 +80,7 @@ class Scope(unittest.TestCase):
   self.assertEqual(original,baseline);self.assertEqual(normalize_seasoning_scope(normalized,CONFIG,APPROVED,['0/1','0/2']),normalized)
   calculated=process_component_inputs(normalized,CONFIG,APPROVED,['0/1','0/2'])
   included=next(r for r in calculated['MaterialCosts'] if r['Path']=='0/1');excluded=next(r for r in calculated['MaterialCosts'] if r['Path']=='0/2')
-  self.assertEqual(D(included['SeasoningRatio']),5);self.assertEqual(D(excluded['SeasoningRatio']),0);self.assertEqual(excluded['Components'],[])
+  self.assertEqual(D(included['SeasoningRatio']),5);self.assertEqual(D(excluded['SeasoningRatio']),0)
+  # The Seasoning row is always present (86b816a); on an excluded grade it carries no ratio or price.
+  self.assertEqual([(c['SystemKey'],D(str(c['RatioPct'])),c['USDPerLb']) for c in excluded['Components']],[('Seasoning',D(0),None)])
 if __name__=='__main__':unittest.main()

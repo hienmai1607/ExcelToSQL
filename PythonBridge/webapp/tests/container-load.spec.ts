@@ -160,11 +160,11 @@ test('multiple floor Proposal ticks save independently and remain selected after
   await page.setViewportSize(viewport);
   const scene=await dialog.getByRole('img',{name:'3D floor arrangement 40DC'}).boundingBox(),controls=await dialog.locator('.load-planner-controls').boundingBox();
   expect(scene!.x).toBeGreaterThanOrEqual(controls!.x+controls!.width);
-  const table=await dialog.getByRole('table',{name:'Proposed floor loads'}).boundingBox(),close=await dialog.getByRole('button',{name:'Close',exact:true}).boundingBox();
-  expect(table!.y+table!.height).toBeLessThanOrEqual(close!.y);
+  const table=await dialog.getByRole('table',{name:'Proposed floor loads'}).boundingBox(),frame=await dialog.boundingBox();
+  expect(table!.y+table!.height).toBeLessThanOrEqual(frame!.y+frame!.height);
   await dialog.screenshot({path:test.info().outputPath('floor-layout-'+viewport.width+'.png')});
  }
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await dialog.getByRole('button',{name:/^Close /}).first().click();
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect.poll(()=>writes.length).toBe(1);
@@ -194,7 +194,7 @@ test('4800-carton scene draws the complete load as a detailed third plus one gro
  await dialog.getByRole('button',{name:'Zoom in',exact:true}).click();await dialog.getByRole('button',{name:'Reset view',exact:true}).click();
  await dialog.getByLabel('Floor preview Cartons / Container',{exact:true}).fill('2500');
  await expect(legend).toContainText('Total represented: 2,500 cartons');await expect(legend).toContainText('880 cartons (40 in a partial row)');
- await dialog.getByRole('button',{name:'Close',exact:true}).click();expect(writes).toHaveLength(0);
+ await dialog.getByRole('button',{name:/^Close /}).first().click();expect(writes).toHaveLength(0);
 });
 
 test('40DC requests offer all five alternatives and keep 40DC mandatory',async({page})=>{
@@ -205,7 +205,7 @@ test('40DC requests offer all five alternatives and keep 40DC mandatory',async({
  await expect(dialog.getByLabel('Proposal 40DC',{exact:true})).toBeChecked();await expect(dialog.getByLabel('Proposal 40DC',{exact:true})).toBeDisabled();
  await dialog.getByLabel('Proposal 20RC',{exact:true}).check();await dialog.getByLabel('Proposal 40RHC',{exact:true}).check();
  await expect(dialog.getByLabel('Proposal 20DC',{exact:true})).not.toBeChecked();
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await dialog.getByRole('button',{name:/^Close /}).first().click();
  await editor.getByRole('button',{name:'Review & save',exact:true}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  await expect.poll(()=>writes.length).toBe(1);
  const selected=Object.entries(writes[0].rows[0].ContainerLoadProfiles).filter(([,p])=>(p as any).Proposal).map(([code])=>code);
@@ -259,7 +259,7 @@ test('approved floor proposals remain view-only inside the same 3D dialog',async
  await expect(dialog.getByRole('button',{name:'Use proposal',exact:true})).toHaveCount(0);
  await dialog.getByRole('button',{name:'View 40DC',exact:true}).click();
  await expect(dialog.getByRole('img',{name:'3D floor arrangement 40DC',exact:true})).toBeVisible();
- await dialog.getByRole('button',{name:'Close',exact:true}).click();
+ await dialog.getByRole('button',{name:/^Close /}).first().click();
  await expect(editor.getByLabel('Carton / Container',{exact:true})).toHaveValue('7');expect(writes).toHaveLength(0);
 });
 
@@ -276,7 +276,7 @@ test('response formats volume and gross weights and exposes response pallet gros
  await expect(dialog.getByLabel('Gross weight / Pallet (kg)',{exact:true})).toHaveValue(responseGross);
  for(const width of [984,390]){
   await page.setViewportSize({width,height:844});
-  const close=dialog.getByRole('button',{name:'Close',exact:true});
+  const close=dialog.getByRole('button',{name:/^Close /}).first();
   const action=await close.boundingBox(),trail=await dialog.getByRole('navigation',{name:'Open views',exact:true}).boundingBox();
   expect(action!.y+action!.height).toBeLessThanOrEqual(trail!.y);
   await close.click({trial:true});

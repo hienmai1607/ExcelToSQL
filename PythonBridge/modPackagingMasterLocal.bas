@@ -230,7 +230,7 @@ Public Sub PackagingMasterNew()
     r = LastRow() + 1
     WS.Cells(r, FieldColumn("Command")).Value2 = "C"
     WS.Cells(r, FieldColumn("Status")).Value2 = "Active"
-    If S(Config.Range("B6").Value2) = "prices" Or S(Config.Range("B6").Value2) = "raw-prices" Then WS.Cells(r, FieldColumn("QuantityFrom")).Value2 = 0
+    If S(Config.Range("B6").Value2) = "prices" Or S(Config.Range("B6").Value2) = "raw-prices" Or S(Config.Range("B6").Value2) = "ingredient-prices" Then WS.Cells(r, FieldColumn("QuantityFrom")).Value2 = 0
     InitializeLocalRow WS, r
     WS.Activate
     If S(Config.Range("B6").Value2) = "packaging-types" Then
@@ -243,6 +243,10 @@ Public Sub PackagingMasterNew()
         WS.Cells(r, FieldColumn("VendorName")).Select
     ElseIf S(Config.Range("B6").Value2) = "materials" Or S(Config.Range("B6").Value2) = "raw-materials" Then
         WS.Cells(r, FieldColumn("MaterialName")).Select
+    ElseIf S(Config.Range("B6").Value2) = "ingredients" Then
+        WS.Cells(r, FieldColumn("Description")).Select
+    ElseIf S(Config.Range("B6").Value2) = "ingredient-prices" Then
+        WS.Cells(r, FieldColumn("IngredientCode")).Select
     Else
         WS.Cells(r, FieldColumn("MaterialCode")).Select
     End If
@@ -308,6 +312,9 @@ Public Sub PackagingMasterSave()
             WS.Cells(r, FieldColumn("_RowVersion")).Value2 = x("NewRowVersion")
             If x.Exists("NewMaterialCode") Then
                 If Not IsNull(x("NewMaterialCode")) Then WS.Cells(r, FieldColumn("MaterialCode")).Value2 = x("NewMaterialCode")
+            End If
+            If x.Exists("NewIngredientCode") Then
+                If Not IsNull(x("NewIngredientCode")) Then WS.Cells(r, FieldColumn("IngredientCode")).Value2 = x("NewIngredientCode")
             End If
             Set entry = CurrentValues(r)
             WS.Cells(r, FieldColumn("_Original")).Value2 = JsonConverter.ConvertToJson(entry)

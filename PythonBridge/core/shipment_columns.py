@@ -49,7 +49,7 @@ SHIPMENT_GROUPS = [
    "InterestPct": "Interest %",
    "InterestMonths": "Legacy interest months",
    "InterestDays": "Interest days",
-   "PaymentTermDays": "Payment term (days)",
+   "PaymentTerm": "Payment term",
    "MarginMode": "Margin basis",
    "MarginUSDPerLb": "Margin (USD/lbs)",
    "MarginPct": "Margin %"
@@ -64,9 +64,15 @@ def shipment_columns(row):
     values = {key: row.get(key) if key == "PortOfEntryName" else info.get(key) for key in SHIPMENT_COLUMNS}
     for title, fields in SHIPMENT_GROUPS[1:]:
         for key in fields:
-            if key not in ("InterestMonths","InterestDays","PaymentTermDays","MarginMode") and values[key] is not None:
+            if key not in ("InterestMonths","InterestDays","PaymentTerm","MarginMode","DutyPct") and values[key] is not None:
                 values[key] = format(Decimal(str(values[key])), ".2f")
     if values["InterestDays"] is None and values["InterestMonths"] is not None:
         values["InterestDays"] = int(values["InterestMonths"]) * 30
+    if values.get("DutyPct") is not None:
+        # Up to four decimals, at least two.
+        duty = Decimal(str(values["DutyPct"])).quantize(Decimal("0.0001"))
+        values["DutyPct"] = format(duty, "f").rstrip("0") if duty != duty.quantize(Decimal("0.01")) else format(duty, ".2f")
+    if values["PaymentTerm"] is None and info.get("PaymentTermDays") is not None:
+        values["PaymentTerm"] = f"{info['PaymentTermDays']} days"
     values["MarginMode"] = values["MarginMode"] or ("USDPerLb" if values["MarginUSDPerLb"] is not None else "Percent")
     return values

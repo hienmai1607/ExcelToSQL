@@ -5,6 +5,13 @@ import {allowedContainerTypes} from '../src/container-loading';
 import {warehouseTotal} from '../src/warehouse-cost-model';
 const heading='Shipment, Logistics, Co-Man & Others info';
 const rv='AAAAAAAAAAE=';
+async function setDuty(page:Page,item:Locator,pct:string){
+ await item.getByRole('button',{name:'Calculate duty',exact:true}).click();
+ const popup=page.getByRole('dialog',{name:'Duty calculator',exact:true});
+ if(!await popup.getByLabel('Tax type line 1').count())await popup.getByRole('button',{name:'Add tax line',exact:true}).click();
+ await popup.getByLabel('Tax type line 1').fill('Import duty');await popup.getByLabel('Percentage line 1').fill(pct);
+ await popup.getByRole('button',{name:'Apply duty',exact:true}).click();await expect(popup).toHaveCount(0);
+}
 async function setWarehouse(page:Page,item:Locator,amount:string){
  await item.getByRole('button',{name:'Calculate warehouse cost',exact:true}).click();
  const popup=page.getByRole('dialog',{name:'Warehouse cost calculator',exact:true});
@@ -44,8 +51,16 @@ test('all Incoterms retain every cost field and Fobbing precedes Freight',async(
  expect(await logistics.locator('.shipment-cost-field .field-label').allTextContents()).toEqual(expect.arrayContaining(['Fobbing (USD/cont)','Freight (USD/cont)']));
  const fobbing=await item.getByLabel('Fobbing (USD/cont)',{exact:true}).boundingBox(),freight=await item.getByLabel('Freight (USD/cont)',{exact:true}).boundingBox();
  expect(fobbing!.x).toBeLessThan(freight!.x);
- await item.getByLabel('Duty %',{exact:true}).fill('3');await item.getByLabel('Incoterm',{exact:true}).selectOption('FCA');
- await expect(item.getByLabel('Duty %',{exact:true})).toHaveValue('3');
+ // Duty % is display-only and maintained through its tax-line calculator.
+ await expect(item.getByLabel('Duty %',{exact:true})).toHaveAttribute('readonly','');
+ await item.getByRole('button',{name:'Calculate duty',exact:true}).click();const duty=page.getByRole('dialog',{name:'Duty calculator',exact:true});
+ await duty.getByRole('button',{name:'Add tax line',exact:true}).click();await duty.getByLabel('Tax type line 1').fill('Import duty');await duty.getByLabel('Percentage line 1').fill('2.5');
+ await duty.getByRole('button',{name:'Add tax line',exact:true}).click();await duty.getByLabel('Tax type line 2').fill('GST');await duty.getByLabel('Percentage line 2').fill('0.5');
+ await expect(duty.getByRole('status')).toHaveText('Duty: 3.00%');
+ await duty.getByLabel('Percentage line 2').fill('99');await expect(duty.getByRole('button',{name:'Apply duty',exact:true})).toBeDisabled();await duty.getByLabel('Percentage line 2').fill('0.5');
+ await duty.getByRole('button',{name:'Apply duty',exact:true}).click();await expect(duty).toHaveCount(0);
+ await item.getByLabel('Incoterm',{exact:true}).selectOption('FCA');
+ await expect(item.getByLabel('Duty %',{exact:true})).toHaveValue('3.00');
 });
 
 test('warehouse calculator applies exact total, reopens inputs and saves customer-currency breakdown',async({page},info)=>{
@@ -84,17 +99,18 @@ test('processing Mix child reopens its own Others Info and saves without protect
  await form.getByRole('button',{name:'Show mix children for Item 1',exact:true}).click();
  const entry=form.getByRole('region',{name:'Item 1.1',exact:true});
  await entry.getByText('Others Info',{exact:true}).click();
- const packing=entry.getByLabel('Packing cost (USD/lbs)',{exact:true});
+ // Packing is entered in TCB, not Opportunity (docs/tcb-packing-final-box-totals.md); the legacy value is kept.
+ await expect(entry.getByLabel('Packing cost (USD/lbs)',{exact:true})).toHaveCount(0);
  await expect(entry.getByLabel('Product',{exact:true})).toBeDisabled();
- await expect(packing).toBeEditable();await expect(packing).toHaveValue('2');
  await expect(entry.getByLabel('Initial Design currency',{exact:true})).toHaveValue('Customer');
- await expect(entry.getByLabel('Initial Design',{exact:true})).toHaveValue('300');
- await packing.fill('3');await packing.blur();
+ const design=entry.getByLabel('Initial Design',{exact:true});
+ await expect(design).toBeEditable();await expect(design).toHaveValue('300');
+ await design.fill('400');await design.blur();
  await form.getByRole('button',{name:'Review & save',exact:true}).click();
  await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  expect(writes[0].item_rows).toHaveLength(1);
  const saved=writes[0].item_rows[0];
- expect(saved).toMatchObject({Command:'U',ID:11,ShipmentCostInfo:{PackingUSDPerLb:'3.00',InitialDesignCustomer:'300',InterestDays:30}});
+ expect(saved).toMatchObject({Command:'U',ID:11,ShipmentCostInfo:{PackingUSDPerLb:'2',InitialDesignCustomer:'400.00',InterestDays:30}});
  for(const key of ['ProductID','AnnualUnit','ContainerRequest','ConfigurationRequest','WebPackagingRequirements'])expect(saved).not.toHaveProperty(key);
  expect(saved.ShipmentCostInfo).not.toHaveProperty('FreightUSDPerContainer');
 });
@@ -161,15 +177,15 @@ test('shipment costs use explicit currency bases, grouped under one collapse, fi
  await item.getByLabel('Incoterm',{exact:true}).selectOption('DDP');
  await item.getByLabel('Port of Entry',{exact:true}).selectOption('11');
  await expect(item.getByLabel('Container',{exact:true})).toHaveCount(0);
- for(const field of costSections.flatMap(s=>s.fields).filter(f=>f.key!=='MarginUSDPerLb')){
-  const input=item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true});if(field.key==='WHCostCustomerPerPallet')await setWarehouse(page,item,'12.5');else await input.fill(field.kind==='days'?'3':'12.5');await input.blur();
-  await expect(input).toHaveValue(field.kind==='days'?'3':'12.50');
+ for(const field of costSections.flatMap(s=>s.fields).filter(f=>f.key!=='MarginUSDPerLb'&&f.key!=='PackingUSDPerLb')){
+  const input=item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true});if(field.key==='WHCostCustomerPerPallet')await setWarehouse(page,item,'12.5');else if(field.key==='DutyPct')await setDuty(page,item,'12.5');else await input.fill(field.kind==='days'?'3':field.kind==='text'?'Net 30':'12.5');await input.blur();
+  await expect(input).toHaveValue(field.kind==='days'?'3':field.kind==='text'?'Net 30':'12.50');
   await expect(input.locator('..').locator('.info-tip')).toHaveCount(0);
  }
  await page.screenshot({path:info.outputPath('shipment-costs.png')});
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  const row=writes[0].item_rows[0];expect(row).toMatchObject({ContainerRequest:'40RHC',ConfigurationRequest:'Floor load',ShipmentCostInfo:{Incoterm:'DDP',PortOfEntryID:11,ContainerSizeFT:'40FT',InterestDays:3}});
- for(const field of costSections.flatMap(s=>s.fields).filter(f=>f.key!=='MarginUSDPerLb'))expect(row.ShipmentCostInfo[field.key]).toBe(field.kind==='days'?3:'12.50');
+ for(const field of costSections.flatMap(s=>s.fields).filter(f=>f.key!=='MarginUSDPerLb'&&f.key!=='PackingUSDPerLb'))expect(row.ShipmentCostInfo[field.key]).toBe(field.kind==='days'?3:field.kind==='text'?'Net 30':'12.50');
 });
 test('Mix parent owns shared costs and each child saves independent Others Info',async({page},info)=>{
  const writes=await setup(page),{form,item}=await create(page,'20');
@@ -183,10 +199,9 @@ test('Mix parent owns shared costs and each child saves independent Others Info'
   await child.getByText('Others Info',{exact:true}).click();
   await expect(child.getByLabel('Container Type',{exact:true})).toHaveCount(0);
   await expect(child.getByLabel('Fobbing (USD/cont)',{exact:true})).toHaveCount(0);
-  await expect(child.getByLabel('Payment term (days)',{exact:true})).toHaveCount(0);
-  await expect(child.getByLabel('Packing cost (USD/lbs)',{exact:true})).toBeEditable();
-  await child.getByLabel('Packing cost (USD/lbs)',{exact:true}).fill(number==='1.1'?'2':'3');
-  await child.getByLabel('Packing cost (USD/lbs)',{exact:true}).blur();
+  await expect(child.getByLabel('Payment term',{exact:true})).toHaveCount(0);
+  // Packing is entered in TCB, not Opportunity (docs/tcb-packing-final-box-totals.md); the legacy value is kept.
+  await expect(child.getByLabel('Packing cost (USD/lbs)',{exact:true})).toHaveCount(0);
   const basis=child.getByLabel('Margin basis',{exact:true});
   await basis.selectOption('USDPerLb');
   const amount=child.getByLabel('Margin (USD/lbs)',{exact:true});
@@ -197,13 +212,13 @@ test('Mix parent owns shared costs and each child saves independent Others Info'
  }
  for(const label of ['Packing cost (USD/lbs)','Initial Design','Other fixed costs (USD)','Interest %','Interest days','Margin basis'])await expect(item.getByLabel(label,{exact:true})).toHaveCount(0);
  await expect(item.getByLabel('Fobbing (USD/cont)',{exact:true})).toBeEditable();
- await expect(item.getByLabel('Payment term (days)',{exact:true})).toBeEditable();
+ await expect(item.getByLabel('Payment term',{exact:true})).toBeEditable();
  await form.screenshot({path:info.outputPath('mix-child-others.png')});
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
  expect(writes[0].item_rows).toHaveLength(1);
  expect(writes[0].item_rows[0].ShipmentCostInfo.FreightUSDPerContainer).toBe('800.00');
  for(const [i,child] of writes[0].item_rows[0].MixChildren.entries()){
-  expect(child.ShipmentCostInfo).toMatchObject({PackingUSDPerLb:i===0?'2.00':'3.00',MarginMode:'USDPerLb',MarginUSDPerLb:'0.50'});
+  expect(child.ShipmentCostInfo).toMatchObject({MarginMode:'USDPerLb',MarginUSDPerLb:'0.50'});expect(child.ShipmentCostInfo.PackingUSDPerLb??null).toBeNull();
   for(const key of ['ContainerRequest','ConfigurationRequest'])expect(child).not.toHaveProperty(key);
   expect(child.ShipmentCostInfo).not.toHaveProperty('FreightUSDPerContainer');
  }
@@ -258,7 +273,7 @@ test('container families and sizes include existing 40RHC only; cost validation 
  const values=shipmentValues({FreightUSDPerContainer:'12345678901234567.89',InterestMonths:2});
  expect(shipmentPayload(values)?.FreightUSDPerContainer).toBe('12345678901234567.89');
  expect(shipmentError(values,undefined,customers[0],ports)).toBe('');
- for(const [key,value] of [['DutyPct','100.01'],['InterestDays','1.5'],['FreightUSDPerContainer','1.234'],['PortOfEntryID','12']])expect(shipmentError({...values,[key]:value},undefined,customers[0],ports)).not.toBe('');
+ for(const [key,value] of [['DutyPct','100.01'],['DutyPct','1.23456'],['InterestDays','1.5'],['FreightUSDPerContainer','1.234'],['PortOfEntryID','12']])expect(shipmentError({...values,[key]:value},undefined,customers[0],ports)).not.toBe('');
  expect(fixedCost('0012.5')).toBe('12.50');
 });
 
@@ -280,16 +295,20 @@ test('Margin is one inline control group and shipment heading matches packaging 
  expect(await group.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
 });
 
-test('Margin value is immediately right of basis, followed by Payment term days',async({page})=>{
+test('Margin value is immediately right of basis, followed by Payment term',async({page})=>{
  await setup(page);const {item}=await create(page);
- const basis=item.getByLabel('Margin basis',{exact:true}),days=item.getByLabel('Payment term (days)',{exact:true});
+ const basis=item.getByLabel('Margin basis',{exact:true}),days=item.getByLabel('Payment term',{exact:true});
  for(const [mode,label] of [['Percent','Margin %'],['USDPerLb','Margin (USD/lbs)']] as const){
   await basis.selectOption(mode);
   const amount=item.getByLabel(label,{exact:true});
   const boxes=await Promise.all([basis,amount,days].map(field=>field.boundingBox()));
-  expect(Math.max(...boxes.map(b=>b!.y))-Math.min(...boxes.map(b=>b!.y))).toBeLessThan(2);
+  // Basis and value share a row; Payment term follows in reading order (same row to the right,
+  // or the next grid row now that Packing is entered in TCB rather than here).
+  expect(Math.abs(boxes[0]!.y-boxes[1]!.y)).toBeLessThan(2);
   expect(boxes[1]!.x).toBeGreaterThanOrEqual(boxes[0]!.x+boxes[0]!.width);
-  expect(boxes[2]!.x).toBeGreaterThanOrEqual(boxes[1]!.x+boxes[1]!.width);
+  const sameRow=Math.abs(boxes[2]!.y-boxes[1]!.y)<2;
+  if(sameRow)expect(boxes[2]!.x).toBeGreaterThanOrEqual(boxes[1]!.x+boxes[1]!.width);
+  else expect(boxes[2]!.y).toBeGreaterThan(boxes[1]!.y+boxes[1]!.height-1);
   await amount.fill('5');
   await expect(item.getByRole('button',{name:'Clear '+label,exact:true})).toHaveCount(0);
   await amount.fill('');
@@ -320,7 +339,7 @@ test('revised cost controls, conditional sections, conversions and five-column a
  await item.getByLabel('Margin basis',{exact:true}).selectOption('USDPerLb');
  await expect(item.getByLabel('Margin %',{exact:true})).toHaveCount(0);
  await item.getByLabel('Margin (USD/lbs)',{exact:true}).fill('0.5');
- await item.getByLabel('Payment term (days)',{exact:true}).fill('60');
+ await item.getByLabel('Payment term',{exact:true}).fill('Net 60 after B/L');
  await item.getByLabel('No of Primary Unit',{exact:true}).fill('12');
  await expect(item.getByRole('button',{name:'Clear No of Primary Unit',exact:true})).toHaveCount(0);
  await item.getByLabel('No of Primary Unit',{exact:true}).fill('');
@@ -334,7 +353,7 @@ test('revised cost controls, conditional sections, conversions and five-column a
  expect(await item.locator('.shipment-sections').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBeTruthy();
  await page.setViewportSize({width:1920,height:1080});
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(writes[0].item_rows[0].ShipmentCostInfo).toMatchObject({FloorLoadUSDPerMT:'100.00',InterestDays:30,InterestMonths:null,MarginMode:'USDPerLb',MarginUSDPerLb:'0.50',MarginPct:null,PaymentTermDays:60,PaymentTermPct:'2.00',ImportClearanceCustomerPerContainer:'150.00',ImportClearanceCustomerPerPallet:null,ImportClearanceUSDPerContainer:null});
+ expect(writes[0].item_rows[0].ShipmentCostInfo).toMatchObject({FloorLoadUSDPerMT:'100.00',InterestDays:30,InterestMonths:null,MarginMode:'USDPerLb',MarginUSDPerLb:'0.50',MarginPct:null,PaymentTerm:'Net 60 after B/L',PaymentTermDays:null,PaymentTermPct:'2.00',ImportClearanceCustomerPerContainer:'150.00',ImportClearanceCustomerPerPallet:null,ImportClearanceUSDPerContainer:null});
 });
 
 for(const admin of [true,false])test('Port master '+(admin?'admin maintenance':'read-only close and escape'),async({page})=>{
@@ -373,9 +392,10 @@ test('saved costs reopen and unavailable historical port is preserved',async({pa
  await expect(item.getByLabel('Freight (USD/cont)',{exact:true})).toHaveValue('1234.50');
  await expect(item.getByLabel('Port of Entry',{exact:true})).toHaveValue('99');
  await expect(item.getByText(/^Legacy:/)).toHaveCount(0);
- await item.getByLabel('Duty %',{exact:true}).fill('6');await item.getByLabel('Duty %',{exact:true}).blur();
+ // The saved Duty % opens as line 1; replace it with one tax line.
+ await setDuty(page,item,'6');
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
- expect(writes[0].item_rows[0].ShipmentCostInfo).toMatchObject({PortOfEntryID:99,FreightUSDPerContainer:'1234.50',DutyPct:'6.00',ImportClearanceCustomerPerPallet:'200.00'});
+ expect(writes[0].item_rows[0].ShipmentCostInfo).toMatchObject({PortOfEntryID:99,FreightUSDPerContainer:'1234.50',DutyPct:'6.00',DutyBreakdown:[{TaxType:'Import duty',Pct:'6'}],ImportClearanceCustomerPerPallet:'200.00'});
 });
 
 for(const mix of [false,true])test('processing '+(mix?'Mix parent':'regular item')+' keeps only shipment requirements locked and saves all other shipment fields',async({page})=>{
@@ -393,10 +413,11 @@ for(const mix of [false,true])test('processing '+(mix?'Mix parent':'regular item
  await item.getByLabel('Incoterm',{exact:true}).selectOption('DDP');
  await item.getByLabel('Port of Entry',{exact:true}).selectOption('11');
  await expect(item.getByLabel('Container',{exact:true})).toHaveCount(0);
- for(const field of costSections.flatMap(section=>section.fields).filter(f=>f.key!=='MarginUSDPerLb'&&(!mix||!childOtherKeys.has(f.key)))){
+ for(const field of costSections.flatMap(section=>section.fields).filter(f=>f.key!=='MarginUSDPerLb'&&f.key!=='PackingUSDPerLb'&&(!mix||!childOtherKeys.has(f.key)))){
   if(field.key==='WHCostCustomerPerPallet'){await expect(item.getByLabel('WH Cost (AUD/pallet)',{exact:true})).not.toBeEditable();await setWarehouse(page,item,'12.5');continue;}
+  if(field.key==='DutyPct'){await expect(item.getByLabel('Duty %',{exact:true})).not.toBeEditable();await setDuty(page,item,'12.5');continue;}
   await expect(item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true})).toBeEditable();
-  await item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true}).fill(field.kind==='days'?'3':'12.5');
+  await item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true}).fill(field.kind==='days'?'3':field.kind==='text'?'Net 30':'12.5');
   await item.getByLabel(field.key==='ImportClearanceCustomerPerContainer'?'Import clearance (AUD/cont)':field.key==='PortToWHCustomerPerContainer'?'Port - WH (AUD/cont)':field.key==='WHCostCustomerPerPallet'?'WH Cost (AUD/pallet)':field.key==='InitialDesignUSD'?'Initial Design':field.label,{exact:true}).blur();
  }
  if(mix){
@@ -404,7 +425,8 @@ for(const mix of [false,true])test('processing '+(mix?'Mix parent':'regular item
   const entry=form.getByRole('region',{name:'Item 1.1',exact:true});
   await expect(entry.getByText(heading,{exact:true})).toHaveCount(0);
   await entry.getByText('Others Info',{exact:true}).click();
-  await expect(entry.getByLabel('Packing cost (USD/lbs)',{exact:true})).toBeEditable();
+  await expect(entry.getByLabel('Packing cost (USD/lbs)',{exact:true})).toHaveCount(0);
+  await expect(entry.getByLabel('Initial Design',{exact:true})).toBeEditable();
  }
  await expect(form.getByRole('button',{name:'Review & save'})).toBeEnabled();
  await form.getByRole('button',{name:'Review & save'}).click();await page.getByRole('button',{name:'Confirm save',exact:true}).click();
@@ -412,4 +434,10 @@ for(const mix of [false,true])test('processing '+(mix?'Mix parent':'regular item
  const saved=writes[0].item_rows[0];
  expect(Object.keys(saved).sort()).toEqual(['RowNum','Command','ID','RowVersion','OpportunityNumber','ShipmentCostInfo'].sort());
  expect(saved.ShipmentCostInfo).toMatchObject({Incoterm:'DDP',PortOfEntryID:11,ContainerSizeFT:'20FT',FreightUSDPerContainer:'12.50',...(mix?{}:{InterestDays:3})});
+});
+test('legacy Duty % opens as one editable Duty line and sums exactly',async()=>{
+ const {dutyLines,dutyTotal}=await import('../src/duty-model');
+ expect(dutyLines('','4.5')).toEqual([{TaxType:'Duty',Pct:'4.5'}]);expect(dutyLines('','')).toEqual([]);
+ expect(dutyTotal([{TaxType:'A',Pct:'0.1'},{TaxType:'B',Pct:'0.2'}])).toBe('0.30');expect(dutyTotal([{TaxType:'A',Pct:'1.2345'},{TaxType:'B',Pct:'0.0001'}])).toBe('1.2346');expect(dutyTotal([{TaxType:'A',Pct:'1.23456'}])).toBeNull();
+ expect(dutyTotal([{TaxType:'A',Pct:'60'},{TaxType:'B',Pct:'40.01'}])).toBeNull();expect(dutyTotal([{TaxType:' ',Pct:'1'}])).toBeNull();
 });
