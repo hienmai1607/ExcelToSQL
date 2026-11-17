@@ -31,8 +31,12 @@ No SQL migration is required for this page. The Mix item deletion fix has its ow
 
 ## Still failing (known)
 
-- `opportunity-losses.spec.ts` (17 tests): TCB Review has changed substantially. It shows two-decimal values, Recipe Info columns come from Recipe Components, and labels have been renamed. The spec needs a rewrite against the current screen.
-- `container-load.spec.ts` "quantity and weight columns leave room…": an 11px alignment difference between layer cards and their calculators.
+A full run (`npx.cmd playwright test`, about 41 minutes with one worker) gives **788 passed, 112 failed, 35 skipped**. Every failure in the specs below also fails on the previous commit (86b816a), checked with a `git stash` baseline. These tests have been out of date for a while; the import fix above is what first let them run in a single pass.
+
+- `opportunity-losses` (17), `tcb` (17), `packaging-summary` (18), `packing-way` (11), `pallet-master` (8), `tcb-versions` (6), `opportunity-pcr-link` (6), `item-layout-refresh` (4), `process-flow` (4), `requirement-sections` (4), `response-defaults` (3), `grade-process-loss` (2), `request-design` (2)
+- One each: `actions-first`, `container-load`, `datetime`, `masters`, `packaging-copy-reference`, `product-shelf-life`, `profile`, `request-editor`, `shared-master-view`, `workbench`
+
+Suggested next step: rewrite these specs file by file against the current screens, as was done above.
 
 ## Deployment
 
